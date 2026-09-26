@@ -1,20 +1,41 @@
 """Experiments API endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+import logging
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DBSession
+from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate, ExperimentRead, ExperimentUpdate
 from app.schemas.common import PaginatedResponse
 from app.services.experiment_service import ExperimentService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/experiments", tags=["experiments"])
+
+async def background_runner(experiment_id: str):
+    """Background task to run experiment safely with its own DB session."""
+    async with AsyncSessionLocal() as session:
+        try:
+            svc = ExperimentService(session)
+            await svc.run_experiment_background(experiment_id)
+        except Exception as e:
+            logger.error(f"Background task failed for exp {experiment_id}: {e}")
 
 
 @router.post("/", response_model=ExperimentRead, status_code=status.HTTP_201_CREATED)
-async def create_experiment(data: ExperimentCreate, db: DBSession) -> ExperimentRead:
+async def create_experiment(
+    data: ExperimentCreate, 
+    db: DBSession,
+    background_tasks: BackgroundTasks
+) -> ExperimentRead:
     svc = ExperimentService(db)
     exp = await svc.create(data)
+    
+    # Queue the actual ML execution in the background
+    background_tasks.add_task(background_runner, exp.id)
+    
     return ExperimentRead.model_validate(exp)
 
 
