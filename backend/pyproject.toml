@@ -1,0 +1,18 @@
+[project]
+name = "mlpilot-backend"
+version = "0.1.0"
+description = "MLPilot agentic ML experimentation platform — backend"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.mypy]
+python_version = "3.13"
+strict = false
+ignore_missing_imports = true
