@@ -7,12 +7,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DBSession
 from app.db.session import AsyncSessionLocal
-from app.schemas.experiment import ExperimentCreate, ExperimentRead, ExperimentUpdate
+from app.schemas.experiment import ExperimentCreate, ExperimentRead, ExperimentUpdate, ExperimentSuggestRequest, ExperimentSuggestResponse
 from app.schemas.common import PaginatedResponse
 from app.services.experiment_service import ExperimentService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/experiments", tags=["experiments"])
+
+@router.post("/suggest", response_model=ExperimentSuggestResponse)
+async def suggest_experiments(data: ExperimentSuggestRequest, db: DBSession) -> ExperimentSuggestResponse:
+    """Ask the AI Agent to propose new experiments/features based on the dataset."""
+    svc = ExperimentService(db)
+    try:
+        hypotheses = await svc.suggest_experiments(
+            dataset_version=data.dataset_version,
+            target_column=data.target_column,
+            objective=data.objective,
+            max_hypotheses=data.max_hypotheses
+        )
+        return ExperimentSuggestResponse(
+            dataset_version=data.dataset_version,
+            objective=data.objective,
+            hypotheses=hypotheses
+        )
+    except Exception as e:
+        logger.error(f"Suggest API failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def background_runner(experiment_id: str):
     """Background task to run experiment safely with its own DB session."""
