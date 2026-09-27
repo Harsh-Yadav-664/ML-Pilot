@@ -1,13 +1,15 @@
-"""Native sklearn-based DataPreparationProvider.
-
-Phase 1 placeholder — methods raise NotImplementedError with TODO comments.
-Full implementation will use sklearn Pipeline + ColumnTransformer.
-"""
+"""Native sklearn-based DataPreparationProvider."""
 from __future__ import annotations
 
+import os
+import joblib
 from typing import Any
 
 import pandas as pd
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 from ml.core.interfaces import (
     DataPreparationProvider,
@@ -20,11 +22,7 @@ from ml.validation.leakage import LeakageDetector
 
 
 class NativeDataPreparationProvider(DataPreparationProvider):
-    """Native sklearn-based data preparation provider.
-
-    profile() and assess_readiness() are functional.
-    prepare() and export_pipeline() are Phase 1 stubs.
-    """
+    """Native sklearn-based data preparation provider."""
 
     def __init__(self) -> None:
         self._profiler = DataProfiler()
@@ -87,24 +85,74 @@ class NativeDataPreparationProvider(DataPreparationProvider):
         warnings.extend(self._leakage_detector.detect_target_leakage(df, target_column))
         warnings.extend(self._leakage_detector.detect_timestamp_leakage(df, target_column))
         warnings.extend(self._leakage_detector.detect_entity_leakage(df, target_column))
+        warnings.extend(self._leakage_detector.detect_preprocessing_leakage(df, target_column))
         return warnings
 
-    def prepare(self, df: pd.DataFrame, config: dict[str, Any]) -> tuple[Any, Any]:
-        """Transform df according to config.
-
-        TODO (Phase 1): Implement sklearn Pipeline + ColumnTransformer.
-        Will handle: imputation, encoding, scaling, feature selection.
+    def prepare(self, df: pd.DataFrame, config: dict[str, Any]) -> tuple[pd.DataFrame, Any]:
+        """Transform df according to config using sklearn Pipeline.
+        
+        Args:
+            df: DataFrame to prepare.
+            config: Prep config containing 'target_column', 'numeric_imputer', etc.
+            
+        Returns:
+            Tuple of (transformed_df, fitted_sklearn_pipeline)
         """
-        raise NotImplementedError(
-            "NativeDataPreparationProvider.prepare() is a Phase 1 feature. "
-            "Use a DataCleanAdapter or implement the full pipeline in Phase 1."
-        )
+        target_column = config.get("target_column")
+        if not target_column or target_column not in df.columns:
+            raise ValueError(f"Target column '{target_column}' missing for preparation.")
+
+        y = df[target_column]
+        X = df.drop(columns=[target_column])
+
+        # Find columns
+        numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
+        categorical_features = X.select_dtypes(include=['object', 'category']).columns
+
+        # Build pipeline
+        num_imputer_strategy = config.get("numeric_imputer", "median")
+        cat_imputer_strategy = config.get("categorical_imputer", "constant")
+        
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy=num_imputer_strategy)),
+                    ('scaler', StandardScaler())
+                ]), numeric_features),
+                ('cat', Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy=cat_imputer_strategy, fill_value='missing')),
+                    ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ]), categorical_features)
+            ])
+
+        transformed_X = preprocessor.fit_transform(X)
+        
+        # Reconstruct DataFrame (for downstream previewing/debugging)
+        num_cols = list(numeric_features)
+        
+        # Safely handle one-hot encoder feature names
+        cat_cols = []
+        if len(categorical_features) > 0:
+            try:
+                # get_feature_names_out might fail if the OneHotEncoder has issues, fallback safely
+                cat_cols = list(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_features))
+            except Exception:
+                cat_cols = [f"cat_{i}" for i in range(transformed_X.shape[1] - len(num_cols))]
+
+        all_cols = num_cols + cat_cols
+        
+        if transformed_X.shape[1] == len(all_cols):
+            transformed_df = pd.DataFrame(transformed_X, columns=all_cols, index=df.index)
+        else:
+            # Fallback if dimension mismatch
+            transformed_df = pd.DataFrame(transformed_X, index=df.index)
+            
+        transformed_df[target_column] = y
+        
+        return transformed_df, preprocessor
 
     def export_pipeline(self, pipeline: Any, path: str) -> str:
-        """Serialize pipeline to path.
-
-        TODO (Phase 1): Use joblib.dump() to serialize the sklearn Pipeline.
-        """
-        raise NotImplementedError(
-            "NativeDataPreparationProvider.export_pipeline() is a Phase 1 feature."
-        )
+        """Serialize pipeline to path using joblib."""
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        joblib.dump(pipeline, path)
+        return path
