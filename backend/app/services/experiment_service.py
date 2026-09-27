@@ -114,3 +114,39 @@ class ExperimentService:
         
         finally:
             await self.db.commit()
+
+    async def suggest_experiments(self, dataset_version: str, target_column: str, objective: str, max_hypotheses: int = 3) -> list[dict]:
+        """Use the AI Gateway to generate feature hypotheses based on data."""
+        from ai.gateway import AIGateway
+        from app.core.config import settings
+        from ml.experiments.planner import ExperimentPlanner
+        from ml.data.profiling.profiler import DataProfiler
+
+        # In MVP, assume dataset_version is a valid local file path
+        loader = CsvLoader()
+        try:
+            df = loader.load(dataset_version)
+        except Exception as e:
+            logger.error(f"Failed to load dataset {dataset_version} for suggestion: {e}")
+            raise ValueError(f"Could not load dataset {dataset_version}")
+
+        # Profile the dataset deterministically
+        profiler = DataProfiler()
+        profile = profiler.profile(df, target_column=target_column)
+
+        # Generate hypotheses via AI
+        gateway = AIGateway(settings)
+        planner = ExperimentPlanner(gateway)
+        
+        try:
+            hypotheses = await planner.generate_hypotheses(
+                profile=profile,
+                target_column=target_column,
+                objective=objective,
+                max_hypotheses=max_hypotheses
+            )
+            return hypotheses
+        except Exception as e:
+            logger.error(f"AI Planner failed: {e}")
+            raise RuntimeError(f"Failed to generate hypotheses: {e}")
+
