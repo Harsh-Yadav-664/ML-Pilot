@@ -13,7 +13,12 @@ import { DataMetrics, LeakageWarning } from '../types';
 
 const nf = new Intl.NumberFormat('en-US');
 
-export const DataReadinessDashboard = () => {
+interface DataReadinessDashboardProps {
+  datasetPath: string;
+  targetColumn: string;
+}
+
+export const DataReadinessDashboard = ({ datasetPath, targetColumn }: DataReadinessDashboardProps) => {
   const [metrics, setMetrics] = useState<DataMetrics | null>(null);
   const [warnings, setWarnings] = useState<LeakageWarning[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,12 +26,15 @@ export const DataReadinessDashboard = () => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [m, w] = await Promise.all([getDataMetrics(), getLeakageWarnings()]);
+      const [m, w] = await Promise.all([
+        getDataMetrics(datasetPath, targetColumn), 
+        getLeakageWarnings(datasetPath, targetColumn)
+      ]);
       setMetrics(m);
       setWarnings(w);
       setLoading(false);
     })();
-  }, []);
+  }, [datasetPath, targetColumn]);
 
   const highCount = warnings.filter((w) => w.severity === 'high').length;
 

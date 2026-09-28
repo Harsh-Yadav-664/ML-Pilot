@@ -13,8 +13,13 @@ import {
 import { DataReadinessDashboard } from './components/DataReadinessDashboard';
 import { AIAgentPanel } from './components/AIAgentPanel';
 import { ExperimentGraph } from './components/ExperimentGraph';
+import { DatasetUploader } from './components/DatasetUploader';
 
 export default function App() {
+  const [datasetPath, setDatasetPath] = useState<string | null>(null);
+  const [targetColumn, setTargetColumn] = useState<string | null>(null);
+  const [showUploader, setShowUploader] = useState(true); // show by default on load
+
   const [graphKey, setGraphKey] = useState(0);
   const handleExperimentStart = useCallback(() => setGraphKey((k) => k + 1), []);
 
@@ -27,6 +32,19 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+      {showUploader && (
+        <DatasetUploader 
+          onSuccess={(path, target) => {
+            setDatasetPath(path);
+            setTargetColumn(target);
+            setShowUploader(false);
+          }}
+          onCancel={() => {
+            if (datasetPath && targetColumn) setShowUploader(false);
+          }}
+        />
+      )}
+
       {/* Icon rail */}
       <aside className="flex w-14 flex-col items-center border-r border-zinc-800/80 py-4">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-zinc-950 shadow-lg shadow-emerald-500/10">
@@ -62,12 +80,15 @@ export default function App() {
           <div className="flex items-center gap-2 text-sm">
             <span className="font-semibold tracking-tight text-zinc-100">MLPilot</span>
             <span className="text-zinc-700">/</span>
-            <button className="flex items-center gap-1.5 rounded-md px-2 py-1 text-zinc-300 hover:bg-zinc-800">
-              churn-prediction
+            <button 
+              onClick={() => setShowUploader(true)}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-zinc-300 hover:bg-zinc-800"
+            >
+              {targetColumn ? `Target: ${targetColumn}` : 'Select dataset...'}
               <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
             </button>
             <span className="ml-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300 ring-1 ring-inset ring-emerald-500/20">
-              churn_v3
+              v1.0
             </span>
           </div>
 
@@ -81,7 +102,7 @@ export default function App() {
             </button>
             <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              6 runs · 1 active
+              active
             </div>
           </div>
         </header>
@@ -99,7 +120,13 @@ export default function App() {
               </p>
             </div>
 
-            <DataReadinessDashboard />
+            {datasetPath && targetColumn ? (
+              <DataReadinessDashboard datasetPath={datasetPath} targetColumn={targetColumn} />
+            ) : (
+              <div className="rounded-xl border border-dashed border-zinc-800 p-12 text-center text-zinc-500">
+                Please upload a dataset to see metrics.
+              </div>
+            )}
 
             <div className="mb-4 mt-8 flex items-baseline justify-between">
               <div>
@@ -119,7 +146,17 @@ export default function App() {
 
           {/* Agent panel */}
           <aside className="hidden w-[380px] flex-shrink-0 border-l border-zinc-800/80 bg-zinc-900/20 xl:flex xl:flex-col">
-            <AIAgentPanel onExperimentStart={handleExperimentStart} />
+            {datasetPath && targetColumn ? (
+              <AIAgentPanel 
+                onExperimentStart={handleExperimentStart} 
+                datasetPath={datasetPath}
+                targetColumn={targetColumn}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center p-8 text-center text-sm text-zinc-500">
+                Upload a dataset to wake up the AI Data Scientist.
+              </div>
+            )}
           </aside>
         </div>
       </div>
