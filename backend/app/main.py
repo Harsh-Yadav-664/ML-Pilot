@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger
 from app.db.session import create_all_tables
-from app.api.v1 import projects, datasets, experiments, hypotheses, models, reports
+from app.api.v1 import projects, datasets, experiments, hypotheses, models, reports, ui
 
 setup_logging(settings.LOG_LEVEL)
 logger = get_logger(__name__)
@@ -34,16 +34,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── CORS ──────────────────────────────────────────────────────────────────────
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"], # Allow all for local UI development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────────────────────────────
+# Routers
 API_PREFIX = "/api/v1"
 app.include_router(projects.router, prefix=API_PREFIX)
 app.include_router(datasets.router, prefix=API_PREFIX)
@@ -51,9 +51,10 @@ app.include_router(experiments.router, prefix=API_PREFIX)
 app.include_router(hypotheses.router, prefix=API_PREFIX)
 app.include_router(models.router, prefix=API_PREFIX)
 app.include_router(reports.router, prefix=API_PREFIX)
+app.include_router(ui.router, prefix=API_PREFIX)
 
 
-# ── Health ────────────────────────────────────────────────────────────────────
+# Health
 @app.get("/health", tags=["health"])
 async def health() -> JSONResponse:
     return JSONResponse({"status": "ok", "version": settings.APP_VERSION})
