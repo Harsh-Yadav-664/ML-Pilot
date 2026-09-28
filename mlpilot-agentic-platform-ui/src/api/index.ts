@@ -34,27 +34,27 @@ async function withFallback<T>(request: () => Promise<T>, fallback: T): Promise<
 }
 
 // Data Readiness
-export const getDataMetrics = () =>
-  withFallback(() => api.get<DataMetrics>('/ui/data/metrics').then((r) => r.data), mockMetrics);
+export const getDataMetrics = (datasetPath: string, targetColumn: string) =>
+  withFallback(() => api.get<DataMetrics>(`/ui/data/metrics?dataset_path=${encodeURIComponent(datasetPath)}&target_column=${encodeURIComponent(targetColumn)}`).then((r) => r.data), mockMetrics);
 
-export const getLeakageWarnings = () =>
+export const getLeakageWarnings = (datasetPath: string, targetColumn: string) =>
   withFallback(
-    () => api.get<LeakageWarning[]>('/ui/data/leakage-warnings').then((r) => r.data),
+    () => api.get<LeakageWarning[]>(`/ui/data/leakage-warnings?dataset_path=${encodeURIComponent(datasetPath)}&target_column=${encodeURIComponent(targetColumn)}`).then((r) => r.data),
     mockWarnings
   );
 
 // AI Agent
-export const getFeatureSuggestions = () =>
+export const getFeatureSuggestions = (datasetPath: string, targetColumn: string) =>
   withFallback(
-    () => api.get<FeatureSuggestion[]>('/ui/agent/suggestions').then((r) => r.data),
+    () => api.get<FeatureSuggestion[]>(`/ui/agent/suggestions?dataset_path=${encodeURIComponent(datasetPath)}&target_column=${encodeURIComponent(targetColumn)}`).then((r) => r.data),
     mockSuggestions
   );
 
-export const runExperiment = (suggestion: FeatureSuggestion) =>
+export const runExperiment = (suggestion: FeatureSuggestion, datasetPath: string) =>
   withFallback(
     () =>
       api
-        .post<Experiment>('/ui/experiments/run', { feature_suggestion: suggestion })
+        .post<Experiment>('/ui/experiments/run', { feature_suggestion: suggestion, dataset_path: datasetPath })
         .then((r) => r.data),
     {
       id: `exp_${Math.floor(Math.random() * 900 + 100)}`,

@@ -3,7 +3,13 @@ import { Sparkles, TriangleAlert, Play, Loader2, CornerDownLeft } from 'lucide-r
 import { getFeatureSuggestions, runExperiment } from '../api';
 import { FeatureSuggestion } from '../types';
 
-export const AIAgentPanel = ({ onExperimentStart }: { onExperimentStart?: () => void }) => {
+interface AIAgentPanelProps {
+  onExperimentStart?: () => void;
+  datasetPath: string;
+  targetColumn: string;
+}
+
+export const AIAgentPanel = ({ onExperimentStart, datasetPath, targetColumn }: AIAgentPanelProps) => {
   const [suggestions, setSuggestions] = useState<FeatureSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
@@ -12,14 +18,14 @@ export const AIAgentPanel = ({ onExperimentStart }: { onExperimentStart?: () => 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      setSuggestions(await getFeatureSuggestions());
+      setSuggestions(await getFeatureSuggestions(datasetPath, targetColumn));
       setLoading(false);
     })();
-  }, []);
+  }, [datasetPath, targetColumn]);
 
   const handleRun = async (s: FeatureSuggestion) => {
     setRunning(s.name);
-    await runExperiment(s);
+    await runExperiment(s, datasetPath);
     setRunning(null);
     setLaunched((prev) => new Set(prev).add(s.name));
     onExperimentStart?.();
