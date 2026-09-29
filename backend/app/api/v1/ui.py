@@ -66,7 +66,7 @@ async def get_data_metrics(
         return {
             "total_rows": profile.rows,
             "total_columns": profile.columns,
-            "missing_data_percent": round(profile.missing_rate * 100, 2),
+            "missing_data_percent": float(profile.missing_rate),
             "duplicate_rows": profile.duplicate_rows
         }
     except Exception as e:
