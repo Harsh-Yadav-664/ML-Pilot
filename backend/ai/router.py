@@ -20,33 +20,49 @@ class TaskType(str, Enum):
 # Earlier entries are preferred. Gateway falls back through this list.
 TASK_ROUTING_TABLE: dict[TaskType, list[tuple[str, str]]] = {
     TaskType.FORMAT: [
+        ("groq", "qwen/qwen3.8-27b"),
         ("gemini", "gemini-flash-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
     TaskType.SUMMARIZE: [
+        ("groq", "qwen/qwen3.8-27b"),
         ("gemini", "gemini-flash-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
     TaskType.HYPOTHESIZE: [
+        ("groq", "openai/gpt-oss-120b"),
         ("gemini", "gemini-pro-latest"),
         ("gemini", "gemini-flash-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
     TaskType.ANALYZE: [
+        ("groq", "openai/gpt-oss-120b"),
         ("gemini", "gemini-pro-latest"),
         ("gemini", "gemini-flash-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
     TaskType.SYNTHESIZE: [
+        ("groq", "openai/gpt-oss-120b"),
         ("gemini", "gemini-pro-latest"),
+        ("gemini", "gemini-flash-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
     TaskType.REPORT: [
+        ("groq", "qwen/qwen3.8-27b"),
         ("gemini", "gemini-flash-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
     TaskType.DECIDE: [
+        ("groq", "openai/gpt-oss-120b"),
         ("gemini", "gemini-pro-latest"),
+        ("gemini", "gemini-flash-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
 }
