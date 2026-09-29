@@ -85,7 +85,25 @@ class StubProvider(AIProvider):
             elif prop_type == "boolean":
                 result[key] = False
             elif prop_type == "array":
-                result[key] = []
+                # Create one mock item if schema provides item definition
+                items_schema = prop.get("items", {})
+                item_type = items_schema.get("type", "string")
+                if item_type == "object":
+                    item_res = {}
+                    for ik, ip in items_schema.get("properties", {}).items():
+                        if ip.get("type") == "string":
+                            item_res[ik] = f"[STUB] Mock {ik} data"
+                        elif ip.get("type", "") in ("number", "integer"):
+                            item_res[ik] = 1
+                        elif ip.get("type") == "array":
+                            item_res[ik] = []
+                        else:
+                            item_res[ik] = None
+                    result[key] = [item_res]
+                elif item_type == "string":
+                    result[key] = ["[STUB] Item 1", "[STUB] Item 2"]
+                else:
+                    result[key] = []
             elif prop_type == "object":
                 result[key] = {}
             else:

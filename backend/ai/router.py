@@ -20,46 +20,33 @@ class TaskType(str, Enum):
 # Earlier entries are preferred. Gateway falls back through this list.
 TASK_ROUTING_TABLE: dict[TaskType, list[tuple[str, str]]] = {
     TaskType.FORMAT: [
-        ("groq", "llama-3.1-8b-instant"),
-        ("cerebras", "llama3.1-8b"),
-        ("openrouter", "meta-llama/llama-3.1-8b-instruct:free"),
+        ("gemini", "gemini-flash-latest"),
         ("stub", "stub-default"),
     ],
     TaskType.SUMMARIZE: [
-        ("groq", "llama-3.1-8b-instant"),
-        ("gemini", "gemini-1.5-flash"),
-        ("openrouter", "mistralai/mistral-7b-instruct:free"),
+        ("gemini", "gemini-flash-latest"),
         ("stub", "stub-default"),
     ],
     TaskType.HYPOTHESIZE: [
-        ("groq", "llama-3.3-70b-versatile"),
-        ("gemini", "gemini-1.5-pro"),
-        ("mistral", "mistral-large-latest"),
+        ("gemini", "gemini-pro-latest"),
+        ("gemini", "gemini-flash-latest"),
         ("stub", "stub-default"),
     ],
     TaskType.ANALYZE: [
-        ("groq", "llama-3.3-70b-versatile"),
-        ("gemini", "gemini-1.5-flash"),
-        ("nvidia_nim", "meta/llama-3.1-70b-instruct"),
+        ("gemini", "gemini-pro-latest"),
+        ("gemini", "gemini-flash-latest"),
         ("stub", "stub-default"),
     ],
     TaskType.SYNTHESIZE: [
-        ("groq", "llama-3.3-70b-versatile"),
-        ("gemini", "gemini-1.5-pro"),
-        ("mistral", "mistral-large-latest"),
+        ("gemini", "gemini-pro-latest"),
         ("stub", "stub-default"),
     ],
     TaskType.REPORT: [
-        ("groq", "mixtral-8x7b-32768"),
-        ("gemini", "gemini-1.5-flash"),
-        ("mistral", "mistral-small-latest"),
+        ("gemini", "gemini-flash-latest"),
         ("stub", "stub-default"),
     ],
     TaskType.DECIDE: [
-        ("groq", "llama-3.3-70b-versatile"),
-        ("gemini", "gemini-1.5-pro"),
-        ("mistral", "mistral-large-latest"),
-        ("nvidia_nim", "meta/llama-3.1-70b-instruct"),
+        ("gemini", "gemini-pro-latest"),
         ("stub", "stub-default"),
     ],
 }
