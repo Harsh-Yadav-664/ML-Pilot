@@ -148,7 +148,12 @@ export const DataReadinessDashboard = ({ datasetPath, targetColumn }: DataReadin
                     {w.severity}
                   </span>
                 </div>
-                <p className="mt-1 text-[13px] leading-relaxed text-zinc-400">{w.message}</p>
+                <p className="mt-1 text-[13px] leading-relaxed text-zinc-400">
+                  {w.message}
+                </p>
+                <div className="mt-2 rounded bg-black/20 p-2 text-[12px] text-zinc-500">
+                  <span className="font-semibold text-zinc-400">Why it matters:</span> Target leakage happens when the model learns to "cheat" using a column that wouldn't actually be available in the real world at prediction time, or using IDs that let it memorize individual rows instead of learning patterns. Dropping it prevents fake high accuracy.
+                </div>
               </div>
               <button className="flex flex-shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200">
                 Drop
