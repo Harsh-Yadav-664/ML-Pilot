@@ -27,11 +27,21 @@ const STATUS = {
 const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean } }) => {
   const { exp, isBaseline } = data;
   const s = STATUS[exp.status];
+  const ensF1 = exp.metrics?.ensemble_f1;
+  const ensAcc = exp.metrics?.ensemble_accuracy;
   const f1 = exp.metrics?.f1;
   const acc = exp.metrics?.accuracy;
+  
+  const displayF1 = ensF1 !== undefined ? ensF1 : f1;
+  const displayAcc = ensAcc !== undefined ? ensAcc : acc;
+
+  const titleStr = exp.metrics
+    ? `Single F1: ${f1?.toFixed(4)}\nSingle Acc: ${acc?.toFixed(4)}\nEnsemble F1: ${ensF1 !== undefined ? ensF1.toFixed(4) : 'N/A'}\nEnsemble Acc: ${ensAcc !== undefined ? ensAcc.toFixed(4) : 'N/A'}`
+    : '';
 
   return (
     <div
+      title={titleStr}
       className={`w-[228px] rounded-xl border border-zinc-800 bg-zinc-900/90 backdrop-blur ring-1 ring-inset ${s.ring} ${s.glow} transition-transform hover:-translate-y-0.5`}
     >
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !border-0 !bg-zinc-600" />
@@ -41,6 +51,11 @@ const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean
           {isBaseline && (
             <span className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-indigo-300">
               Baseline
+            </span>
+          )}
+          {ensF1 !== undefined && (
+            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+              ENS
             </span>
           )}
           <code className="font-mono text-[10px] text-zinc-500">{exp.id}</code>
@@ -60,13 +75,13 @@ const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean
         <div className="bg-zinc-900 px-2.5 py-2">
           <div className="text-[9px] uppercase tracking-wider text-zinc-600">F1</div>
           <div className="font-mono text-[15px] font-semibold text-zinc-50">
-            {f1 !== undefined ? f1.toFixed(3) : <span className="text-zinc-600">—</span>}
+            {displayF1 !== undefined ? displayF1.toFixed(3) : <span className="text-zinc-600">—</span>}
           </div>
         </div>
         <div className="bg-zinc-900 px-2.5 py-2">
           <div className="text-[9px] uppercase tracking-wider text-zinc-600">Accuracy</div>
           <div className="font-mono text-[15px] font-semibold text-zinc-50">
-            {acc !== undefined ? `${(acc * 100).toFixed(1)}%` : <span className="text-zinc-600">—</span>}
+            {displayAcc !== undefined ? `${(displayAcc * 100).toFixed(1)}%` : <span className="text-zinc-600">—</span>}
           </div>
         </div>
       </div>

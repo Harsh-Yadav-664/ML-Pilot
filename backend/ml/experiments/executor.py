@@ -108,16 +108,73 @@ class LocalExperimentExecutor(ExperimentRunner):
                     ]), categorical_features)
                 ])
 
-            # 3. Initialize Model
+            # 3. Initialize Model and Optuna Tuning
             model_cls = MODEL_REGISTRY.get(spec.model_name)
             if not model_cls:
                 raise ValueError(f"Unsupported model: {spec.model_name}. Supported: {list(MODEL_REGISTRY.keys())}")
             
-            model_params = spec.parameters.get("model_params", {})
+            model_params = spec.parameters.get("model_params", {}).copy()
+            best_params = model_params.copy()
+            
+            try:
+                import optuna
+                optuna.logging.set_verbosity(optuna.logging.WARNING)
+                has_optuna = True
+            except ImportError:
+                has_optuna = False
+
+            if has_optuna:
+                n_trials = spec.parameters.get('n_trials', 20)
+
+                def objective(trial):
+                    params = model_params.copy()
+                    if spec.model_name == 'XGBClassifier':
+                        params.update({
+                            'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                            'max_depth': trial.suggest_int('max_depth', 3, 8),
+                            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+                            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                        })
+                    elif spec.model_name == 'LGBMClassifier':
+                        params.update({
+                            'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                            'max_depth': trial.suggest_int('max_depth', 3, 8),
+                            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+                            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                        })
+                    else:
+                        pass
+                    
+                    if 'random_state' in model_cls().get_params():
+                        params['random_state'] = random_state
+                        
+                    clf_tune = model_cls(**params)
+                    pipe_tune = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', clf_tune)])
+                    pipe_tune.fit(X_train, y_train)
+                    y_pred_tune = pipe_tune.predict(X_test)
+                    metrics_tune = compute_classification_metrics(y_test, y_pred_tune, None)
+                    return metrics_tune.get('f1', 0.0)
+
+                def run_study():
+                    study = optuna.create_study(direction='maximize')
+                    study.optimize(objective, n_trials=n_trials)
+                    return study.best_params
+
+                try:
+                    best_tuned = await asyncio.to_thread(run_study)
+                    best_params.update(best_tuned)
+                    if 'best_params' not in spec.parameters:
+                        spec.parameters['best_params'] = {}
+                    spec.parameters['best_params'].update(best_tuned)
+                except Exception as e:
+                    pass
+
             if 'random_state' in model_cls().get_params():
-                model_params['random_state'] = random_state
+                best_params['random_state'] = random_state
                 
-            clf = model_cls(**model_params)
+            clf = model_cls(**best_params)
             pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', clf)])
 
             # 4. Train Model
@@ -131,6 +188,46 @@ class LocalExperimentExecutor(ExperimentRunner):
                 y_prob = await asyncio.to_thread(pipeline.predict_proba, X_test)
 
             metrics = compute_classification_metrics(y_test, y_pred, y_prob)
+
+            # Auto-Ensembling
+            if spec.parameters.get('ensemble', True):
+                try:
+                    xgb_params = best_params if spec.model_name == 'XGBClassifier' else {}
+                    lgb_params = best_params if spec.model_name == 'LGBMClassifier' else {}
+                    lr_params = best_params if spec.model_name == 'LogisticRegression' else {}
+                    
+                    if 'random_state' in XGBClassifier().get_params(): xgb_params['random_state'] = random_state
+                    if 'random_state' in LGBMClassifier().get_params(): lgb_params['random_state'] = random_state
+                    if 'random_state' in LogisticRegression().get_params(): lr_params['random_state'] = random_state
+
+                    def train_ensemble():
+                        m1 = XGBClassifier(**xgb_params)
+                        m2 = LGBMClassifier(**lgb_params)
+                        m3 = LogisticRegression(**lr_params)
+                        p1 = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', m1)])
+                        p2 = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', m2)])
+                        p3 = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', m3)])
+                        p1.fit(X_train, y_train)
+                        p2.fit(X_train, y_train)
+                        p3.fit(X_train, y_train)
+                        return p1, p2, p3
+
+                    p1, p2, p3 = await asyncio.to_thread(train_ensemble)
+
+                    def predict_ensemble():
+                        pred1 = p1.predict(X_test)
+                        pred2 = p2.predict(X_test)
+                        pred3 = p3.predict(X_test)
+                        stacked = pd.DataFrame({'p1': pred1, 'p2': pred2, 'p3': pred3})
+                        return stacked.mode(axis=1)[0].values
+
+                    y_pred_ens = await asyncio.to_thread(predict_ensemble)
+                    ensemble_metrics = compute_classification_metrics(y_test, y_pred_ens, None)
+                    for k, v in ensemble_metrics.items():
+                        metrics[f'ensemble_{k}'] = v
+                except Exception as e:
+                    pass
+
             runtime_seconds = time.time() - start_time
 
             result = ExperimentResult(
