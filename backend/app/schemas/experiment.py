@@ -10,7 +10,7 @@ from ml.experiments.schema import ExperimentStatus, ExperimentDecision
 
 
 class ExperimentCreate(BaseModel):
-    model_config = ConfigDict()
+    model_config = ConfigDict(from_attributes=True)
 
     project_id: str
     dataset_version: str
