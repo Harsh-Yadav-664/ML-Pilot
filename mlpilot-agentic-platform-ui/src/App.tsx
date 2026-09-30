@@ -21,7 +21,13 @@ export default function App() {
   const [showUploader, setShowUploader] = useState(true); // show by default on load
 
   const [graphKey, setGraphKey] = useState(0);
-  const handleExperimentStart = useCallback(() => setGraphKey((k) => k + 1), []);
+  const handleExperimentStart = useCallback(() => {
+    // Refresh the graph a few times as the background task completes
+    setGraphKey((k) => k + 1);
+    setTimeout(() => setGraphKey((k) => k + 1), 1000);
+    setTimeout(() => setGraphKey((k) => k + 1), 2500);
+    setTimeout(() => setGraphKey((k) => k + 1), 5000);
+  }, []);
 
   const rail = [
     { icon: LayoutGrid, active: true },

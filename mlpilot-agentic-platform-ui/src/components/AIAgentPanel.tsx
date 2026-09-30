@@ -38,7 +38,7 @@ export const AIAgentPanel = ({ onExperimentStart, datasetPath, targetColumn }: A
   const handleRun = async (s: FeatureSuggestion) => {
     setRunning(s.name);
     try {
-      await runExperiment(s, datasetPath);
+      await runExperiment(s, datasetPath, targetColumn);
       setLaunched((prev) => new Set(prev).add(s.name));
       onExperimentStart?.();
     } catch (e) {
@@ -72,14 +72,14 @@ export const AIAgentPanel = ({ onExperimentStart, datasetPath, targetColumn }: A
           </div>
           <div className="rounded-lg rounded-tl-sm border border-zinc-800/80 bg-zinc-900/40 px-3 py-2 text-[13px] leading-relaxed text-zinc-300">
             {error ? (
-              <span className="text-red-400">Oops, I ran into an issue: {error}</span>
+              <span className="text-red-400">Execution halted: {error}</span>
             ) : (
               <>
-                I analyzed the feature space and found{' '}
+                I have analyzed the feature space and isolated{' '}
                 <span className="font-medium text-zinc-100">
                   {loading ? '...' : suggestions.length}
                 </span>{' '}
-                candidates likely to lift F1. Review and dispatch any to the experiment queue.
+                high-probability candidates for F1 optimization. Review and dispatch to the execution queue.
               </>
             )}
           </div>

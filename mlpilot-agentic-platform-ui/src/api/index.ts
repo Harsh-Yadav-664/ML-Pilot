@@ -50,11 +50,15 @@ export const getFeatureSuggestions = (datasetPath: string, targetColumn: string)
     mockSuggestions
   );
 
-export const runExperiment = (suggestion: FeatureSuggestion, datasetPath: string) =>
+export const runExperiment = (suggestion: FeatureSuggestion, datasetPath: string, targetColumn: string) =>
   withFallback(
     () =>
       api
-        .post<Experiment>('/ui/experiments/run', { feature_suggestion: suggestion, dataset_path: datasetPath })
+        .post<Experiment>('/ui/experiments/run', { 
+          feature_suggestion: suggestion, 
+          dataset_path: datasetPath,
+          target_column: targetColumn
+        })
         .then((r) => r.data),
     {
       id: `exp_${Math.floor(Math.random() * 900 + 100)}`,
