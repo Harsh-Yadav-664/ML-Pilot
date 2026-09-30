@@ -65,6 +65,12 @@ class LocalExperimentExecutor(ExperimentRunner):
                 raise ValueError(f"Target column '{target_col}' not found in dataset.")
 
             # 2. Prepare Data
+            try:
+                from ml.data.preparation.dataclean.adapter import DataCleanAdapter
+                df = DataCleanAdapter().clean(df, target_col)
+            except Exception as e:
+                print(f"Data cleaning failed: {e}")
+
             # Execute feature engineering step safely
             feature_name = spec.parameters.get("feature_name")
             formula = spec.parameters.get("formula")

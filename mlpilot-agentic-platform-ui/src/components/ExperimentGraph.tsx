@@ -96,7 +96,7 @@ const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean
 const nodeTypes: NodeTypes = { experiment: ExperimentNode };
 
 /* ---------- graph ---------- */
-export const ExperimentGraph = () => {
+export const ExperimentGraph = ({ refreshTrigger }: { refreshTrigger: number }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
@@ -161,15 +161,23 @@ export const ExperimentGraph = () => {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
+    let interval: ReturnType<typeof setInterval>;
+    const poll = async () => {
       const data = await getExperimentTree();
       const { outNodes, outEdges } = layout(data);
       setNodes(outNodes);
       setEdges(outEdges);
       setLoading(false);
-    })();
-  }, [layout, setNodes, setEdges]);
+      // Stop polling if no active experiments
+      const hasActive = data.some(e => e.status === 'queued' || e.status === 'running');
+      if (!hasActive && interval) {
+        clearInterval(interval);
+      }
+    };
+    poll(); // immediate first call
+    interval = setInterval(poll, 4000);
+    return () => clearInterval(interval);
+  }, [layout, setNodes, setEdges, refreshTrigger]);
 
   return (
     <div className="flex h-full flex-col">
