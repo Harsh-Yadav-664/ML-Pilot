@@ -101,7 +101,7 @@ export const DataReadinessDashboard = ({ datasetPath, targetColumn }: DataReadin
 
       {/* Leakage warnings */}
       <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/30">
-        <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-800/80 px-4 py-3 gap-3">
           <div className="flex items-center gap-2">
             {highCount > 0 ? (
               <AlertTriangle className="h-4 w-4 text-red-400" />
@@ -109,16 +109,31 @@ export const DataReadinessDashboard = ({ datasetPath, targetColumn }: DataReadin
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
             )}
             <h3 className="text-sm font-medium text-zinc-200">Target leakage scan</h3>
+            <span
+              className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                highCount > 0
+                  ? 'bg-red-500/10 text-red-300 ring-1 ring-inset ring-red-500/20'
+                  : 'bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/20'
+              }`}
+            >
+              {loading ? 'scanning…' : `${warnings.length} flagged`}
+            </span>
           </div>
-          <span
-            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              highCount > 0
-                ? 'bg-red-500/10 text-red-300 ring-1 ring-inset ring-red-500/20'
-                : 'bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/20'
-            }`}
+          <button 
+            onClick={async () => {
+              const { runAutoClean } = await import('../api');
+              try {
+                await runAutoClean(datasetPath, targetColumn);
+                alert('AI Auto-Clean complete! The experiment has been added to the leaderboard.');
+              } catch (e) {
+                alert('Auto-clean failed. Check backend logs.');
+              }
+            }}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
           >
-            {loading ? 'scanning…' : `${warnings.length} flagged`}
-          </span>
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Apply AI Auto-Clean
+          </button>
         </div>
 
         <div className="divide-y divide-zinc-800/60">

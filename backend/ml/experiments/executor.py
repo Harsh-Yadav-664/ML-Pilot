@@ -93,20 +93,25 @@ class LocalExperimentExecutor(ExperimentRunner):
             )
 
             # Robust preprocessor to handle real-world messy data
-            numeric_features = X_train.select_dtypes(include=['int64', 'float64']).columns
-            categorical_features = X_train.select_dtypes(include=['object', 'category']).columns
-
-            preprocessor = ColumnTransformer(
-                transformers=[
-                    ('num', Pipeline(steps=[
-                        ('imputer', SimpleImputer(strategy='median')),
-                        ('scaler', StandardScaler())
-                    ]), numeric_features),
-                    ('cat', Pipeline(steps=[
-                        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-                        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
-                    ]), categorical_features)
-                ])
+            prep_config = spec.preprocessing_config
+            if prep_config:
+                from ml.data.preparation.dynamic_builder import DynamicPipelineBuilder
+                preprocessor = DynamicPipelineBuilder.build(prep_config, target_col)
+            else:
+                numeric_features = X_train.select_dtypes(include=['int64', 'float64']).columns
+                categorical_features = X_train.select_dtypes(include=['object', 'category']).columns
+    
+                preprocessor = ColumnTransformer(
+                    transformers=[
+                        ('num', Pipeline(steps=[
+                            ('imputer', SimpleImputer(strategy='median')),
+                            ('scaler', StandardScaler())
+                        ]), numeric_features),
+                        ('cat', Pipeline(steps=[
+                            ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+                            ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                        ]), categorical_features)
+                    ])
 
             # 3. Initialize Model and Optuna Tuning
             model_cls = MODEL_REGISTRY.get(spec.model_name)

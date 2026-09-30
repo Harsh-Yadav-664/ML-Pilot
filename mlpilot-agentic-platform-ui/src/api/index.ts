@@ -91,6 +91,12 @@ export const runBaselineExperiment = (datasetPath: string, targetColumn: string)
     }
   );
 
+export const runAutoClean = (datasetPath: string, targetColumn: string) =>
+  api.post<Experiment>('/ui/agent/auto-clean', { 
+    dataset_path: datasetPath,
+    target_column: targetColumn
+  }).then(r => r.data);
+
 // Experiments
 export const getExperiments = () =>
   withFallback(() => api.get<Experiment[]>('/ui/experiments/tree').then((r) => r.data), mockExperiments);

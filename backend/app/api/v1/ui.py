@@ -238,6 +238,48 @@ async def get_optimize_status(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Job not found")
     return JOBS[job_id]
 
+@router.post("/agent/auto-clean")
+async def auto_clean_dataset(
+    data: dict[str, Any], 
+    db: DBSession,
+    background_tasks: BackgroundTasks
+) -> ExperimentRead:
+    """Uses AI to generate an advanced cleaning strategy and runs it as a baseline."""
+    dataset_path = data.get("dataset_path", "data.csv")
+    target_column = data.get("target_column", "target")
+    
+    # 1. Profile Data
+    loader = CsvLoader()
+    df = loader.load(dataset_path)
+    profiler = DataProfiler()
+    profile = profiler.profile(df, target_column=target_column)
+    
+    # 2. Get AI Strategy
+    gateway = AIGateway(settings)
+    from ml.agents.cleaning_agent import DataCleaningAgent
+    agent = DataCleaningAgent(gateway)
+    prep_config = await agent.generate_cleaning_strategy(profile, target_column)
+    
+    # 3. Create a clean baseline experiment
+    svc = ExperimentService(db)
+    exp_create = ExperimentCreate(
+        project_id=DEMO_PROJECT_ID,
+        dataset_version=dataset_path,
+        hypothesis="AI-driven advanced data cleaning (Robust Imputation, Encoding, Transforms)",
+        change_description="AI Auto-Clean Configuration applied.",
+        model_name="RandomForestClassifier",
+        feature_set=[],
+        preprocessing_config=prep_config,
+        parameters={
+            "target_column": target_column,
+            "model_params": {"n_estimators": 50, "random_state": 42}
+        }
+    )
+    
+    exp = await svc.create(exp_create)
+    background_tasks.add_task(background_runner, exp.id)
+    return ExperimentRead.model_validate(exp)
+
 @router.get("/experiments/{experiment_id}/export")
 async def export_experiment_script(experiment_id: str, db: DBSession):
     """Export a python training script for the given experiment."""
