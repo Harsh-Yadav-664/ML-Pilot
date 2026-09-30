@@ -43,10 +43,13 @@ export const getLeakageWarnings = (datasetPath: string, targetColumn: string) =>
     mockWarnings
   );
 
-// AI Agent
-export const getFeatureSuggestions = (datasetPath: string, targetColumn: string) =>
+export const getFeatureSuggestions = (datasetPath: string, targetColumn: string, userQuery?: string) =>
   withFallback(
-    () => api.get<FeatureSuggestion[]>(`/ui/agent/suggestions?dataset_path=${encodeURIComponent(datasetPath)}&target_column=${encodeURIComponent(targetColumn)}`).then((r) => r.data),
+    () => {
+      let url = `/ui/agent/suggestions?dataset_path=${encodeURIComponent(datasetPath)}&target_column=${encodeURIComponent(targetColumn)}`;
+      if (userQuery) url += `&user_query=${encodeURIComponent(userQuery)}`;
+      return api.get<FeatureSuggestion[]>(url).then((r) => r.data);
+    },
     mockSuggestions
   );
 

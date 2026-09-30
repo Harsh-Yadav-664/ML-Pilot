@@ -105,15 +105,21 @@ async def get_leakage_warnings(
 async def get_agent_suggestions(
     db: DBSession,
     dataset_path: str = "data.csv", 
-    target_column: str = "target"
+    target_column: str = "target",
+    user_query: Optional[str] = None
 ) -> list[dict[str, Any]]:
     """Trigger AI and return suggestions."""
     svc = ExperimentService(db)
+    
+    objective = "Maximize F1 score while preventing overfitting"
+    if user_query:
+        objective += f". User strictly requested: '{user_query}'. Generate features reflecting this."
+        
     try:
         hypotheses = await svc.suggest_experiments(
             dataset_version=dataset_path,
             target_column=target_column,
-            objective="Maximize F1 score while preventing overfitting",
+            objective=objective,
             max_hypotheses=3
         )
         return hypotheses

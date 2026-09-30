@@ -164,6 +164,23 @@ export const AIAgentPanel = ({ onExperimentStart, datasetPath, targetColumn }: A
             type="text"
             placeholder="Ask the agent for a feature idea…"
             className="flex-1 bg-transparent text-[13px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                const query = e.currentTarget.value.trim();
+                e.currentTarget.value = '';
+                setLoading(true);
+                setError(null);
+                try {
+                  const res = await getFeatureSuggestions(datasetPath, targetColumn, query);
+                  if (!res || res.length === 0) setError("AI returned 0 candidates.");
+                  setSuggestions(res || []);
+                } catch (err: any) {
+                  setError(err.message || "Failed to connect to AI Gateway.");
+                  setSuggestions([]);
+                }
+                setLoading(false);
+              }
+            }}
           />
           <kbd className="flex items-center gap-1 rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-500">
             <CornerDownLeft className="h-3 w-3" />
