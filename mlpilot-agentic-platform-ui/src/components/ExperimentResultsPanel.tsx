@@ -127,7 +127,7 @@ export const ExperimentResultsPanel = ({ refreshTrigger }: { refreshTrigger: num
                     </div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-zinc-400 font-mono text-xs">
-                    {exp.status === 'queued' ? '—' : `${exp.runtime_seconds.toFixed(1)}s`}
+                    {exp.status === 'queued' || exp.runtime_seconds == null ? '—' : `${exp.runtime_seconds.toFixed(1)}s`}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className="text-zinc-400 text-xs capitalize flex items-center gap-1.5">

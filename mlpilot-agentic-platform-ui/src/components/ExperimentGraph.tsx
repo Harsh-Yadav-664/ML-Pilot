@@ -82,7 +82,7 @@ const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean
           <span className="w-full text-center">Waiting in queue</span>
         ) : (
           <>
-            <span className="font-mono">{exp.runtime_seconds.toFixed(1)}s</span>
+            <span className="font-mono">{exp.runtime_seconds != null ? `${exp.runtime_seconds.toFixed(1)}s` : '—'}</span>
             <span className="font-mono">{exp.model_name.slice(0, 3).toUpperCase()}</span>
           </>
         )}
