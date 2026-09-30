@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Sparkles, TriangleAlert, Play, Loader2, CornerDownLeft } from 'lucide-react';
 import { getFeatureSuggestions, runExperiment } from '../api';
 import { FeatureSuggestion } from '../types';
+import { AutoOptimizePanel } from './AutoOptimizePanel';
 
 interface AIAgentPanelProps {
   onExperimentStart?: () => void;
@@ -62,6 +63,9 @@ export const AIAgentPanel = ({ onExperimentStart, datasetPath, targetColumn }: A
           <div className="text-[11px] text-zinc-500">Proposing features · churn_v3</div>
         </div>
       </div>
+
+      <AutoOptimizePanel datasetPath={datasetPath} targetColumn={targetColumn} onComplete={onExperimentStart} />
+      <div className="h-px bg-zinc-800/80 w-full" />
 
       {/* Feed */}
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">

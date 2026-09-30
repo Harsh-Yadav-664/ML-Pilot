@@ -83,8 +83,14 @@ export const getExperimentTree = () =>
 
 export const getExperimentById = (id: string) =>
   withFallback(
-    () => api.get<Experiment>(`/experiments/${id}`).then((r) => r.data),
+    () => api.get<Experiment>(`/ui/experiments/${id}`).then((r) => r.data),
     mockExperiments.find((e) => e.id === id) ?? mockExperiments[0]
   );
+
+export const runAutoOptimize = (datasetPath: string, targetColumn: string, nHypotheses: number = 5) =>
+  api.post('/ui/agent/auto-optimize', { dataset_path: datasetPath, target_column: targetColumn, n_hypotheses: nHypotheses }).then(r => r.data);
+
+export const getOptimizeStatus = (jobId: string) =>
+  api.get(`/ui/agent/auto-optimize/${jobId}`).then(r => r.data);
 
 export default api;

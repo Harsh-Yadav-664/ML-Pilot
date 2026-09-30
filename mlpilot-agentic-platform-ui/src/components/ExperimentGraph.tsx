@@ -32,7 +32,7 @@ const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean
 
   return (
     <div
-      className={`w-[228px] rounded-xl border border-zinc-800 bg-zinc-900/90 backdrop-blur ring-1 ring-inset ${s.ring} ${s.glow} transition-transform hover:-translate-y-0.5`}
+      className={`w-[228px] rounded-xl border border-zinc-800 bg-zinc-900/90 backdrop-blur ring-1 ring-inset ${s.ring} ${s.glow} transition-transform hover:-translate-y-0.5 ${exp.status === 'running' ? 'animate-pulse' : ''}`}
     >
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !border-0 !bg-zinc-600" />
 
@@ -56,26 +56,36 @@ const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean
       </div>
 
       {/* metrics */}
-      <div className="mx-3 mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-800 bg-zinc-800">
-        <div className="bg-zinc-900 px-2.5 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-zinc-600">F1</div>
-          <div className="font-mono text-[15px] font-semibold text-zinc-50">
-            {f1 !== undefined ? f1.toFixed(3) : <span className="text-zinc-600">—</span>}
+      {exp.status === 'completed' && f1 === undefined ? (
+        <div className="mx-3 mb-3 flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-800/50 py-3 text-[10px] text-zinc-500">
+          No metrics recorded
+        </div>
+      ) : (
+        <div className="mx-3 mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-800 bg-zinc-800">
+          <div className="bg-zinc-900 px-2.5 py-2">
+            <div className="text-[9px] uppercase tracking-wider text-zinc-600">F1</div>
+            <div className="font-mono text-[15px] font-semibold text-zinc-50">
+              {f1 !== undefined ? f1.toFixed(3) : <span className="text-zinc-600">—</span>}
+            </div>
+          </div>
+          <div className="bg-zinc-900 px-2.5 py-2">
+            <div className="text-[9px] uppercase tracking-wider text-zinc-600">Accuracy</div>
+            <div className="font-mono text-[15px] font-semibold text-zinc-50">
+              {acc !== undefined ? `${(acc * 100).toFixed(1)}%` : <span className="text-zinc-600">—</span>}
+            </div>
           </div>
         </div>
-        <div className="bg-zinc-900 px-2.5 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-zinc-600">Accuracy</div>
-          <div className="font-mono text-[15px] font-semibold text-zinc-50">
-            {acc !== undefined ? `${(acc * 100).toFixed(1)}%` : <span className="text-zinc-600">—</span>}
-          </div>
-        </div>
-      </div>
+      )}
 
       <div className="flex items-center justify-between border-t border-zinc-800/80 px-3 py-2 text-[10px] text-zinc-500">
-        <span className="font-mono">
-          {exp.status === 'queued' ? 'pending' : `${exp.runtime_seconds.toFixed(1)}s`}
-        </span>
-        <span className="font-mono">{exp.model_name.slice(0, 3).toUpperCase()}</span>
+        {exp.status === 'queued' ? (
+          <span className="w-full text-center">Waiting in queue</span>
+        ) : (
+          <>
+            <span className="font-mono">{exp.runtime_seconds.toFixed(1)}s</span>
+            <span className="font-mono">{exp.model_name.slice(0, 3).toUpperCase()}</span>
+          </>
+        )}
       </div>
 
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !border-0 !bg-zinc-600" />

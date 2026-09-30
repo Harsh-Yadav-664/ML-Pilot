@@ -14,6 +14,7 @@ import { DataReadinessDashboard } from './components/DataReadinessDashboard';
 import { AIAgentPanel } from './components/AIAgentPanel';
 import { ExperimentGraph } from './components/ExperimentGraph';
 import { DatasetUploader } from './components/DatasetUploader';
+import { ExperimentResultsPanel } from './components/ExperimentResultsPanel';
 
 export default function App() {
   const [datasetPath, setDatasetPath] = useState<string | null>(null);
@@ -146,8 +147,9 @@ export default function App() {
             </div>
 
             <div className="h-[560px] overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/20">
-              <ExperimentGraph key={graphKey} />
+              <ExperimentGraph refreshTrigger={graphKey} />
             </div>
+            <ExperimentResultsPanel refreshTrigger={graphKey} />
           </main>
 
           {/* Agent panel */}

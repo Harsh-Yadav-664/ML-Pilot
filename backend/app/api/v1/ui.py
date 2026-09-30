@@ -15,6 +15,9 @@ from app.services.experiment_service import ExperimentService
 from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.profiling.profiler import DataProfiler
 from ml.data.preparation.native.native_prep import NativeDataPreparationProvider
+from ml.agents.decision_agent import DecisionAgent
+from ai.gateway import AIGateway
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["ui-adapter"])
@@ -170,3 +173,43 @@ async def get_experiment_tree(db: DBSession) -> list[dict[str, Any]]:
             "created_at": e.created_at.isoformat()
         })
     return result
+
+# Auto-Optimize Agent
+JOBS: dict[str, dict] = {}
+
+async def _run_agent_task(job_id: str, dataset_path: str, target_column: str, n_hypotheses: int):
+    gateway = AIGateway(settings)
+    agent = DecisionAgent(gateway, settings)
+    try:
+        result = await agent.run_optimization_loop(dataset_path, target_column, n_hypotheses)
+        JOBS[job_id]["status"] = "completed"
+        JOBS[job_id]["result"] = result
+    except Exception as e:
+        logger.error(f"Auto-optimize failed: {e}")
+        JOBS[job_id]["status"] = "failed"
+        JOBS[job_id]["error"] = str(e)
+
+
+@router.post("/agent/auto-optimize")
+async def auto_optimize(
+    data: dict[str, Any], 
+    db: DBSession, 
+    background_tasks: BackgroundTasks
+) -> dict[str, Any]:
+    """Trigger autonomous optimization loop."""
+    dataset_path = data.get("dataset_path", "data.csv")
+    target_column = data.get("target_column", "target")
+    n_hypotheses = data.get("n_hypotheses", 5)
+    
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {"status": "running"}
+    
+    background_tasks.add_task(_run_agent_task, job_id, dataset_path, target_column, n_hypotheses)
+    return {"job_id": job_id, "status": "running"}
+
+@router.get("/agent/auto-optimize/{job_id}")
+async def get_optimize_status(job_id: str) -> dict[str, Any]:
+    """Poll the status of an auto-optimize job."""
+    if job_id not in JOBS:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JOBS[job_id]
