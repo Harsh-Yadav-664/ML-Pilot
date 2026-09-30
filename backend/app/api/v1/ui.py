@@ -122,12 +122,12 @@ async def get_agent_suggestions(
         return []
 
 async def background_runner(experiment_id: str):
-    async with AsyncSessionLocal() as session:
-        try:
-            svc = ExperimentService(session)
-            await svc.run_experiment_background(experiment_id)
-        except Exception as e:
-            logger.error(f"Background task failed: {e}")
+    """Thin wrapper: ExperimentService.run_experiment_background opens its own session."""
+    try:
+        svc = ExperimentService(None)  # session unused — service opens its own
+        await svc.run_experiment_background(experiment_id)
+    except Exception as e:
+        logger.error(f"Background task failed for experiment {experiment_id}: {e}")
 
 @router.post("/experiments/run")
 async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: BackgroundTasks) -> ExperimentRead:

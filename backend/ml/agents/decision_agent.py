@@ -66,105 +66,127 @@ class DecisionAgent:
                 } for i in range(n_hypotheses)
             ]
 
-        async with AsyncSessionLocal() as db:
-            svc = ExperimentService(db)
+        # Helper: create one experiment record in its own session
+        async def create_experiment(create_data: ExperimentCreate) -> str:
+            async with AsyncSessionLocal() as db:
+                svc = ExperimentService(db)
+                exp = await svc.create(create_data)
+                await db.commit()
+                return exp.id
 
-            # Baseline experiment
-            baseline_create = ExperimentCreate(
+        async def get_experiment_metrics(exp_id: str) -> dict:
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                from app.db.models.experiment import Experiment as ExpModel
+                result = await db.execute(select(ExpModel).where(ExpModel.id == exp_id))
+                exp = result.scalar_one_or_none()
+                return exp.metrics or {} if exp else {}
+
+        # Baseline
+        baseline_id = await create_experiment(ExperimentCreate(
+            project_id="demo-project-id",
+            dataset_version=dataset_path,
+            hypothesis="Baseline without new features",
+            change_description="Baseline run",
+            model_name="XGBClassifier",
+            feature_set=[],
+            parameters={"target_column": target_column}
+        ))
+        # run_experiment_background opens its own session
+        svc_for_run = ExperimentService(None)
+        await svc_for_run.run_experiment_background(baseline_id)
+
+        baseline_metrics = await get_experiment_metrics(baseline_id)
+        baseline_f1 = baseline_metrics.get("f1", 0.0)
+
+        experiments_info = []
+
+        # Create all hypothesis experiments
+        exp_pairs = []
+        for hyp in hypotheses:
+            eid = await create_experiment(ExperimentCreate(
                 project_id="demo-project-id",
+                parent_id=baseline_id,
                 dataset_version=dataset_path,
-                hypothesis="Baseline without new features",
-                change_description="Baseline run",
+                hypothesis=hyp.get("reason", "Generated hypothesis"),
+                change_description=f"Added feature: {hyp.get('name')} via formula {hyp.get('formula')}",
                 model_name="XGBClassifier",
-                feature_set=[],
-                parameters={"target_column": target_column}
-            )
-            baseline_exp = await svc.create(baseline_create)
-            await svc.run_experiment_background(baseline_exp.id)
-            
-            baseline_exp_db = await svc.get(baseline_exp.id)
-            baseline_f1 = baseline_exp_db.metrics.get("f1", 0.0) if baseline_exp_db.metrics else 0.0
-
-            experiments_info = []
-
-            # 3. Create an experiment for each hypothesis
-            exp_objects = []
-            for hyp in hypotheses:
-                exp_create = ExperimentCreate(
-                    project_id="demo-project-id",
-                    parent_id=baseline_exp.id,
-                    dataset_version=dataset_path,
-                    hypothesis=hyp.get("reason", "Generated hypothesis"),
-                    change_description=f"Added feature: {hyp.get('name')} via formula {hyp.get('formula')}",
-                    model_name="XGBClassifier",
-                    feature_set=[hyp.get("name")] if hyp.get("name") else [],
-                    parameters={
-                        "target_column": target_column,
-                        "feature_name": hyp.get("name"),
-                        "formula": hyp.get("formula")
-                    }
-                )
-                exp = await svc.create(exp_create)
-                exp_objects.append((exp.id, hyp))
+                feature_set=[hyp.get("name")] if hyp.get("name") else [],
+                parameters={
+                    "target_column": target_column,
+                    "feature_name": hyp.get("name"),
+                    "formula": hyp.get("formula")
+                }
+            ))
+            exp_pairs.append((eid, hyp))
 
             # 3. Run all experiments in parallel
             sem = asyncio.Semaphore(max_workers)
 
-            async def run_and_evaluate(exp_id: str, hypothesis: dict) -> dict:
-                async with sem:
-                    await svc.run_experiment_background(exp_id)
-                    exp_db = await svc.get(exp_id)
-                    result_f1 = exp_db.metrics.get("f1", 0.0) if exp_db.metrics else 0.0
-                    
-                    feature_name = hypothesis.get("name", "unknown")
-                    formula = hypothesis.get("formula", "unknown")
+        # 4. Run all experiments in parallel — each in its own isolated session
+        sem = asyncio.Semaphore(max_workers)
 
-                    prompt = (
-                        f"Given baseline F1 of {baseline_f1} and this experiment got F1 of {result_f1}, "
-                        f"feature: {feature_name}, formula: {formula}, should we keep this feature? "
-                        "Reply with JSON: {\"decision\": \"keep\"|\"reject\", \"reason\": \"str\"}"
+        async def run_and_evaluate(exp_id: str, hypothesis: dict) -> dict:
+            async with sem:
+                runner = ExperimentService(None)  # self-manages session
+                await runner.run_experiment_background(exp_id)
+                result_metrics = await get_experiment_metrics(exp_id)
+                result_f1 = result_metrics.get("f1", 0.0)
+
+                feature_name = hypothesis.get("name", "unknown")
+                formula = hypothesis.get("formula", "unknown")
+
+                prompt = (
+                    f"Given baseline F1 of {baseline_f1} and this experiment got F1 of {result_f1}, "
+                    f"feature: {feature_name}, formula: {formula}, should we keep this feature? "
+                    'Reply with JSON: {"decision": "keep"|"reject", "reason": "str"}'
+                )
+
+                try:
+                    decision_str = await self.gateway.complete(
+                        task_type=TaskType.DECIDE,
+                        prompt=prompt,
+                        system="You are an expert ML evaluator. Provide only raw valid JSON output."
                     )
-                    
-                    try:
-                        decision_str = await self.gateway.complete(
-                            task_type=TaskType.DECIDE,
-                            prompt=prompt,
-                            system="You are an expert ML evaluator. Provide only raw valid JSON output."
-                        )
-                        # Remove markdown formatting if any
-                        decision_str_clean = re.sub(r'```json|```', '', decision_str).strip()
-                        decision_data = json.loads(decision_str_clean)
-                    except Exception as e:
-                        logger.error(f"Decision AI failed: {e}")
-                        decision_data = {"decision": "keep" if result_f1 > baseline_f1 else "reject", "reason": f"Fallback decision (AI failed): {e}"}
-
-                    return {
-                        "id": exp_id,
-                        "feature_name": feature_name,
-                        "formula": formula,
-                        "f1": result_f1,
-                        "decision": decision_data.get("decision", "reject"),
-                        "reason": decision_data.get("reason", "")
+                    decision_str_clean = re.sub(r'```json|```', '', decision_str).strip()
+                    decision_data = json.loads(decision_str_clean)
+                except Exception as e:
+                    logger.error(f"Decision AI failed: {e}")
+                    decision_data = {
+                        "decision": "keep" if result_f1 > baseline_f1 else "reject",
+                        "reason": f"Fallback decision (AI failed): {e}"
                     }
 
-            results = await asyncio.gather(*(run_and_evaluate(e_id, h) for e_id, h in exp_objects))
-            
-            # 4 & 5. Evaluate results and summarize
-            winner_features = []
-            best_f1 = baseline_f1
-            
-            for res in results:
-                experiments_info.append(res)
-                if res["decision"] == "keep":
-                    winner_features.append(res["feature_name"])
-                if res["f1"] > best_f1:
-                    best_f1 = res["f1"]
+                return {
+                    "id": exp_id,
+                    "feature_name": feature_name,
+                    "formula": formula,
+                    "f1": result_f1,
+                    "decision": decision_data.get("decision", "reject"),
+                    "reason": decision_data.get("reason", "")
+                }
 
-            summary = f"Tested {len(results)} features. Baseline F1: {baseline_f1:.4f}. Best F1: {best_f1:.4f}. Winners: {', '.join(winner_features) if winner_features else 'None'}."
+        results = await asyncio.gather(*(run_and_evaluate(e_id, h) for e_id, h in exp_pairs))
 
-            return {
-                "winner_features": winner_features,
-                "experiments": experiments_info,
-                "best_f1": best_f1,
-                "summary": summary
-            }
+        # 5. Evaluate results and summarize
+        winner_features = []
+        best_f1 = baseline_f1
+
+        for res in results:
+            experiments_info.append(res)
+            if res["decision"] == "keep":
+                winner_features.append(res["feature_name"])
+            if res["f1"] > best_f1:
+                best_f1 = res["f1"]
+
+        summary = (
+            f"Tested {len(results)} features. Baseline F1: {baseline_f1:.4f}. "
+            f"Best F1: {best_f1:.4f}. Winners: {', '.join(winner_features) if winner_features else 'None'}."
+        )
+
+        return {
+            "winner_features": winner_features,
+            "experiments": experiments_info,
+            "best_f1": best_f1,
+            "summary": summary
+        }

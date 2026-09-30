@@ -58,62 +58,59 @@ class ExperimentService:
         return exp
 
     async def run_experiment_background(self, experiment_id: str) -> None:
-        """Run the experiment using the ML core and update the DB."""
-        # Refresh the session for the background task
-        exp = await self.get(experiment_id)
-        if not exp:
-            logger.error(f"Experiment {experiment_id} not found for execution.")
-            return
-
-        exp.status = ExperimentStatus.RUNNING.value
-        await self.db.commit()
-
-        try:
-            # 1. Convert ORM to ML Spec
-            spec = ExperimentSpec(
-                id=exp.id,
-                parent_id=exp.parent_id,
-                project_id=exp.project_id,
-                dataset_version=exp.dataset_version,
-                hypothesis=exp.hypothesis,
-                change_description=exp.change_description,
-                model_name=exp.model_name,
-                parameters=exp.parameters,
-                validation_config=exp.validation_config,
-                feature_set=exp.feature_set,
-                preprocessing_config=exp.preprocessing_config,
-                budget=exp.budget,
-            )
-
-            # 2. Configure the Executor
-            def load_dataset(version_path: str):
-                # For MVP, assume dataset_version is a valid local file path (e.g. data.csv)
-                # In prod, this would download from S3 based on ID
-                loader = CsvLoader()
-                return loader.load(version_path)
-
-            executor = LocalExperimentExecutor(data_loader_func=load_dataset)
-
-            # 3. Execute
-            logger.info(f"Starting execution of experiment {experiment_id}...")
-            result = await executor.run(spec)
-
-            # 4. Update DB Record
-            exp.status = result.status.value
-            exp.metrics = result.metrics
-            exp.runtime_seconds = result.runtime_seconds
-            exp.cost_usd = result.cost_usd
-            exp.decision = result.decision.value
-            
-            logger.info(f"Experiment {experiment_id} completed successfully. F1: {result.metrics.get('f1')}")
-
-        except Exception as e:
-            logger.error(f"Experiment {experiment_id} failed: {e}", exc_info=True)
-            exp.status = ExperimentStatus.FAILED.value
-            exp.decision_reason = str(e)
+        """Run the experiment using the ML core and update the DB.
         
-        finally:
-            await self.db.commit()
+        IMPORTANT: Always opens its own AsyncSessionLocal so it never shares
+        the request-scoped session (which is already closed by the time the
+        background task runs), preventing SQLAlchemy 'session already closed' errors.
+        """
+        from app.db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as session:
+            exp = await session.get(Experiment, experiment_id)
+            if not exp:
+                logger.error(f"Experiment {experiment_id} not found for execution.")
+                return
+
+            exp.status = ExperimentStatus.RUNNING.value
+            await session.commit()
+
+            try:
+                spec = ExperimentSpec(
+                    id=exp.id,
+                    parent_id=exp.parent_id,
+                    project_id=exp.project_id,
+                    dataset_version=exp.dataset_version,
+                    hypothesis=exp.hypothesis,
+                    change_description=exp.change_description,
+                    model_name=exp.model_name,
+                    parameters=exp.parameters,
+                    validation_config=exp.validation_config,
+                    feature_set=exp.feature_set,
+                    preprocessing_config=exp.preprocessing_config,
+                    budget=exp.budget,
+                )
+
+                loader = CsvLoader()
+                executor = LocalExperimentExecutor(data_loader_func=lambda p: loader.load(p))
+
+                logger.info(f"Starting execution of experiment {experiment_id}...")
+                result = await executor.run(spec)
+
+                exp.status = result.status.value
+                exp.metrics = result.metrics
+                exp.runtime_seconds = result.runtime_seconds
+                exp.cost_usd = result.cost_usd
+                exp.decision = result.decision.value
+                logger.info(f"Experiment {experiment_id} completed. F1: {result.metrics.get('f1')}")
+
+            except Exception as e:
+                logger.error(f"Experiment {experiment_id} failed: {e}", exc_info=True)
+                exp.status = ExperimentStatus.FAILED.value
+                exp.decision_reason = str(e)
+
+            finally:
+                await session.commit()
 
     async def suggest_experiments(self, dataset_version: str, target_column: str, objective: str, max_hypotheses: int = 3) -> list[dict]:
         """Use the AI Gateway to generate feature hypotheses based on data."""
