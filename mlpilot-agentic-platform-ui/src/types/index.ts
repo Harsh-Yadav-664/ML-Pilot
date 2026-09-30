@@ -23,14 +23,16 @@ export interface Experiment {
   id: string;
   parent_id: string | null;
   model_name: string;
-  status: 'running' | 'completed' | 'failed' | 'queued';
+  status: 'running' | 'completed' | 'failed' | 'queued' | 'created' | 'validated' | 'evaluated' | string;
   metrics: {
     f1?: number;
     accuracy?: number;
     precision?: number;
     recall?: number;
-  };
-  runtime_seconds: number;
+    ensemble_f1?: number;
+    ensemble_accuracy?: number;
+  } | null;
+  runtime_seconds: number | null;
   created_at: string;
 }
 

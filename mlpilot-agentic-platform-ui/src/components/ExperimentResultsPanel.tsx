@@ -42,7 +42,7 @@ export const ExperimentResultsPanel = ({ refreshTrigger }: { refreshTrigger: num
   });
 
   const getDecision = (exp: Experiment) => {
-    if (exp.status === 'queued' || exp.status === 'running') return 'PENDING';
+    if (exp.status === 'queued' || exp.status === 'running' || exp.status === 'created') return 'PENDING';
     if (exp.status === 'failed') return 'REJECT';
     if (exp.id === baseline.id) return 'BASELINE';
     const baseF1 = baseline.metrics?.f1 ?? 0;

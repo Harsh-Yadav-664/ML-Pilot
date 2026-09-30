@@ -16,17 +16,21 @@ import { getExperimentTree } from '../api';
 import { Experiment } from '../types';
 
 /* ---------- status meta ---------- */
-const STATUS = {
+const STATUS_FALLBACK = { label: 'Pending', dot: 'bg-zinc-500', text: 'text-zinc-400', ring: 'ring-zinc-600/40', glow: '' };
+const STATUS: Record<string, typeof STATUS_FALLBACK> = {
   completed: { label: 'Completed', dot: 'bg-emerald-400', text: 'text-emerald-300', ring: 'ring-emerald-500/25', glow: '' },
-  running: { label: 'Running', dot: 'bg-sky-400', text: 'text-sky-300', ring: 'ring-sky-500/40', glow: 'shadow-[0_0_0_1px_rgba(56,189,248,0.15)]' },
-  failed: { label: 'Failed', dot: 'bg-red-400', text: 'text-red-300', ring: 'ring-red-500/25', glow: '' },
-  queued: { label: 'Queued', dot: 'bg-zinc-500', text: 'text-zinc-400', ring: 'ring-zinc-600/40', glow: '' },
-} as const;
+  running:   { label: 'Running',   dot: 'bg-sky-400',     text: 'text-sky-300',     ring: 'ring-sky-500/40',     glow: 'shadow-[0_0_0_1px_rgba(56,189,248,0.15)]' },
+  failed:    { label: 'Failed',    dot: 'bg-red-400',     text: 'text-red-300',     ring: 'ring-red-500/25',     glow: '' },
+  queued:    { label: 'Queued',    dot: 'bg-zinc-500',    text: 'text-zinc-400',    ring: 'ring-zinc-600/40',    glow: '' },
+  created:   { label: 'Created',   dot: 'bg-zinc-500',    text: 'text-zinc-400',    ring: 'ring-zinc-600/40',    glow: '' },
+  validated: { label: 'Validated', dot: 'bg-indigo-400',  text: 'text-indigo-300',  ring: 'ring-indigo-500/25',  glow: '' },
+  evaluated: { label: 'Evaluated', dot: 'bg-violet-400',  text: 'text-violet-300',  ring: 'ring-violet-500/25',  glow: '' },
+};
 
 /* ---------- custom node ---------- */
 const ExperimentNode = ({ data }: { data: { exp: Experiment; isBaseline: boolean } }) => {
   const { exp, isBaseline } = data;
-  const s = STATUS[exp.status];
+  const s = STATUS[exp.status] ?? STATUS_FALLBACK;
   const f1 = exp.metrics?.f1;
   const acc = exp.metrics?.accuracy;
 
