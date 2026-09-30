@@ -15,20 +15,36 @@ export const AIAgentPanel = ({ onExperimentStart, datasetPath, targetColumn }: A
   const [running, setRunning] = useState<string | null>(null);
   const [launched, setLaunched] = useState<Set<string>>(new Set());
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
-      setSuggestions(await getFeatureSuggestions(datasetPath, targetColumn));
+      setError(null);
+      try {
+        const res = await getFeatureSuggestions(datasetPath, targetColumn);
+        if (!res || res.length === 0) {
+          setError("The AI returned 0 candidates. This usually means your API key hit a rate limit (like Gemini's free tier) or the AI Gateway could not reach the provider.");
+        }
+        setSuggestions(res || []);
+      } catch (err: any) {
+        setError(err.message || "Failed to connect to the AI Gateway. Check your backend logs or API keys.");
+        setSuggestions([]);
+      }
       setLoading(false);
     })();
   }, [datasetPath, targetColumn]);
 
   const handleRun = async (s: FeatureSuggestion) => {
     setRunning(s.name);
-    await runExperiment(s, datasetPath);
+    try {
+      await runExperiment(s, datasetPath);
+      setLaunched((prev) => new Set(prev).add(s.name));
+      onExperimentStart?.();
+    } catch (e) {
+      alert("Experiment failed to run. Check backend logs.");
+    }
     setRunning(null);
-    setLaunched((prev) => new Set(prev).add(s.name));
-    onExperimentStart?.();
   };
 
   return (
@@ -55,11 +71,17 @@ export const AIAgentPanel = ({ onExperimentStart, datasetPath, targetColumn }: A
             AI
           </div>
           <div className="rounded-lg rounded-tl-sm border border-zinc-800/80 bg-zinc-900/40 px-3 py-2 text-[13px] leading-relaxed text-zinc-300">
-            I analyzed the feature space and found{' '}
-            <span className="font-medium text-zinc-100">
-              {loading ? '…' : suggestions.length}
-            </span>{' '}
-            candidates likely to lift F1. Review and dispatch any to the experiment queue.
+            {error ? (
+              <span className="text-red-400">Oops, I ran into an issue: {error}</span>
+            ) : (
+              <>
+                I analyzed the feature space and found{' '}
+                <span className="font-medium text-zinc-100">
+                  {loading ? '...' : suggestions.length}
+                </span>{' '}
+                candidates likely to lift F1. Review and dispatch any to the experiment queue.
+              </>
+            )}
           </div>
         </div>
 
