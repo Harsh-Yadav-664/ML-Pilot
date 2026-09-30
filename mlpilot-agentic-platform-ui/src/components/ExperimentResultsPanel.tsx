@@ -78,7 +78,26 @@ export const ExperimentResultsPanel = ({ refreshTrigger }: { refreshTrigger: num
   return (
     <div className="mt-8 rounded-xl border border-zinc-800/80 bg-zinc-900/20 overflow-hidden">
       <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3 bg-zinc-900/50">
-        <h3 className="text-sm font-medium text-zinc-200">Experiment Leaderboard</h3>
+        <div className="flex items-center gap-4">
+          <h3 className="text-sm font-medium text-zinc-200">Experiment Leaderboard</h3>
+          {sorted.length > 0 && (
+            <button
+              onClick={async () => {
+                const { exportExperimentScript } = await import('../api');
+                const data = await exportExperimentScript(sorted[0].id);
+                const blob = new Blob([data.script], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = data.filename;
+                a.click();
+              }}
+              className="text-xs px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+            >
+              Download Best Model Script
+            </button>
+          )}
+        </div>
         <button 
           onClick={() => setCompareMode(!compareMode)}
           className={`px-3 py-1 text-xs rounded-md border transition-colors ${compareMode ? 'bg-indigo-500/20 border-indigo-500/30 text-indigo-300' : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300'}`}

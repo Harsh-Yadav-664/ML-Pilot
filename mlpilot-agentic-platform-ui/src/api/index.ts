@@ -71,6 +71,26 @@ export const runExperiment = (suggestion: FeatureSuggestion, datasetPath: string
     }
   );
 
+export const runBaselineExperiment = (datasetPath: string, targetColumn: string) =>
+  withFallback(
+    () =>
+      api
+        .post<Experiment>('/ui/experiments/baseline', { 
+          dataset_path: datasetPath,
+          target_column: targetColumn
+        })
+        .then((r) => r.data),
+    {
+      id: `baseline_${Math.floor(Math.random() * 900 + 100)}`,
+      parent_id: null as any,
+      model_name: 'RandomForestClassifier',
+      status: 'queued' as const,
+      metrics: {},
+      runtime_seconds: 0,
+      created_at: new Date().toISOString(),
+    }
+  );
+
 // Experiments
 export const getExperiments = () =>
   withFallback(() => api.get<Experiment[]>('/ui/experiments/tree').then((r) => r.data), mockExperiments);
@@ -92,5 +112,10 @@ export const runAutoOptimize = (datasetPath: string, targetColumn: string, nHypo
 
 export const getOptimizeStatus = (jobId: string) =>
   api.get(`/ui/agent/auto-optimize/${jobId}`).then(r => r.data);
+
+export const exportExperimentScript = async (id: string) => {
+  const res = await api.get(`/ui/experiments/${id}/export`);
+  return res.data as { script: string; filename: string };
+};
 
 export default api;

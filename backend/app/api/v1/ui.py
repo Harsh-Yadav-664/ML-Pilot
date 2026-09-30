@@ -155,6 +155,30 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
     background_tasks.add_task(background_runner, exp.id)
     return ExperimentRead.model_validate(exp)
 
+@router.post("/experiments/baseline")
+async def run_baseline(data: dict[str, Any], db: DBSession, background_tasks: BackgroundTasks) -> ExperimentRead:
+    """Run a deterministic baseline experiment."""
+    svc = ExperimentService(db)
+    dataset_path = data.get("dataset_path", "data.csv")
+    target_column = data.get("target_column", "target")
+    
+    exp_create = ExperimentCreate(
+        project_id=DEMO_PROJECT_ID,
+        dataset_version=dataset_path,
+        hypothesis="Deterministic baseline without new features",
+        change_description="Baseline run using RandomForestClassifier",
+        model_name="RandomForestClassifier",
+        feature_set=[],
+        parameters={
+            "target_column": target_column,
+            "model_params": {"n_estimators": 50, "random_state": 42}
+        }
+    )
+    
+    exp = await svc.create(exp_create)
+    background_tasks.add_task(background_runner, exp.id)
+    return ExperimentRead.model_validate(exp)
+
 @router.get("/experiments/tree")
 async def get_experiment_tree(db: DBSession) -> list[dict[str, Any]]:
     """Return all experiments formatted as a flat list."""
@@ -213,3 +237,91 @@ async def get_optimize_status(job_id: str) -> dict[str, Any]:
     if job_id not in JOBS:
         raise HTTPException(status_code=404, detail="Job not found")
     return JOBS[job_id]
+
+@router.get("/experiments/{experiment_id}/export")
+async def export_experiment_script(experiment_id: str, db: DBSession):
+    """Export a python training script for the given experiment."""
+    svc = ExperimentService(db)
+    exp = await svc.get(experiment_id)
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    script = f"""# MLPilot Auto-Generated Training Script
+# Experiment ID: {exp.id}
+# Hypothesis: {exp.hypothesis}
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+
+# Install dependencies if needed: pip install scikit-learn pandas xgboost lightgbm
+
+def load_and_prepare_data():
+    df = pd.read_csv("{exp.dataset_version}")
+    
+    # Feature Engineering
+    feature_name = "{exp.parameters.get('feature_name', '')}"
+    formula = "{exp.parameters.get('formula', '')}"
+    if feature_name and formula:
+        df[feature_name] = df.eval(formula)
+        
+    y = df["{exp.parameters.get('target_column', 'target')}"]
+    X = df.drop(columns=["{exp.parameters.get('target_column', 'target')}"])
+    
+    return train_test_split(X, y, test_size=0.2, random_state=42)
+
+def build_model():
+    # Preprocessor
+    numeric_features = ["..."] # Automatically detected in runtime
+    categorical_features = ["..."]
+    
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='median')),
+                ('scaler', StandardScaler())
+            ]), numeric_features),
+            ('cat', Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+                ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+            ]), categorical_features)
+        ])
+        
+    # Model
+    model_name = "{exp.model_name}"
+    params = {exp.parameters.get('best_params', exp.parameters.get('model_params', dict()))}
+    
+    if model_name == 'XGBClassifier':
+        from xgboost import XGBClassifier
+        clf = XGBClassifier(**params)
+    elif model_name == 'LGBMClassifier':
+        from lightgbm import LGBMClassifier
+        clf = LGBMClassifier(**params)
+    elif model_name == 'RandomForestClassifier':
+        from sklearn.ensemble import RandomForestClassifier
+        clf = RandomForestClassifier(**params)
+    else:
+        from sklearn.linear_model import LogisticRegression
+        clf = LogisticRegression(**params)
+        
+    return Pipeline(steps=[('preprocessor', preprocessor), ('classifier', clf)])
+
+if __name__ == "__main__":
+    X_train, X_test, y_train, y_test = load_and_prepare_data()
+    pipeline = build_model()
+    
+    # This assumes numeric/categorical lists are populated
+    # In practice, you'd dynamically select them here:
+    numeric_features = X_train.select_dtypes(include=['int64', 'float64']).columns
+    categorical_features = X_train.select_dtypes(include=['object', 'category']).columns
+    pipeline.steps[0][1].transformers[0] = ('num', pipeline.steps[0][1].transformers[0][1], numeric_features)
+    pipeline.steps[0][1].transformers[1] = ('cat', pipeline.steps[0][1].transformers[1][1], categorical_features)
+    
+    pipeline.fit(X_train, y_train)
+    print("Training complete! Model Score:", pipeline.score(X_test, y_test))
+"""
+    return {"script": script, "filename": f"train_{exp.id}.py"}
+

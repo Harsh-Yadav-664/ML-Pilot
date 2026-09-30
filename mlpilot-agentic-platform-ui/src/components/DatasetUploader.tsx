@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Upload, X, Loader2 } from 'lucide-react';
-import api from '../api';
+import api, { runBaselineExperiment } from '../api';
 
 interface DatasetUploaderProps {
   onSuccess: (datasetPath: string, targetColumn: string) => void;
@@ -36,8 +36,15 @@ export function DatasetUploader({ onSuccess, onCancel }: DatasetUploaderProps) {
     }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (datasetPath && targetColumn) {
+      setLoading(true);
+      try {
+        await runBaselineExperiment(datasetPath, targetColumn);
+      } catch (err) {
+        console.error("Failed to run baseline:", err);
+      }
+      setLoading(false);
       onSuccess(datasetPath, targetColumn);
     }
   };
