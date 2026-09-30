@@ -132,6 +132,7 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
     svc = ExperimentService(db)
     suggestion = data.get("feature_suggestion", {})
     dataset_path = data.get("dataset_path", "data.csv")
+    target_column = data.get("target_column", "target")
     
     exp_create = ExperimentCreate(
         project_id=DEMO_PROJECT_ID,
@@ -140,6 +141,11 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
         change_description=f"Added feature: {suggestion.get('name')} via formula {suggestion.get('formula')}",
         model_name="XGBClassifier",
         feature_set=[suggestion.get("name")] if suggestion.get("name") else [],
+        parameters={
+            "target_column": target_column,
+            "feature_name": suggestion.get("name"),
+            "formula": suggestion.get("formula")
+        }
     )
     
     exp = await svc.create(exp_create)
