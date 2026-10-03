@@ -46,25 +46,7 @@ class DecisionAgent:
         profiler = DataProfiler()
         profile = profiler.profile(df, target_column=target_column)
 
-        # 2. Generate hypotheses
         planner = ExperimentPlanner(self.gateway)
-        try:
-            hypotheses = await planner.generate_hypotheses(
-                profile=profile,
-                target_column=target_column,
-                objective="Maximize F1 score while preventing overfitting",
-                max_hypotheses=n_hypotheses
-            )
-        except Exception as e:
-            logger.error(f"Failed to generate hypotheses: {e}")
-            # Fallback to stub suggestions if AI Gateway fails
-            hypotheses = [
-                {
-                    "name": f"fallback_feature_{i}", 
-                    "formula": "feature * 1.5", 
-                    "reason": "Fallback suggestion"
-                } for i in range(n_hypotheses)
-            ]
 
         # Helper: create one experiment record in its own session
         async def create_experiment(create_data: ExperimentCreate) -> str:
@@ -100,87 +82,95 @@ class DecisionAgent:
         baseline_f1 = baseline_metrics.get("f1", 0.0)
 
         experiments_info = []
+        winner_features = []
+        best_f1 = baseline_f1
+        
+        # History for the sequential loop
+        history = [{"name": "baseline", "formula": "None", "f1": baseline_f1}]
 
-        # Create all hypothesis experiments
-        exp_pairs = []
-        for hyp in hypotheses:
+        # 2 & 3. Sequential hypothesis generation and evaluation
+        for i in range(n_hypotheses):
+            try:
+                hypothesis = await planner.generate_next_hypothesis(
+                    profile=profile,
+                    target_column=target_column,
+                    objective="Maximize F1 score while preventing overfitting",
+                    history=history
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate hypothesis: {e}")
+                hypothesis = {
+                    "name": f"fallback_feature_{i}", 
+                    "formula": "feature * 1.5", 
+                    "reason": "Fallback suggestion",
+                    "non_redundant_reasoning": "Fallback"
+                }
+            
+            # Create experiment
             eid = await create_experiment(ExperimentCreate(
                 project_id="demo-project-id",
                 parent_id=baseline_id,
                 dataset_version=dataset_path,
-                hypothesis=hyp.get("reason", "Generated hypothesis"),
-                change_description=f"Added feature: {hyp.get('name')} via formula {hyp.get('formula')}",
+                hypothesis=hypothesis.get("reason", "Generated hypothesis"),
+                change_description=f"Added feature: {hypothesis.get('name')} via formula {hypothesis.get('formula')}",
                 model_name="XGBClassifier",
-                feature_set=[hyp.get("name")] if hyp.get("name") else [],
+                feature_set=[hypothesis.get("name")] if hypothesis.get("name") else [],
                 parameters={
                     "target_column": target_column,
-                    "feature_name": hyp.get("name"),
-                    "formula": hyp.get("formula")
+                    "feature_name": hypothesis.get("name"),
+                    "formula": hypothesis.get("formula")
                 }
             ))
-            exp_pairs.append((eid, hyp))
 
-            # 3. Run all experiments in parallel
-            sem = asyncio.Semaphore(max_workers)
+            # Run experiment
+            runner = ExperimentService(None)
+            await runner.run_experiment_background(eid)
+            result_metrics = await get_experiment_metrics(eid)
+            result_f1 = result_metrics.get("f1", 0.0)
 
-        # 4. Run all experiments in parallel — each in its own isolated session
-        sem = asyncio.Semaphore(max_workers)
+            feature_name = hypothesis.get("name", "unknown")
+            formula = hypothesis.get("formula", "unknown")
 
-        async def run_and_evaluate(exp_id: str, hypothesis: dict) -> dict:
-            async with sem:
-                runner = ExperimentService(None)  # self-manages session
-                await runner.run_experiment_background(exp_id)
-                result_metrics = await get_experiment_metrics(exp_id)
-                result_f1 = result_metrics.get("f1", 0.0)
+            prompt = (
+                f"Given baseline F1 of {baseline_f1} and this experiment got F1 of {result_f1}, "
+                f"feature: {feature_name}, formula: {formula}, should we keep this feature? "
+                'Reply with JSON: {"decision": "keep"|"reject", "reason": "str"}'
+            )
 
-                feature_name = hypothesis.get("name", "unknown")
-                formula = hypothesis.get("formula", "unknown")
-
-                prompt = (
-                    f"Given baseline F1 of {baseline_f1} and this experiment got F1 of {result_f1}, "
-                    f"feature: {feature_name}, formula: {formula}, should we keep this feature? "
-                    'Reply with JSON: {"decision": "keep"|"reject", "reason": "str"}'
+            try:
+                decision_str = await self.gateway.complete(
+                    task_type=TaskType.DECIDE,
+                    prompt=prompt,
+                    system="You are an expert ML evaluator. Provide only raw valid JSON output."
                 )
-
-                try:
-                    decision_str = await self.gateway.complete(
-                        task_type=TaskType.DECIDE,
-                        prompt=prompt,
-                        system="You are an expert ML evaluator. Provide only raw valid JSON output."
-                    )
-                    decision_str_clean = re.sub(r'```json|```', '', decision_str).strip()
-                    decision_data = json.loads(decision_str_clean)
-                except Exception as e:
-                    logger.error(f"Decision AI failed: {e}")
-                    decision_data = {
-                        "decision": "keep" if result_f1 > baseline_f1 else "reject",
-                        "reason": f"Fallback decision (AI failed): {e}"
-                    }
-
-                return {
-                    "id": exp_id,
-                    "feature_name": feature_name,
-                    "formula": formula,
-                    "f1": result_f1,
-                    "decision": decision_data.get("decision", "reject"),
-                    "reason": decision_data.get("reason", "")
+                decision_str_clean = re.sub(r'```json|```', '', decision_str).strip()
+                decision_data = json.loads(decision_str_clean)
+            except Exception as e:
+                logger.error(f"Decision AI failed: {e}")
+                decision_data = {
+                    "decision": "keep" if result_f1 > baseline_f1 else "reject",
+                    "reason": f"Fallback decision (AI failed): {e}"
                 }
 
-        results = await asyncio.gather(*(run_and_evaluate(e_id, h) for e_id, h in exp_pairs))
+            result_info = {
+                "id": eid,
+                "feature_name": feature_name,
+                "formula": formula,
+                "f1": result_f1,
+                "decision": decision_data.get("decision", "reject"),
+                "reason": decision_data.get("reason", "")
+            }
+            
+            experiments_info.append(result_info)
+            history.append(result_info)
 
-        # 5. Evaluate results and summarize
-        winner_features = []
-        best_f1 = baseline_f1
-
-        for res in results:
-            experiments_info.append(res)
-            if res["decision"] == "keep":
-                winner_features.append(res["feature_name"])
-            if res["f1"] > best_f1:
-                best_f1 = res["f1"]
+            if result_info["decision"] == "keep":
+                winner_features.append(result_info["feature_name"])
+            if result_info["f1"] > best_f1:
+                best_f1 = result_info["f1"]
 
         summary = (
-            f"Tested {len(results)} features. Baseline F1: {baseline_f1:.4f}. "
+            f"Tested {len(experiments_info)} features. Baseline F1: {baseline_f1:.4f}. "
             f"Best F1: {best_f1:.4f}. Winners: {', '.join(winner_features) if winner_features else 'None'}."
         )
 

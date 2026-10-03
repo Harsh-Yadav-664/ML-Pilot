@@ -81,6 +81,9 @@ The first release targets CSV-based tabular binary classification, multiclass cl
 
 Do not lead with “AI builds the best model automatically” or “all-in-one AutoML.” The product should be differentiated by the quality and transparency of its experiment loop, not by claiming every underlying ML component is novel.
 
+- **Primary goal:** Solve something inside the ML workflow that other tools genuinely don't solve, or that users didn't realize could be solved — the target reaction is *"this fixes something nobody else fixed,"* not *"this is a cheaper DataRobot."*
+- **Backup floor, not the main target:** If the primary goal doesn't fully land, fall back to being an equally-or-more-efficient alternative to costly incumbents, at better pricing and speed, easy to integrate.
+
 ### Differentiator A — Hypothesis-led experiments
 
 Every agent-proposed experiment must state:
@@ -579,6 +582,14 @@ Before building billing or enterprise features:
 4. Record which tasks they repeat and where they get stuck.
 5. Interview potential users about local versus hosted execution and willingness to pay.
 6. Prioritize only validated recurring needs.
+
+### Trust-building tactics for adoption
+
+- **Public reproducible benchmark suite:** Compare 10–15 well-known Kaggle/OpenML datasets against human baselines or tools like AutoGluon/H2O. Publish this as early as possible to provide a high-leverage proof artifact.
+- **ROI metric inside completed runs:** Display something like, "This would take ~N hours manually; this run took M minutes." This direct ROI visibility turns trials into conversions.
+- **Shareable, team-visible experiment graph:** Ensure experiments can be viewed by a team, turning a single-player tool into a team seat license.
+- **On-prem/VPC-deployable Docker image:** Support "your data never leaves your environment", which is a hard gate for orgs handling customer data.
+- **Infrastructure Integrations:** Plug into existing infrastructure (e.g., read-only SQL from data warehouses, MLflow/W&B export) rather than forcing full migration into MLPilot's UI.
 
 ---
 

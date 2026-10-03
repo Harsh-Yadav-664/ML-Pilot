@@ -139,3 +139,78 @@ class LeakageDetector:
                             )
                         )
         return warnings
+
+    def detect_missingness_leakage(
+        self, df: pd.DataFrame, target_column: str
+    ) -> list[LeakageWarning]:
+        """Detect columns where missingness strongly correlates with the target."""
+        warnings: list[LeakageWarning] = []
+        if target_column not in df.columns:
+            return warnings
+            
+        target = df[target_column]
+        for col in df.columns:
+            if col == target_column:
+                continue
+            
+            missing_mask = df[col].isna()
+            if missing_mask.any() and not missing_mask.all():
+                if pd.api.types.is_numeric_dtype(target):
+                    try:
+                        mean_missing = target[missing_mask].mean()
+                        mean_present = target[~missing_mask].mean()
+                        if abs(mean_missing - mean_present) > target.std():
+                            warnings.append(
+                                LeakageWarning(
+                                    column=col,
+                                    leakage_type="missingness",
+                                    severity="high",
+                                    reason=f"Column '{col}' missingness correlates with target — possible missingness leakage.",
+                                    suggested_action=f"Ensure missing values in '{col}' don't directly encode the target.",
+                                )
+                            )
+                    except Exception:
+                        pass
+        return warnings
+
+    def detect_contamination_leakage(
+        self, df: pd.DataFrame, target_column: str
+    ) -> list[LeakageWarning]:
+        """Detect columns that might contain whole-file statistics (train/test contamination)."""
+        warnings: list[LeakageWarning] = []
+        kw = ("mean", "avg", "min", "max", "sum", "std", "var")
+        for col in df.columns:
+            if col == target_column:
+                continue
+            if any(k in col.lower() for k in kw):
+                warnings.append(
+                    LeakageWarning(
+                        column=col,
+                        leakage_type="contamination",
+                        severity="medium",
+                        reason=f"Column '{col}' name suggests it might be a whole-file statistic.",
+                        suggested_action="Ensure statistics are computed only on the training fold.",
+                    )
+                )
+        return warnings
+
+    def detect_aggregate_leakage(
+        self, df: pd.DataFrame, target_column: str
+    ) -> list[LeakageWarning]:
+        """Detect columns that might contain group-level statistics (aggregate leakage)."""
+        warnings: list[LeakageWarning] = []
+        kw = ("count", "freq", "ratio", "prop")
+        for col in df.columns:
+            if col == target_column:
+                continue
+            if any(k in col.lower() for k in kw):
+                warnings.append(
+                    LeakageWarning(
+                        column=col,
+                        leakage_type="aggregate",
+                        severity="medium",
+                        reason=f"Column '{col}' name suggests it might be a group-level aggregate.",
+                        suggested_action="Ensure aggregates are computed only on the training fold.",
+                    )
+                )
+        return warnings

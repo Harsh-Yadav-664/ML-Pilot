@@ -16,23 +16,23 @@ class ExperimentPlanner:
     def __init__(self, ai_gateway: AIGateway):
         self.gateway = ai_gateway
 
-    async def generate_hypotheses(
+    async def generate_next_hypothesis(
         self,
         profile: ProfileResult,
         target_column: str,
         objective: str,
-        max_hypotheses: int = 3,
-    ) -> list[dict[str, Any]]:
-        """Generate a list of feature engineering hypotheses.
+        history: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Generate a single, non-redundant feature engineering hypothesis based on history.
 
         Args:
             profile: Deterministic data profile from DataProfiler.
             target_column: The target variable to predict.
             objective: User-provided goal (e.g., "Maximize recall for churn").
-            max_hypotheses: Maximum number of ideas to generate.
+            history: List of previous experiment results (feature name, formula, F1 score).
 
         Returns:
-            List of dictionaries matching the hypothesis schema.
+            A dictionary matching the hypothesis schema.
         """
         # Convert ProfileResult to JSON-friendly string, excluding massive lists if any
         profile_dict = asdict(profile)
@@ -63,36 +63,31 @@ Given the following dataset profile:
 Target Column: {target_column}
 Objective: {objective}
 
-Propose up to {max_hypotheses} distinct feature engineering hypotheses.
-Each hypothesis must explain what new feature to create, the logic/formula, why it helps the objective, and potential data leakage risks.
+History of previous experiments:
+{json.dumps(history, indent=2)}
+
+Propose exactly 1 next distinct feature engineering hypothesis. 
+It must be non-redundant given the history of what has already been tried and their outcomes.
+Explain what new feature to create, the logic/formula, why it helps, potential leakage risks, and explicitly state why it's non-redundant given the history.
         """
 
-        # JSON schema for the list of hypotheses
+        # JSON schema for a single hypothesis
         schema = {
             "type": "object",
             "properties": {
-                "hypotheses": {
+                "name": {"type": "string", "description": "Name of the new feature (e.g. 'days_since_last_purchase')"},
+                "formula": {"type": "string", "description": "High-level formula or logic (e.g. 'current_date - last_purchase_date')"},
+                "reason": {"type": "string", "description": "Why this helps the model achieve the objective"},
+                "non_redundant_reasoning": {"type": "string", "description": "Explicit reason why this is non-redundant given the history"},
+                "risk": {"type": "string", "description": "Potential leakage or missing data risks"},
+                "required_columns": {
                     "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string", "description": "Name of the new feature (e.g. 'days_since_last_purchase')"},
-                            "formula": {"type": "string", "description": "High-level formula or logic (e.g. 'current_date - last_purchase_date')"},
-                            "reason": {"type": "string", "description": "Why this helps the model achieve the objective"},
-                            "risk": {"type": "string", "description": "Potential leakage or missing data risks"},
-                            "required_columns": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Existing columns required for this feature"
-                            },
-                            "availability_assumption": {"type": "string", "description": "Assumption about data availability at prediction time"}
-                        },
-                        "required": ["name", "formula", "reason", "risk", "required_columns", "availability_assumption"],
-                        "additionalProperties": False
-                    }
-                }
+                    "items": {"type": "string"},
+                    "description": "Existing columns required for this feature"
+                },
+                "availability_assumption": {"type": "string", "description": "Assumption about data availability at prediction time"}
             },
-            "required": ["hypotheses"],
+            "required": ["name", "formula", "reason", "non_redundant_reasoning", "risk", "required_columns", "availability_assumption"],
             "additionalProperties": False
         }
 
@@ -104,4 +99,4 @@ Each hypothesis must explain what new feature to create, the logic/formula, why 
             system=system_prompt,
         )
 
-        return response.get("hypotheses", [])
+        return response

@@ -54,6 +54,4 @@ python start.py
 ---
 
 ## 📈 Future Milestones (Where this goes next)
-1. **Auto-Ensembling:** Combining XGBoost with LightGBM and Random Forest and letting them "vote" for a 2-5% accuracy boost.
-2. **Hyperparameter Tuning:** Integrating Optuna to automatically find the perfect tree depth and learning rate.
-3. **DataClean Pipelines:** Integrating a data quality pipeline to auto-fix missing values before the AI even sees it.
+<!-- Add new milestones here -->

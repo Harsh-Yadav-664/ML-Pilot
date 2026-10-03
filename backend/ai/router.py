@@ -19,6 +19,7 @@ class TaskType(str, Enum):
 # Provider preference order per task type: list of (provider_name, model_name)
 # Earlier entries are preferred. Gateway falls back through this list.
 TASK_ROUTING_TABLE: dict[TaskType, list[tuple[str, str]]] = {
+    # ROUTINE TASKS (Cheapest/Fastest First)
     TaskType.FORMAT: [
         ("groq", "qwen/qwen3.8-27b"),
         ("gemini", "gemini-flash-latest"),
@@ -31,38 +32,35 @@ TASK_ROUTING_TABLE: dict[TaskType, list[tuple[str, str]]] = {
         ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
-    TaskType.HYPOTHESIZE: [
-        ("groq", "openai/gpt-oss-120b"),
-        ("gemini", "gemini-pro-latest"),
-        ("gemini", "gemini-flash-latest"),
-        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
-        ("stub", "stub-default"),
-    ],
-    TaskType.ANALYZE: [
-        ("groq", "openai/gpt-oss-120b"),
-        ("gemini", "gemini-pro-latest"),
-        ("gemini", "gemini-flash-latest"),
-        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
-        ("stub", "stub-default"),
-    ],
-    TaskType.SYNTHESIZE: [
-        ("groq", "openai/gpt-oss-120b"),
-        ("gemini", "gemini-pro-latest"),
-        ("gemini", "gemini-flash-latest"),
-        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
-        ("stub", "stub-default"),
-    ],
     TaskType.REPORT: [
         ("groq", "qwen/qwen3.8-27b"),
         ("gemini", "gemini-flash-latest"),
         ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
         ("stub", "stub-default"),
     ],
-    TaskType.DECIDE: [
-        ("groq", "openai/gpt-oss-120b"),
+    # HIGH-STAKES TASKS (Strongest First)
+    TaskType.HYPOTHESIZE: [
         ("gemini", "gemini-pro-latest"),
-        ("gemini", "gemini-flash-latest"),
         ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
+        ("groq", "openai/gpt-oss-120b"),
+        ("stub", "stub-default"),
+    ],
+    TaskType.ANALYZE: [
+        ("gemini", "gemini-pro-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
+        ("groq", "openai/gpt-oss-120b"),
+        ("stub", "stub-default"),
+    ],
+    TaskType.SYNTHESIZE: [
+        ("gemini", "gemini-pro-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
+        ("groq", "openai/gpt-oss-120b"),
+        ("stub", "stub-default"),
+    ],
+    TaskType.DECIDE: [
+        ("gemini", "gemini-pro-latest"),
+        ("nvidia_nim", "meta/llama-3.1-nemotron-70b-instruct"),
+        ("groq", "openai/gpt-oss-120b"),
         ("stub", "stub-default"),
     ],
 }

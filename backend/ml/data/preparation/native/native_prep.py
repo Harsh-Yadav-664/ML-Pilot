@@ -86,6 +86,9 @@ class NativeDataPreparationProvider(DataPreparationProvider):
         warnings.extend(self._leakage_detector.detect_timestamp_leakage(df, target_column))
         warnings.extend(self._leakage_detector.detect_entity_leakage(df, target_column))
         warnings.extend(self._leakage_detector.detect_preprocessing_leakage(df, target_column))
+        warnings.extend(self._leakage_detector.detect_missingness_leakage(df, target_column))
+        warnings.extend(self._leakage_detector.detect_contamination_leakage(df, target_column))
+        warnings.extend(self._leakage_detector.detect_aggregate_leakage(df, target_column))
         return warnings
 
     def prepare(self, df: pd.DataFrame, config: dict[str, Any]) -> tuple[pd.DataFrame, Any]:

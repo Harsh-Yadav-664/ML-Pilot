@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import asyncio
 import pandas as pd
+import ast
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -69,10 +70,36 @@ class LocalExperimentExecutor(ExperimentRunner):
             feature_name = spec.parameters.get("feature_name")
             formula = spec.parameters.get("formula")
             if feature_name and formula:
+                def _safe_eval(node):
+                    if isinstance(node, ast.Expression):
+                        return _safe_eval(node.body)
+                    elif isinstance(node, ast.Constant):
+                        return node.value
+                    elif isinstance(node, ast.Name):
+                        if node.id in df.columns:
+                            return df[node.id]
+                        raise ValueError(f"Column '{node.id}' not found")
+                    elif isinstance(node, ast.BinOp):
+                        left = _safe_eval(node.left)
+                        right = _safe_eval(node.right)
+                        if isinstance(node.op, ast.Add): return left + right
+                        elif isinstance(node.op, ast.Sub): return left - right
+                        elif isinstance(node.op, ast.Mult): return left * right
+                        elif isinstance(node.op, ast.Div): return left / right
+                        elif isinstance(node.op, ast.Pow): return left ** right
+                        raise ValueError(f"Unsupported op: {type(node.op)}")
+                    elif isinstance(node, ast.UnaryOp):
+                        operand = _safe_eval(node.operand)
+                        if isinstance(node.op, ast.USub): return -operand
+                        elif isinstance(node.op, ast.UAdd): return +operand
+                        raise ValueError(f"Unsupported unary: {type(node.op)}")
+                    raise ValueError(f"Unsupported node: {type(node)}")
+
                 try:
-                    df[feature_name] = df.eval(formula)
+                    tree = ast.parse(formula, mode='eval')
+                    df[feature_name] = _safe_eval(tree)
                 except Exception:
-                    # MVP: if pandas eval fails due to syntax, fallback to 0 so pipeline completes
+                    # MVP: if safe eval fails due to syntax or unsupported node, fallback to 0
                     df[feature_name] = 0
 
             y = df[target_col]
