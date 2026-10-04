@@ -26,7 +26,9 @@ router = APIRouter(prefix="/ui", tags=["ui-adapter"])
 # For MVP, default if not provided
 DEMO_PROJECT_ID = "demo-project-id"
 UPLOAD_DIR = "uploads"
+DATASETS_DIR = "datasets"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(DATASETS_DIR, exist_ok=True)
 
 from pydantic import BaseModel
 
@@ -59,6 +61,37 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to parse uploaded CSV: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {e}")
+
+class SampleDataRequest(BaseModel):
+    dataset_name: str = "telecom_churn"
+
+@router.post("/data/sample")
+async def load_sample_dataset(request: SampleDataRequest) -> dict[str, Any]:
+    """Load a pre-bundled sample dataset."""
+    filename = f"{request.dataset_name}.csv"
+    source_path = os.path.join(DATASETS_DIR, filename)
+    
+    if not os.path.exists(source_path):
+        raise HTTPException(status_code=404, detail="Sample dataset not found")
+        
+    try:
+        loader = CsvLoader()
+        df = loader.load(source_path)
+        columns = df.columns.tolist()
+        
+        # Pre-select a likely target for the UI to be helpful
+        default_target = "Churn" if "Churn" in columns else (columns[-1] if columns else "")
+        
+        return {
+            "dataset_path": source_path,
+            "filename": filename,
+            "columns": columns,
+            "total_rows": len(df),
+            "default_target": default_target
+        }
+    except Exception as e:
+        logger.error(f"Failed to load sample data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load sample data: {str(e)}")
 
 @router.post("/data/connect-sql")
 async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
