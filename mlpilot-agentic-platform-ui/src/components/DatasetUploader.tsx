@@ -58,6 +58,25 @@ export function DatasetUploader({ onSuccess, onCancel }: DatasetUploaderProps) {
     }
   };
 
+  const handleTryDemo = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.post('/ui/data/sample', {
+        dataset_name: 'telecom_churn'
+      });
+      setDatasetPath(res.data.dataset_path);
+      setColumns(res.data.columns);
+      if (res.data.default_target) {
+        setTargetColumn(res.data.default_target);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load demo dataset');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleConfirm = async () => {
     if (datasetPath && targetColumn) {
       setLoading(true);
@@ -157,6 +176,16 @@ export function DatasetUploader({ onSuccess, onCancel }: DatasetUploaderProps) {
               </div>
             )}
             
+            <div className="flex items-center justify-center pt-2">
+              <button 
+                onClick={handleTryDemo}
+                disabled={loading}
+                className="text-xs text-zinc-500 hover:text-emerald-400 transition-colors"
+              >
+                Or try it with sample data (Telecom Churn)
+              </button>
+            </div>
+
             {error && <p className="text-sm text-red-400">{error}</p>}
           </div>
         ) : (

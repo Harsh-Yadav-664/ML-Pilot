@@ -104,7 +104,8 @@ A separate document (`MLPilot-ui-requirements.md`) covers the visual brief for a
 
 ## 6. Landing / Pre-Upload Experience — functional requirement (visual brief is separate)
 
-- [ ] A "try it with sample data" path that runs a real demo using a bundled sample dataset, with no upload required — this needs a real backend endpoint/flow, not just a UI mockup. Visual treatment is specified in `MLPilot-ui-requirements.md`; this line item is the functional backend support that brief assumes exists.
+- [x] A "try it with sample data" path that runs a real demo using a bundled sample dataset, with no upload required — this needs a real backend endpoint/flow, not just a UI mockup. Visual treatment is specified in `MLPilot-ui-requirements.md`; this line item is the functional backend support that brief assumes exists.
+  - Verified: Created `backend/datasets/` and downloaded `telecom_churn.csv`. Built `POST /ui/data/sample` to load it and optionally auto-select the target column. Wired up the frontend `DatasetUploader.tsx` with a "Try it with sample data" button.
 
 ---
 
