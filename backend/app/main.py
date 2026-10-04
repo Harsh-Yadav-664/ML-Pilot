@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger
 from app.db.session import create_all_tables
-from app.api.v1 import projects, datasets, experiments, hypotheses, models, reports, ui
+from app.api.v1 import projects, datasets, experiments, hypotheses, models, reports, ui, chat
 
 setup_logging(settings.LOG_LEVEL)
 logger = get_logger(__name__)
@@ -52,6 +52,7 @@ app.include_router(hypotheses.router, prefix=API_PREFIX)
 app.include_router(models.router, prefix=API_PREFIX)
 app.include_router(reports.router, prefix=API_PREFIX)
 app.include_router(ui.router, prefix=API_PREFIX)
+app.include_router(chat.router, prefix=API_PREFIX)
 
 
 # Health
