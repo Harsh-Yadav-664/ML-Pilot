@@ -1,59 +1,91 @@
-# MLPilot 🚀
+# MLPilot
 
-An **Agentic MLOps Platform** designed to automate the boring 80% of data science (Data Profiling, Feature Engineering, and Baseline Modeling) while leaving the human in total control. MLPilot marries the creative reasoning of LLMs with the deterministic mathematical execution of Scikit-Learn and XGBoost.
-
----
-
-## 💡 What is the Business Value? (Why build this?)
-Traditional AutoML tools (like DataRobot or H2O.ai) are massively expensive "Black Boxes." You upload data, they test 10,000 combinations using brute-force compute, and spit out a model. If a bank denies a loan using that model, they can't legally explain *why*. 
-
-**MLPilot is different. It is a "White-box Agentic Workflow."**
-1. **Intelligent Ideation, not Brute Force:** Instead of testing 10,000 random math formulas, we pass the dataset *metadata* to an LLM. The LLM reads the column names (e.g. `TicketPrice` and `Age`) and intelligently suggests exactly 3 highly-logical feature ideas (e.g., `Wealth_Index`). 
-2. **Transparent Execution:** The LLM does *no math*. It simply writes a JSON blueprint. The backend Python engine parses the blueprint, applies the Scikit-Learn transformations, and trains an XGBoost model.
-3. **Auditability:** The human data scientist sees the LLM's logic, approves the experiment, and has the exact Python logic on hand for legal compliance.
+**The ML experiment loop — without the chaos.**
 
 ---
 
-## 🧠 Core ML Concepts (For Beginners / Interview Prep)
+## The Problem
 
-If you haven't touched ML in a while, here is your cheat sheet for this codebase:
+Data scientists spend most of their time on work that doesn't require expertise: running random model variants, hunting for why a model's score is suspiciously perfect, figuring out whether a feature from last week was actually worth keeping. There's no record of what was tried, why it was tried, or what the results actually showed.
 
-* **Target Leakage:** The deadliest bug in ML. It happens when your training data includes a column that allows the model to "cheat" because it wouldn't exist in the real world. (e.g., trying to predict who survived the Titanic, but accidentally leaving a column called `Lifeboat_Number` in the data. The model just learns "If they have a lifeboat, they survive!"). **MLPilot automatically scans for this and flags it.**
-* **Baseline Model:** The absolute simplest model you can train (no feature engineering) to establish a "floor" score that we must try to beat.
-* **Feature Engineering:** Creating new mathematical columns out of old ones (e.g., `SibSp` + `Parch` = `Family_Size`).
-* **F1 Score:** Our primary metric. Accuracy is misleading (e.g., if 99% of transactions are legit, a model that guesses "legit" every time is 99% accurate but catches 0 fraud). F1 balances Precision (when I say fraud, is it fraud?) and Recall (did I catch all the fraud?).
-* **XGBoost:** The undisputed king of tabular (spreadsheet) data. It builds a sequence of decision trees where each tree tries to fix the mistakes of the previous one. We use this as our core engine.
+Most ML projects end with a model and no story — just a notebook with 30 cells and no commit history.
 
 ---
 
-## 🛠️ Architecture: The "Brain vs Muscle" Pattern
+## What MLPilot Does
 
-**1. The Brain (AI Gateway)** 🧠
-* Stored in `backend/ai/`. We use a smart `TaskRouter` that maps different tasks to the best LLMs.
-* *Current Priority Chain:* Groq (`qwen`/`gpt-oss`) -> Gemini (`flash`) -> NVIDIA NIM (`nemotron`).
-* It strictly outputs JSON.
+MLPilot runs a structured experiment loop on tabular data:
 
-**2. The Muscle (ML Engine)** 💪
-* Stored in `backend/ml/`. 
-* Uses `asyncio.to_thread` to ensure that heavy XGBoost training never blocks the FastAPI server loop.
+1. **Profile the dataset** — dimensions, types, missingness, class balance, and a six-category leakage scan with a specific reason per flag.
+2. **Establish a deterministic baseline** — reproducible, no hidden preprocessing.
+3. **Propose one experiment at a time** — the agent reads the full history of what's already been tried and proposes a single, non-redundant next experiment, with an explicit reason it's not repeating prior work.
+4. **Execute safely** — the LLM proposes; deterministic Python validates and runs. No LLM-generated code ever executes on the host.
+5. **Record everything** — hypothesis, change, results, decision, and rationale are stored against every run.
+6. **Recommend what's next** — grounded in the accumulated evidence, not a fresh guess each time.
 
 ---
 
-## 🚀 How to Run (Quick Start)
+## What Makes This Different
 
-We have a unified start script to launch both the backend and frontend simultaneously:
+**Sequential agentic reasoning, not brute-force search.**
+The experiment agent does not generate N hypotheses up front and test them in parallel. It reads the outcome of each run before proposing the next one. This means recommendations are actually conditioned on evidence, and redundant experiments are explicitly prevented.
+
+**Categorized leakage detection.**
+Six distinct categories — target, missingness, train/test contamination, temporal, preprocessing, and aggregate — each flagged separately with its own evidence. Not a single generic "leakage warning."
+
+**The LLM proposes; code validates and executes. Hard boundary.**
+No LLM-generated Python or shell commands execute on the host. Formula evaluation uses a safe AST parser restricted to arithmetic over actual DataFrame columns. This is auditable and explainable — which matters if someone asks why a feature was included.
+
+**Reproducible by default.**
+Every completed experiment can be reconstructed from its stored configuration. Exported training scripts reproduce the reported result.
+
+**Direct read-only SQL connection.**
+Connect directly to a data warehouse via read-only query instead of forcing a CSV export step, matching how real ML pipelines ingest data.
+
+---
+
+## How to Run
+
+From the repo root:
 
 ```bash
 python start.py
 ```
 
-* **Frontend:** http://localhost:5173
-* **Backend API:** http://localhost:8000
-* **API Keys:** Add them to `backend/.env`. If an API key rate-limits, the system safely falls back to the `StubProvider` (offline mode).
+On Windows PowerShell (handles emoji encoding):
+
+```powershell
+$env:PYTHONIOENCODING="utf-8"; python start.py
+```
+
+- **Frontend:** http://localhost:5173
+- **Backend API:** http://localhost:8000
+- **API Keys:** Add to `backend/.env`. The system falls back to `StubProvider` (offline mode) if no key is available.
 
 ---
 
-## 📈 Future Milestones (Where this goes next)
-1. **Auto-Ensembling:** Combining XGBoost with LightGBM and Random Forest and letting them "vote" for a 2-5% accuracy boost.
-2. **Hyperparameter Tuning:** Integrating Optuna to automatically find the perfect tree depth and learning rate.
-3. **DataClean Pipelines:** Integrating a data quality pipeline to auto-fix missing values before the AI even sees it.
+## Architecture
+
+```
+React / TypeScript UI  (mlpilot-agentic-platform-ui/)
+        |
+FastAPI backend  (backend/)
+        |
+   ┌────┴────┐
+AI Gateway   ML Engine
+   |              |
+TaskRouter    Safe Runner
+(availability    (AST eval,
+ + complexity     sklearn
+ tiering)         pipelines)
+```
+
+- **`backend/ai/`** — AI gateway with two routing dimensions: availability fallback (Groq → Gemini → NVIDIA NIM → Stub) and complexity tiering (cheap/fast for formatting; strongest available for high-stakes decisions like dropping a column or declaring a model worthless).
+- **`backend/ml/`** — experiment executor, leakage detector, data profiler, and preparation pipeline.
+- **`docs/`** — architecture, experiment schema, and interface references.
+
+---
+
+## Project Status
+
+Core loop is implemented and working: baseline, sequential hypothesis-driven experiments, leakage detection, and reproducible export. See [`MLPilot — Master Build Checklist.md`](MLPilot%20—%20Master%20Build%20Checklist.md) for what is verified complete and what is still open.

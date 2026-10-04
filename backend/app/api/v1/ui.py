@@ -13,6 +13,7 @@ from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate, ExperimentRead
 from app.services.experiment_service import ExperimentService
 from ml.data.ingestion.csv_loader import CsvLoader
+from ml.data.ingestion.sql_loader import SqlLoader
 from ml.data.profiling.profiler import DataProfiler
 from ml.data.preparation.native.native_prep import NativeDataPreparationProvider
 from ml.agents.decision_agent import DecisionAgent
@@ -26,6 +27,12 @@ router = APIRouter(prefix="/ui", tags=["ui-adapter"])
 DEMO_PROJECT_ID = "demo-project-id"
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+from pydantic import BaseModel
+
+class SqlConnectRequest(BaseModel):
+    connection_string: str
+    query: str
 
 @router.post("/data/upload")
 async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
@@ -52,6 +59,29 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to parse uploaded CSV: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {e}")
+
+@router.post("/data/connect-sql")
+async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
+    """Connect to a SQL database and extract a dataset."""
+    try:
+        loader = SqlLoader()
+        df = loader.load(request.connection_string, request.query)
+        columns = df.columns.tolist()
+        
+        # Save snapshot to disk so the rest of the file-based pipeline works identically
+        file_id = loader.hash_connection(request.connection_string, request.query)
+        file_path = os.path.join(UPLOAD_DIR, f"sql_{file_id}.csv")
+        df.to_csv(file_path, index=False)
+        
+        return {
+            "dataset_path": file_path,
+            "filename": f"SQL Query Snapshot ({file_id})",
+            "columns": columns,
+            "total_rows": len(df)
+        }
+    except Exception as e:
+        logger.error(f"Failed to connect and query SQL: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to connect and query SQL: {str(e)}")
 
 
 @router.get("/data/metrics")
@@ -307,6 +337,8 @@ from sklearn.compose import ColumnTransformer
 
 # Install dependencies if needed: pip install scikit-learn pandas xgboost lightgbm
 
+import ast
+
 def load_and_prepare_data():
     df = pd.read_csv("{exp.dataset_version}")
     
@@ -314,7 +346,36 @@ def load_and_prepare_data():
     feature_name = "{exp.parameters.get('feature_name', '')}"
     formula = "{exp.parameters.get('formula', '')}"
     if feature_name and formula:
-        df[feature_name] = df.eval(formula)
+        def _safe_eval(node):
+            if isinstance(node, ast.Expression):
+                return _safe_eval(node.body)
+            elif isinstance(node, ast.Constant):
+                return node.value
+            elif isinstance(node, ast.Name):
+                if node.id in df.columns:
+                    return df[node.id]
+                raise ValueError(f"Column '{{node.id}}' not found")
+            elif isinstance(node, ast.BinOp):
+                left = _safe_eval(node.left)
+                right = _safe_eval(node.right)
+                if isinstance(node.op, ast.Add): return left + right
+                elif isinstance(node.op, ast.Sub): return left - right
+                elif isinstance(node.op, ast.Mult): return left * right
+                elif isinstance(node.op, ast.Div): return left / right
+                elif isinstance(node.op, ast.Pow): return left ** right
+                raise ValueError(f"Unsupported op: {{type(node.op)}}")
+            elif isinstance(node, ast.UnaryOp):
+                operand = _safe_eval(node.operand)
+                if isinstance(node.op, ast.USub): return -operand
+                elif isinstance(node.op, ast.UAdd): return +operand
+                raise ValueError(f"Unsupported unary: {{type(node.op)}}")
+            raise ValueError(f"Unsupported node: {{type(node)}}")
+            
+        try:
+            tree = ast.parse(formula, mode='eval')
+            df[feature_name] = _safe_eval(tree)
+        except Exception:
+            df[feature_name] = 0
         
     y = df["{exp.parameters.get('target_column', 'target')}"]
     X = df.drop(columns=["{exp.parameters.get('target_column', 'target')}"])
