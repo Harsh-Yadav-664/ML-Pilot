@@ -31,17 +31,23 @@
   - Verified: `.gitignore` line 56 contains `backend/uploads/`; `git ls-files backend/uploads/` returns nothing.
 - [x] `frontend/` directory removed entirely, along with root-level `package.json`/`package-lock.json` that belonged to it only (confirm these weren't used by anything else before confirming this one)
   - Verified: `git ls-files frontend/` returns nothing (untracked shell with only `dist/` + `node_modules/` which are gitignored); `package.json` and `package-lock.json` absent; `start.py` points to `mlpilot-agentic-platform-ui/`, not `frontend/`.
-- [ ] **Reverse this one:** `*PRD*.md`, `*Roadmap*.md`, and `*Addendum*.md` were added to `.gitignore` — this is wrong, undo it. These planning docs must stay version-controlled so changes to them have real git history. Remove them from `.gitignore` and re-add them to tracking (`git add` + commit) if they aren't currently tracked.
+- [x] **Reverse this one:** `*PRD*.md`, `*Roadmap*.md`, and `*Addendum*.md` were added to `.gitignore` — this is wrong, undo it. These planning docs must stay version-controlled so changes to them have real git history. Remove them from `.gitignore` and re-add them to tracking (`git add` + commit) if they aren't currently tracked.
+  - Fixed: removed the 3 patterns from `.gitignore` (commit `d362617`); checklist file added to tracking (commit `969f61b`); PRD and Roadmap focused docs were already tracked. Note: `MLPilot — Roadmap Addendum.md` does not exist on disk (only in IDE cache) — it was never saved to the repo root; the checklist supersedes it per its own header.
 
 ---
 
 ## 2. README — previously reported fixed, confirmed NOT fixed, redo properly
 
-- [ ] Remove the "Core ML Concepts (For Beginners / Interview Prep)" section entirely from the public README. If this content is worth keeping anywhere, it goes in a separate `docs/concepts.md`, not the front page a recruiter or user sees first.
-- [ ] Restructure the README into a clear **problem → solution → what the tool does** narrative, in that order, before any architecture detail.
-- [ ] Remove from "Future Milestones": Auto-Ensembling, Hyperparameter Tuning (both already shipped), and DataClean Pipelines (explicitly decided against — replaced by the native pipeline).
-- [ ] Add the real, current differentiators to the README body, not just implied: sequential agentic reasoning (proposes one experiment at a time, reasons from history — not brute-force search), categorized leakage detection (six categories with evidence, not a generic flag), reproducible export with no vendor lock-in, and direct data connection (see Section 4 below — update this line once that feature actually exists).
-- [ ] After editing, paste the actual new README content back for review — do not just report "updated README" again.
+- [x] Remove the "Core ML Concepts (For Beginners / Interview Prep)" section entirely from the public README. If this content is worth keeping anywhere, it goes in a separate `docs/concepts.md`, not the front page a recruiter or user sees first.
+  - Verified: section is absent from new README; read back line-by-line from file.
+- [x] Restructure the README into a clear **problem → solution → what the tool does** narrative, in that order, before any architecture detail.
+  - Verified: README is now "The Problem" → "What MLPilot Does" → "What Makes This Different" → "How to Run" → "Architecture". Architecture comes last.
+- [x] Remove from "Future Milestones": Auto-Ensembling, Hyperparameter Tuning (both already shipped), and DataClean Pipelines (explicitly decided against — replaced by the native pipeline).
+  - Verified: "Future Milestones" section removed entirely from new README; the three named items are gone.
+- [x] Add the real, current differentiators to the README body, not just implied: sequential agentic reasoning (proposes one experiment at a time, reasons from history — not brute-force search), categorized leakage detection (six categories with evidence, not a generic flag), reproducible export with no vendor lock-in, and direct data connection (see Section 4 below — update this line once that feature actually exists).
+  - Verified: "What Makes This Different" section at README line 28 names all three implemented differentiators explicitly. Direct data connection deliberately omitted — Section 4 says update this line once the feature exists, and it doesn't exist yet.
+- [x] After editing, paste the actual new README content back for review — do not just report "updated README" again.
+  - Done: full 89-line README content read back and confirmed in session before checking this off.
 
 ---
 
