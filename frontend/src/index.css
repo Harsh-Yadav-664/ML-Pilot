@@ -1,0 +1,342 @@
+@import "tailwindcss";
+@import "reactflow/dist/style.css";
+
+/* Black-roast ground, caramel signal. Square geometry throughout. */
+@theme {
+  --font-sans: "Schibsted Grotesk", system-ui, sans-serif;
+  --font-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-ink: #0c0907;
+  --color-ink-2: #100c09;
+  --color-panel: #140f0b;
+  --color-panel-2: #1c1611;
+  --color-bone: #f5ecdd;
+  --color-bone-dim: #d8c9b4;
+  --color-mute: #a08d76;
+  --color-line: #2a2018;
+  --color-rule: #3f3224;
+  --color-copper: #e0a24f;
+  --color-copper-2: #f7cd82;
+  --color-sage: #b2cd8b;
+  --color-clay: #e0705a;
+
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: #0c0907;
+  color: #f5ecdd;
+  font-family: "Schibsted Grotesk", system-ui, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: #e0a24f;
+  color: #0c0907;
+}
+
+/* square, thin scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2f241a;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a3a29;
+}
+
+/* faint column guides: a drafting-sheet feel, no glow */
+.guides {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image: linear-gradient(to right, rgba(245, 236, 221, 0.022) 1px, transparent 1px);
+  background-size: 120px 100%;
+  background-position: 56px 0;
+}
+
+/* ---------- signature shapes ---------- */
+/* crop-mark corners: four L-shaped ticks in caramel */
+@utility ticks {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    z-index: 2;
+    background:
+      linear-gradient(#e0a24f, #e0a24f) top left / 13px 1px no-repeat,
+      linear-gradient(#e0a24f, #e0a24f) top left / 1px 13px no-repeat,
+      linear-gradient(#e0a24f, #e0a24f) top right / 13px 1px no-repeat,
+      linear-gradient(#e0a24f, #e0a24f) top right / 1px 13px no-repeat,
+      linear-gradient(#e0a24f, #e0a24f) bottom left / 13px 1px no-repeat,
+      linear-gradient(#e0a24f, #e0a24f) bottom left / 1px 13px no-repeat,
+      linear-gradient(#e0a24f, #e0a24f) bottom right / 13px 1px no-repeat,
+      linear-gradient(#e0a24f, #e0a24f) bottom right / 1px 13px no-repeat;
+  }
+}
+
+/* two clipped corners: the primary-button silhouette */
+@utility chamfer {
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+.bg-grid {
+  background-image: radial-gradient(circle, #2b2118 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(12, 9, 7, 0.34) 0,
+    rgba(12, 9, 7, 0.34) 3px,
+    transparent 3px,
+    transparent 7px
+  );
+  background-size: 20px 20px;
+  animation: stripes 0.8s linear infinite;
+}
+
+.caret::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: #e0a24f;
+  animation: blink 0.95s steps(2) infinite;
+}
+
+.skeleton {
+  background: #1a140f;
+  animation: pulse-flat 1.3s ease-in-out infinite;
+}
+
+/* ---------- react flow ---------- */
+.react-flow {
+  background: transparent;
+}
+.react-flow__node {
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: #e0a24f;
+  opacity: 0.7;
+}
+.react-flow__controls {
+  border-radius: 0;
+  border: 1px solid #2a2018;
+  box-shadow: none;
+  background: #140f0b;
+}
+.react-flow__controls-button {
+  background: #140f0b;
+  border-bottom: 1px solid #2a2018;
+}
+.react-flow__controls-button:hover {
+  background: #1c1611;
+}
+.react-flow__controls-button svg {
+  fill: #d8c9b4;
+}
+
+/* ---------- motion ---------- */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes node-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sheet {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes stripes {
+  to {
+    background-position: 20px 0;
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes pulse-flat {
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes seg-in {
+  from {
+    transform: scaleY(0.2);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes bar-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes sq-bounce {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.fade-up {
+  animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.slide-in {
+  animation: slide-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.node-in {
+  animation: node-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.toast-in {
+  animation: toast-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pop {
+  animation: pop 0.18s ease-out both;
+}
+.sheet-in {
+  animation: sheet 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 1.15s ease-out 0.12s forwards;
+}
+.seg-in {
+  transform-origin: bottom;
+  animation: seg-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.bar-in {
+  transform-origin: left center;
+  animation: bar-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sq-dots span {
+  animation: sq-bounce 1.2s infinite;
+}
+.sq-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.sq-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
