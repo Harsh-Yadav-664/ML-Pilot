@@ -10,7 +10,7 @@ def main():
     print("Press Ctrl+C to shut down both servers.")
     
     # Ensure directories exist
-    if not os.path.exists("backend") or not os.path.exists("mlpilot-agentic-platform-ui"):
+    if not os.path.exists("backend") or not os.path.exists("frontend"):
         print("Error: Must be run from the MLPilot root directory.")
         sys.exit(1)
 
@@ -23,7 +23,7 @@ def main():
     # Start Frontend (shell=True is required on Windows for npm)
     frontend = subprocess.Popen(
         ["npm", "run", "dev"],
-        cwd="mlpilot-agentic-platform-ui",
+        cwd="frontend",
         shell=True
     )
     
