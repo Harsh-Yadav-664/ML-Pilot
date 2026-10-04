@@ -39,6 +39,9 @@ No LLM-generated Python or shell commands execute on the host. Formula evaluatio
 **Reproducible by default.**
 Every completed experiment can be reconstructed from its stored configuration. Exported training scripts reproduce the reported result.
 
+**Direct read-only SQL connection.**
+Connect directly to a data warehouse via read-only query instead of forcing a CSV export step, matching how real ML pipelines ingest data.
+
 ---
 
 ## How to Run

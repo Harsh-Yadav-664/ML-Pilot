@@ -72,9 +72,12 @@
 
 This was previously scoped as a "Phase 11, not urgent" item and was dropped entirely from the last implementation pass as a result. It is being explicitly elevated here because it's a genuine architecture differentiator, not a nice-to-have — it's the difference between "another CSV-upload toy" and a tool that looks like it was built by someone who understands how real data actually lives.
 
-- [ ] Support connecting to a live data source via **read-only SQL** (a basic connection string + query, pointed at a warehouse or database), as an alternative input path alongside CSV upload — not a replacement for it.
-- [ ] The rest of the pipeline (profiling, leakage detection, cleaning, experimentation) should work identically regardless of whether the data came from a file upload or a live connection — no special-casing downstream.
-- [ ] Update the README and landing page copy to state this plainly once it exists (see Section 2 and the separate `MLPilot-ui-requirements.md` brief).
+- [x] Support connecting to a live data source via **read-only SQL** (a basic connection string + query, pointed at a warehouse or database), as an alternative input path alongside CSV upload — not a replacement for it.
+  - Verified: Implemented `SqlLoader` in `backend/ml/data/ingestion/sql_loader.py` and a new endpoint `/ui/data/connect-sql`. Added SQL Connect tab to UI.
+- [x] The rest of the pipeline (profiling, leakage detection, cleaning, experimentation) should work identically regardless of whether the data came from a file upload or a live connection — no special-casing downstream.
+  - Verified: The SQL endpoint hashes the query and creates a snapshot CSV in the `uploads/` directory, allowing the exact same downstream file-based pipeline to process it.
+- [x] Update the README and landing page copy to state this plainly once it exists (see Section 2 and the separate `MLPilot-ui-requirements.md` brief).
+  - Verified: Added "Direct read-only SQL connection" to the "What Makes This Different" section of the README.
 
 ---
 
