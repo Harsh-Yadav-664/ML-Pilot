@@ -54,8 +54,3 @@ alembic/versions/__pycache__/
 
 # Uploads
 backend/uploads/
-
-# Planning Docs
-*PRD*.md
-*Roadmap*.md
-*Addendum*.md
