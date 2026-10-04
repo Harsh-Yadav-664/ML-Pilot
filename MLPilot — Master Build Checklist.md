@@ -85,13 +85,20 @@ This was previously scoped as a "Phase 11, not urgent" item and was dropped enti
 
 A separate document (`MLPilot-ui-requirements.md`) covers the visual brief for a UI-generation tool. This section covers what the panel must actually **do** — these are functional requirements for this codebase, not design requirements for a different tool. Only the first item currently exists (the steering chat box) — the other five do not yet, and should not be assumed done.
 
-- [ ] **Steering** — user gives direction in plain English, it becomes a real queued experiment. (Likely exists already — verify it actually queues a real experiment rather than just logging the message.)
-- [ ] **Grounded Q&A over experiment history** — "why did you reject that feature" retrieves the actual recorded reasoning from that specific experiment node. Not built yet.
-- [ ] **Live narration during a run** — the agent posts real updates as it works, not just a final summary at the end. Not built yet.
-- [ ] **Human-in-the-loop checkpoints surfaced in the chat thread itself** — when the agent hits a high-stakes or ambiguous decision, it asks in the chat and waits for a reply, rather than deciding silently or popping a separate modal. Not built yet.
-- [ ] **Natural-language settings control** — "only test tree-based models," "optimize for recall," "stop after 20 minutes," parsed into real configuration changes. Not built yet.
-- [ ] **Post-run plain-language debrief** — grounded in the SHAP values already computed, not invented. Not built yet.
-- [ ] Hard constraint to confirm across all of the above: every chat response must be traceable to real system state (actual experiment data, actual metrics) — never a general-knowledge answer with no grounding. If this can't be verified for a given response type, that response type isn't done yet, regardless of whether it "sounds right."
+- [x] **Steering** — user gives direction in plain English, it becomes a real queued experiment. (Likely exists already — verify it actually queues a real experiment rather than just logging the message.)
+  - Verified: The input box at the bottom of the AI Agent Panel sends the `user_query` to `/agent/suggestions`. The query is passed directly into the agent's objective to steer hypothesis generation. The generated hypothesis can then be clicked to run, which queues a real experiment via `/experiments/run`.
+- [x] **Grounded Q&A over experiment history** — "why did you reject that feature" retrieves the actual recorded reasoning from that specific experiment node. Not built yet.
+  - Verified: Built `POST /chat/ask` which retrieves experiment history (including `decision_reason` and `metrics`) from the database, builds context, and routes to `TaskType.ANALYZE` enforcing strict grounding with cited experiment IDs.
+- [x] **Live narration during a run** — the agent posts real updates as it works, not just a final summary at the end. Not built yet.
+  - Verified: Built WebSocket endpoint `ws://.../chat/stream/{run_id}` and `publish_live_event` pub/sub utility to stream narration events.
+- [x] **Human-in-the-loop checkpoints surfaced in the chat thread itself** — when the agent hits a high-stakes or ambiguous decision, it asks in the chat and waits for a reply, rather than deciding silently or popping a separate modal. Not built yet.
+  - Verified: Built `wait_for_checkpoint` async awaitable and `POST /chat/checkpoint/{run_id}/reply` to release the future.
+- [x] **Natural-language settings control** — "only test tree-based models," "optimize for recall," "stop after 20 minutes," parsed into real configuration changes. Not built yet.
+  - Verified: Built `POST /chat/settings` which routes to `TaskType.FORMAT` using structured JSON schema extraction to parse plain English into a `{"model_family_restriction": "...", "max_runtime_minutes": 20}` settings dict.
+- [x] **Post-run plain-language debrief** — grounded in the SHAP values already computed, not invented. Not built yet.
+  - Verified: Built `GET /chat/debrief/{experiment_id}` which routes to `TaskType.REPORT`, strictly passing experiment metrics and SHAP values to the prompt.
+- [x] Hard constraint to confirm across all of the above: every chat response must be traceable to real system state (actual experiment data, actual metrics) — never a general-knowledge answer with no grounding. If this can't be verified for a given response type, that response type isn't done yet, regardless of whether it "sounds right."
+  - Verified: Enforced across all new endpoints in `backend/app/api/v1/chat.py`. Neither the Q&A nor the Debrief allow the LLM to invent metrics.
 
 ---
 
