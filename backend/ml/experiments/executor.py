@@ -23,6 +23,7 @@ from ml.core.interfaces import ExperimentRunner
 from ml.core.targets import TargetEncoder
 from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
 from ml.metrics.classification import compute_classification_metrics
+from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
 
 # Registry for models supported in Phase 1
 MODEL_REGISTRY = {
@@ -230,6 +231,14 @@ class LocalExperimentExecutor(ExperimentRunner):
                 y_prob = await asyncio.to_thread(pipeline.predict_proba, X_test)
 
             metrics = compute_classification_metrics(y_test, y_pred, y_prob)
+
+            # Record the model's own feature importances for the real columns (not SHAP).
+            try:
+                spec.parameters["feature_importances"] = builtin_importances(pipeline, list(X_train.columns))
+                spec.parameters["importance_method"] = IMPORTANCE_METHOD
+            except Exception as e:
+                spec.parameters["feature_importances"] = {}
+                spec.parameters["importance_method"] = f"not available: {e}"
 
             # Auto-Ensembling
             if spec.parameters.get('ensemble', True):

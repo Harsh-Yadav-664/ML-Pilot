@@ -101,24 +101,34 @@ async def update_settings_nl(request: SettingsRequest, gateway: Gateway) -> dict
 async def get_debrief(experiment_id: str, db: DBSession, gateway: Gateway) -> dict[str, Any]:
     """
     5.6 Post-run plain-language debrief.
-    Generates an explanation grounded in actual metrics and SHAP values.
+
+    Grounded only in the recorded metrics and the model's built-in feature
+    importances for the dataset's real columns. SHAP is not implemented yet.
     """
     svc = ExperimentService(db)
     exp = await svc.get(experiment_id)
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
-        
-    # Mocking SHAP values for the functional backend implementation requirement
-    # In a fully integrated system, we would load the joblib model and run SHAP explainer here.
-    mock_shap = {"age": 0.35, "balance": 0.22, "is_active": -0.15}
-    
-    prompt = f"Experiment {exp.id} used {exp.model_name}. Metrics: {exp.metrics}. SHAP feature importance: {mock_shap}. Write a 3-sentence plain-language debrief for the user explaining what drove the predictions."
-    
+
+    params = exp.parameters or {}
+    importances = params.get("feature_importances") or {}
+    method = params.get("importance_method", "not available: the run recorded no importances")
+    if importances:
+        drivers = f"Feature importances ({method}): {importances}."
+    else:
+        drivers = f"Feature importances are {method}. Do not name any feature as a driver."
+
+    prompt = (
+        f"Experiment {exp.id} used {exp.model_name}. Metrics: {exp.metrics}. {drivers} "
+        "Write a 3-sentence plain-language debrief. Only mention columns listed above, "
+        "and say that the importances are the model's built-in ones, not SHAP."
+    )
+
     try:
         debrief = await gateway.complete(TaskType.REPORT, prompt)
-        return {"debrief": debrief, "shap_values": mock_shap}
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    return {"debrief": debrief, "feature_importances": importances, "importance_method": method}
 
 
 @router.post("/checkpoint/{run_id}/reply")
