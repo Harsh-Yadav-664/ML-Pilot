@@ -56,33 +56,92 @@ async function call<T>(request: () => Promise<T>, demoData: T): Promise<T> {
   return res;
 }
 
-export const getDataMetrics = () =>
-  call(() => api.get<DataMetrics>('/data/metrics').then((r) => r.data), mockMetrics);
+/** The dataset the user is working on (set by sample data, upload or SQL). */
+export interface ActiveDataset {
+  dataset_path: string;
+  filename: string;
+  target_column: string;
+}
 
-export const getLeakageWarnings = () =>
-  call(() => api.get<LeakageWarning[]>('/data/leakage-warnings').then((r) => r.data), mockWarnings);
+export interface DatasetInfo {
+  dataset_path: string;
+  filename: string;
+  columns: string[];
+  total_rows: number;
+  default_target?: string;
+}
 
-export const getColumns = () =>
-  call(() => api.get<ColumnProfile[]>('/data/columns').then((r) => r.data), mockColumns);
+const ds = (d: ActiveDataset) => ({ dataset_path: d.dataset_path, target_column: d.target_column });
 
-export const getFeatureSuggestions = () =>
-  call(() => api.get<FeatureSuggestion[]>('/agent/suggestions').then((r) => r.data), mockSuggestions);
+export const loadSampleDataset = () =>
+  api.post<DatasetInfo>('/data/sample', { dataset_name: 'telecom_churn' }).then((r) => r.data);
 
-export const runExperiment = (
-  suggestion: FeatureSuggestion,
-  model_name: string,
-  parent_id: string | null
-) =>
+export const uploadDataset = (file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  return api
+    .post<DatasetInfo>('/data/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
+    .then((r) => r.data);
+};
+
+export const getDataMetrics = (d: ActiveDataset) =>
+  call(() => api.get<DataMetrics>('/data/metrics', { params: ds(d) }).then((r) => r.data), mockMetrics);
+
+export const getLeakageWarnings = (d: ActiveDataset) =>
+  call(() => api.get<LeakageWarning[]>('/data/leakage-warnings', { params: ds(d) }).then((r) => r.data), mockWarnings);
+
+export const getColumns = (d: ActiveDataset) =>
+  call(() => api.get<ColumnProfile[]>('/data/columns', { params: ds(d) }).then((r) => r.data), mockColumns);
+
+export const getFeatureSuggestions = (d: ActiveDataset) =>
+  call(
+    () => api.get<FeatureSuggestion[]>('/agent/suggestions', { params: ds(d), timeout: 120000 }).then((r) => r.data),
+    mockSuggestions
+  );
+
+type BackendStatus = Experiment['status'] | 'created';
+type BackendExperiment = Omit<Experiment, 'status'> & { status: BackendStatus };
+
+export const getExperimentTree = (d: ActiveDataset | null) =>
   call(
     () =>
       api
-        .post<Experiment>('/experiments/run', { feature_suggestion: suggestion, model_name, parent_id })
-        .then((r) => r.data),
-    null as Experiment | null
+        .get<BackendExperiment[]>('/experiments/tree', { params: d ? { dataset_path: d.dataset_path } : {} })
+        .then((r) => r.data.map((e): Experiment => ({ ...e, status: e.status === 'created' ? 'queued' : e.status }))),
+    mockExperiments
   );
 
-export const getExperimentTree = () =>
-  call(() => api.get<Experiment[]>('/experiments/tree').then((r) => r.data), mockExperiments);
+export const runExperiment = (d: ActiveDataset, suggestion: FeatureSuggestion, model_name: string, parent_id: string | null) =>
+  api
+    .post<Experiment>('/experiments/run', { ...ds(d), feature_suggestion: suggestion, model_name, parent_id })
+    .then((r) => r.data);
+
+export const runBaseline = (d: ActiveDataset) =>
+  api.post<Experiment>('/experiments/baseline', ds(d)).then((r) => r.data);
+
+export const runAutoClean = (d: ActiveDataset) =>
+  api.post<Experiment>('/agent/auto-clean', ds(d), { timeout: 120000 }).then((r) => r.data);
+
+export interface AutoOptimizeJob {
+  status: 'running' | 'completed' | 'failed';
+  error?: string;
+  result?: { summary: string; best_f1: number; winner_features: string[] };
+}
+
+export const startAutoOptimize = (d: ActiveDataset, n_hypotheses: number) =>
+  api.post<{ job_id: string }>('/agent/auto-optimize', { ...ds(d), n_hypotheses }).then((r) => r.data.job_id);
+
+export const getAutoOptimize = (jobId: string) =>
+  api.get<AutoOptimizeJob>(`/agent/auto-optimize/${jobId}`).then((r) => r.data);
+
+/** Grounded Q&A over the recorded experiment history (POST /chat/ask). */
+export const chatAsk = (query: string) =>
+  axios
+    .post<{ answer: string }>(`${API_BASE_URL.replace(/\/ui\/?$/, '')}/chat/ask`, { query }, { timeout: 120000 })
+    .then((r) => r.data.answer);
+
+/** True when the backend answered with an HTTP error (it is reachable). */
+export const isHttpError = (e: unknown) => axios.isAxiosError(e) && !!e.response;
 
 export function describeError(e: unknown): string {
   if (axios.isAxiosError(e)) {

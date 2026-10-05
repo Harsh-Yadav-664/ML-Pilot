@@ -9,6 +9,7 @@ import { ExperimentsView } from './views/ExperimentsView';
 import { Deployments } from './views/Deployments';
 import { Settings } from './views/Settings';
 import { AgentPanel } from './components/AgentPanel';
+import { connection } from './api';
 import { CommandPalette, ConnectionBanner, StatusBar, Toasts } from './components/Chrome';
 import { Landing } from './Landing';
 
@@ -25,12 +26,14 @@ function Logo() {
   );
 }
 
-const NAV: { key: View; label: string; icon: typeof Database }[] = [
+const ALL_NAV: { key: View; label: string; icon: typeof Database }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: Database },
   { key: 'experiments', label: 'Experiments', icon: GitBranch },
   { key: 'deployments', label: 'Deployments', icon: Radio },
   { key: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
+// Deployments has no backend behind it yet: shown only in Demo mode.
+const NAV = ALL_NAV.filter((n) => connection.demo || n.key !== 'deployments');
 
 function Shell() {
   const { started } = useStore();
@@ -70,7 +73,7 @@ function Workspace() {
       if (e.key === 'Escape' && selectedId) select(null);
       if (e.key === '1') setView('dashboard');
       if (e.key === '2') setView('experiments');
-      if (e.key === '3') setView('deployments');
+      if (e.key === '3' && connection.demo) setView('deployments');
       if (e.key === '4') setView('settings');
       if (e.key === '\\') setAgentOpen(!agentOpen);
     };
@@ -177,7 +180,7 @@ function Workspace() {
               <main className="absolute inset-0 overflow-y-auto">
                 {view === 'dashboard' && <Dashboard />}
                 {view === 'experiments' && <ExperimentsView />}
-                {view === 'deployments' && <Deployments />}
+                {view === 'deployments' && connection.demo && <Deployments />}
                 {view === 'settings' && <Settings />}
               </main>
             </div>

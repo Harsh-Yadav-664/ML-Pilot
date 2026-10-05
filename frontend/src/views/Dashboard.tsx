@@ -347,7 +347,7 @@ function AutoClean() {
 
 /* ----------------------------------------------------------- agent queue */
 function AgentQueue() {
-  const { feed, runSuggestion, askAgent, agentStatus, setAgentOpen, setView, select, experiments } = useStore();
+  const { feed, runSuggestion, askAgent, agentStatus, setAgentOpen, setView, select, experiments, demo } = useStore();
   const [draft, setDraft] = useState('');
   const proposals = useMemo(() => feed.filter((f): f is Extract<FeedItem, { kind: 'suggestion' }> => f.kind === 'suggestion'), [feed]);
   const pending = proposals.filter((p) => !p.expId).slice(0, 3);
@@ -403,7 +403,9 @@ function AgentQueue() {
             <div key={p.id} className="border border-line bg-ink p-3 transition-colors hover:border-copper/50">
               <div className="flex items-start justify-between gap-2">
                 <code className="truncate font-mono text-[12px] font-semibold text-bone">{p.s.name}</code>
-                <span className="shrink-0 font-display text-[19px] font-bold leading-none text-sage">+{(p.s.impact ?? 0.02).toFixed(3)}</span>
+                {(p.s.impact ?? (demo ? 0.02 : undefined)) !== undefined && (
+                  <span className="shrink-0 font-display text-[19px] font-bold leading-none text-sage">+{(p.s.impact ?? 0.02).toFixed(3)}</span>
+                )}
               </div>
               <code className="mt-2 block truncate border-l-2 border-copper bg-panel py-1 pl-2.5 font-mono text-[11px] text-copper-2">{p.s.formula}</code>
               <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-mute">{p.s.reason}</p>
@@ -579,7 +581,7 @@ function Profile() {
 
 /* ------------------------------------------------------------------ view */
 export function Dashboard() {
-  const { experiments, setView, select, champion, activity, loading } = useStore();
+  const { experiments, setView, select, champion, activity, loading, demo } = useStore();
   useNow();
   const completed = experiments.filter((e) => e.status === 'completed' && e.metrics.f1 !== undefined);
 
@@ -627,7 +629,7 @@ export function Dashboard() {
       </Reveal>
 
       <Reveal>
-        <Prod />
+        {demo ? <Prod /> : null}
       </Reveal>
 
       <Reveal>

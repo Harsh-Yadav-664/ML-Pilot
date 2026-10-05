@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WORKERS, useStore } from '../store';
 import { View } from '../types';
-import { API_BASE_URL, setDemoMode } from '../api';
+import { API_BASE_URL, connection, setDemoMode } from '../api';
 import { algoLabel, f3 } from '../lib';
 import { cn } from '../utils/cn';
 import { Eyebrow, Kbd, Led } from '../ui';
@@ -130,7 +130,7 @@ export function CommandPalette() {
       ['experiments', 'Go to Experiments', '2'],
       ['deployments', 'Go to Deployments', '3'],
       ['settings', 'Go to Settings', '4'],
-    ];
+    ].filter(([v]) => connection.demo || v !== 'deployments') as [View, string, string][];
     const base: Cmd[] = [
       ...nav.map(([v, label, hint]) => ({ id: v, group: 'Navigate', label, hint, run: () => s.setView(v) })),
       { id: 'a1', group: 'Actions', label: 'Run next feature idea', run: s.runNext },

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FeedItem, useStore } from '../store';
 import { MODELS, estLift, f3 } from '../lib';
+import { connection } from '../api';
 import { cn } from '../utils/cn';
 import { Btn, Eyebrow, Led, STATUS, Tag } from '../ui';
 
@@ -21,8 +22,10 @@ function SpecSheet({ item }: { item: Extract<FeedItem, { kind: 'suggestion' }> }
   const [copied, setCopied] = useState(false);
   const s = item.s;
   const exp = item.expId ? experiments.find((e) => e.id === item.expId) : undefined;
-  const lift = s.impact ?? estLift(s.name);
-  const models = treeOnly ? MODELS.filter((m) => m.tree) : MODELS;
+  // Estimated lift is sample data unless the backend supplies one.
+  const lift = s.impact ?? (connection.demo ? estLift(s.name) : undefined);
+  const available = connection.demo ? MODELS : MODELS.filter((m) => m.key !== 'catboost');
+  const models = treeOnly ? available.filter((m) => m.tree) : available;
 
   const copy = () => {
     navigator.clipboard?.writeText(s.formula).catch(() => undefined);
@@ -93,7 +96,11 @@ function SpecSheet({ item }: { item: Extract<FeedItem, { kind: 'suggestion' }> }
           <>
             <div className="leading-none">
               <Eyebrow className="block text-[9px]">Est. F1</Eyebrow>
-              <span className="font-display text-[24px] font-bold text-sage">+{lift.toFixed(3)}</span>
+              {lift !== undefined ? (
+                <span className="font-display text-[24px] font-bold text-sage">+{lift.toFixed(3)}</span>
+              ) : (
+                <span className="font-mono text-[11px] text-mute">not estimated</span>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
               <select
