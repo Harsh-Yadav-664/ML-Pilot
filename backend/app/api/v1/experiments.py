@@ -57,7 +57,9 @@ async def create_experiment(
 ) -> ExperimentRead:
     svc = ExperimentService(db)
     exp = await svc.create(data)
-    
+    # Commit before scheduling: the background run reads the row from its own session.
+    await db.commit()
+
     # Queue the actual ML execution in the background
     background_tasks.add_task(background_runner, exp.id)
     
