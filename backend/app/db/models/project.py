@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import String, Text, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.db.models.user import User
+    from app.db.models.dataset import Dataset
+    from app.db.models.experiment import Experiment
 
 
 class Project(Base):
