@@ -36,6 +36,15 @@ os.makedirs(DATASETS_DIR, exist_ok=True)
 
 from pydantic import BaseModel
 
+
+def _required(data: dict[str, Any], key: str) -> Any:
+    """Return a required request field, or fail with HTTP 400 instead of guessing a default."""
+    value = data.get(key)
+    if not value:
+        raise HTTPException(status_code=400, detail=f"{key} is required")
+    return value
+
+
 class SqlConnectRequest(BaseModel):
     connection_string: str
     query: str
@@ -127,7 +136,7 @@ async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
 
 @router.get("/data/metrics")
 async def get_data_metrics(
-    dataset_path: str = "data.csv", 
+    dataset_path: str,
     target_column: str = "target"
 ) -> dict[str, Any]:
     """Return dataset metrics for the UI."""
@@ -200,7 +209,7 @@ async def get_data_columns(dataset_path: str, target_column: str) -> list[dict[s
 
 @router.get("/data/leakage-warnings")
 async def get_leakage_warnings(
-    dataset_path: str = "data.csv", 
+    dataset_path: str,
     target_column: str = "target"
 ) -> list[dict[str, Any]]:
     """Return leakage warnings for the UI."""
@@ -228,7 +237,7 @@ async def get_leakage_warnings(
 async def get_agent_suggestions(
     db: DBSession,
     gateway: Gateway,
-    dataset_path: str = "data.csv", 
+    dataset_path: str,
     target_column: str = "target",
     user_query: Optional[str] = None
 ) -> list[dict[str, Any]]:
@@ -268,7 +277,7 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
     """Run an experiment based on a suggestion."""
     svc = ExperimentService(db)
     suggestion = data.get("feature_suggestion", {})
-    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
+    dataset_path = safe_dataset_path(_required(data, "dataset_path"))
     target_column = data.get("target_column", "target")
     
     model_name = data.get("model_name") or "XGBClassifier"
@@ -303,7 +312,7 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
 async def run_baseline(data: dict[str, Any], db: DBSession, background_tasks: BackgroundTasks) -> ExperimentRead:
     """Run a deterministic baseline experiment."""
     svc = ExperimentService(db)
-    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
+    dataset_path = safe_dataset_path(_required(data, "dataset_path"))
     target_column = data.get("target_column", "target")
     
     exp_create = ExperimentCreate(
@@ -375,7 +384,7 @@ async def auto_optimize(
     background_tasks: BackgroundTasks
 ) -> dict[str, Any]:
     """Trigger autonomous optimization loop."""
-    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
+    dataset_path = safe_dataset_path(_required(data, "dataset_path"))
     target_column = data.get("target_column", "target")
     n_hypotheses = data.get("n_hypotheses", 5)
     
@@ -400,7 +409,7 @@ async def auto_clean_dataset(
     gateway: Gateway,
 ) -> ExperimentRead:
     """Uses AI to generate an advanced cleaning strategy and runs it as a baseline."""
-    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
+    dataset_path = safe_dataset_path(_required(data, "dataset_path"))
     target_column = data.get("target_column", "target")
     
     # 1. Profile Data
