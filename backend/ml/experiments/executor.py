@@ -20,6 +20,7 @@ from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 
 from ml.core.interfaces import ExperimentRunner
+from ml.core.targets import TargetEncoder
 from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
 from ml.metrics.classification import compute_classification_metrics
 
@@ -118,6 +119,15 @@ class LocalExperimentExecutor(ExperimentRunner):
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=random_state
             )
+
+            # Encode class labels (fit on training labels only) and record the
+            # mapping so predictions and exports can be decoded.
+            target_encoder = TargetEncoder.fit(
+                y_train, positive_class=spec.parameters.get("positive_class")
+            )
+            y_train = target_encoder.transform(y_train)
+            y_test = target_encoder.transform(y_test)
+            spec.parameters["target_encoding"] = target_encoder.to_dict()
 
             # Robust preprocessor to handle real-world messy data
             prep_config = spec.preprocessing_config

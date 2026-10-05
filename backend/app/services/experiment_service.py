@@ -102,6 +102,8 @@ class ExperimentService:
 
                 exp.status = result.status.value
                 exp.metrics = result.metrics
+                # New dict so SQLAlchemy persists the JSON change (best params, target encoding)
+                exp.parameters = dict(result.parameters)
                 exp.runtime_seconds = result.runtime_seconds
                 exp.cost_usd = result.cost_usd
                 exp.decision = result.decision.value
