@@ -73,3 +73,16 @@ async def test_connect_sql_refuses_writes(client, tmp_path):
     )
     assert resp.status_code == 400
     assert "Exactly one statement" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("endpoint", ["/api/v1/ui/experiments/baseline", "/api/v1/ui/experiments/run", "/api/v1/ui/agent/auto-clean", "/api/v1/ui/agent/auto-optimize"])
+async def test_post_endpoints_require_dataset_path(client, endpoint):
+    resp = await client.post(endpoint, json={"target_column": "Churn"})
+    assert resp.status_code == 400
+    assert "dataset_path is required" in resp.text
+
+
+@pytest.mark.parametrize("endpoint", ["/api/v1/ui/data/metrics", "/api/v1/ui/data/leakage-warnings", "/api/v1/ui/agent/suggestions"])
+async def test_get_endpoints_require_dataset_path(client, endpoint):
+    resp = await client.get(endpoint, params={"target_column": "Churn"})
+    assert resp.status_code == 422
