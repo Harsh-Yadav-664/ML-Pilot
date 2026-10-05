@@ -1,91 +1,94 @@
 # MLPilot
 
-**The ML experiment loop — without the chaos.**
+An open-source, self-hosted prediction agent for tabular and relational data. **Early stage:** this README separates what runs today from what is planned.
 
----
+## The problem
 
-## The Problem
+Most of a company's prediction questions ("which customers will stop ordering next month?") are answered from data spread across several database tables. Before any model can be trained, someone has to turn those tables into one training table with the right time cutoffs. Get a cutoff wrong and future information leaks into training: the model looks great in testing and fails in production. Free AutoML tools and LLM data-science agents all start from a ready-made CSV, so they skip this step.
 
-Data scientists spend most of their time on work that doesn't require expertise: running random model variants, hunting for why a model's score is suspiciously perfect, figuring out whether a feature from last week was actually worth keeping. There's no record of what was tried, why it was tried, or what the results actually showed.
+## The solution (where MLPilot is going)
 
-Most ML projects end with a model and no story — just a notebook with 30 cells and no commit history.
+MLPilot connects read-only to a company database. It turns a question into a reviewable prediction task, builds a point-in-time-correct training table, and lets an LLM propose features as readable SQL. It keeps a feature only if time-based validation shows a real gain. It ends with an evidence report and exportable SQL and model files. The LLM only proposes; deterministic code validates and runs everything.
 
----
+The reasoning, competitors and phases are in [`docs/ROADMAP.md`](docs/ROADMAP.md). Work is tracked in GitHub issues, listed in [issue #21](https://github.com/Harsh-Yadav-664/ML-Pilot/issues/21) and mirrored in [`docs/roadmap/ISSUES.md`](docs/roadmap/ISSUES.md).
 
-## What MLPilot Does
+## What works today
 
-MLPilot runs a structured experiment loop on tabular data:
+Today MLPilot works on a **single CSV file**. Each item below is exercised by a test that runs in CI ([workflow](.github/workflows/ci.yml)). All tests use the offline stub LLM provider, so they need no API keys and no network.
 
-1. **Profile the dataset** — dimensions, types, missingness, class balance, and a six-category leakage scan with a specific reason per flag.
-2. **Establish a deterministic baseline** — reproducible, no hidden preprocessing.
-3. **Propose one experiment at a time** — the agent reads the full history of what's already been tried and proposes a single, non-redundant next experiment, with an explicit reason it's not repeating prior work.
-4. **Execute safely** — the LLM proposes; deterministic Python validates and runs. No LLM-generated code ever executes on the host.
-5. **Record everything** — hypothesis, change, results, decision, and rationale are stored against every run.
-6. **Recommend what's next** — grounded in the accumulated evidence, not a fresh guess each time.
+| Works today | Proven by |
+|---|---|
+| Load the bundled telecom churn sample, or upload your own CSV | `test_api_security.py::test_sample_dataset_is_allowed`, `test_ui_data_api.py::test_upload_csv_returns_columns_and_rows` |
+| Per-column profile (type, role, missing %, distribution) | `test_ui_data_api.py::test_columns_profile_sample` |
+| Leakage scan with a category and reason for each warning | `test_leakage.py` (5 of the 7 checks), `test_ui_data_api.py::test_leakage_warnings_carry_category` |
+| Baseline model runs to `completed`, or is recorded as `failed` with a message | `test_baseline_lifecycle.py` |
+| String labels such as `Yes`/`No` are encoded for training and decoded back in the exported script | `test_targets.py`, `test_agent_loop_telecom.py` |
+| Agent loop: baseline plus 2 LLM-proposed experiments on the telecom sample, all reaching `completed` with numeric metrics | `test_agent_loop_telecom.py` |
+| Experiment suggestions that take earlier proposals into account | `test_planner.py`, `test_suggestions_api.py` |
+| Export a standalone training script for an experiment | `test_agent_loop_telecom.py` |
+| Chat panel answers, and a debrief that uses the model's built-in feature importances (not SHAP) | `test_chat_and_autoclean_api.py`, `test_debrief.py` |
+| Auto-clean returns an HTTP error when the LLM's cleaning plan is invalid (no silent empty result) | `test_cleaning_agent.py`, `test_chat_and_autoclean_api.py::test_auto_clean_surfaces_llm_failure` |
+| LLM gateway falls back to the offline stub when a provider fails or no key is set | `test_ai_gateway.py`, `test_stub_provider.py` |
+| Dataset paths are limited to the upload and sample folders | `test_api_security.py` |
+| SQL import (API only) accepts a single read-only `SELECT`, refuses writes, and hides passwords in errors | `test_sql_loader.py`, `test_api_security.py` |
+| The web UI builds and type-checks | CI `frontend` job (`npm run build`, `tsc --noEmit`) |
 
----
+### Not working yet, or planned
 
-## What Makes This Different
+- **Direct database connection in the UI: planned (Phase 2).** The backend can import one read-only SQL query into a CSV (`POST /api/v1/ui/data/connect-sql`), but the UI does not offer it, and there is no multi-table support yet.
+- **Prediction task spec, point-in-time training tables, LLM-written SQL features, evidence report, SQL/dbt export:** planned (Phases 1–5).
+- **Honest tuning:** hyperparameter search currently scores candidates on the test split. That breaks our own rule, and the fix is issue [1.1] (#34). Treat today's tuned metrics as optimistic.
+- **Speed:** a single run on the telecom sample can take several minutes (#79).
+- **Real LLM providers:** the gateway registers a real provider when you set its key (see `backend/.env.example`), but CI never calls a real provider, so that path is untested.
+- **Demo mode** in the UI shows sample charts and numbers. It is switched on explicitly and labelled on screen. Everything outside Demo mode comes from the backend or says "not available".
+- **Leakage checks without a test:** two of the seven checks in `backend/ml/validation/leakage.py` (contamination and aggregate) have no unit test yet.
 
-**Sequential agentic reasoning, not brute-force search.**
-The experiment agent does not generate N hypotheses up front and test them in parallel. It reads the outcome of each run before proposing the next one. This means recommendations are actually conditioned on evidence, and redundant experiments are explicitly prevented.
+## Quick start
 
-**Categorized leakage detection.**
-Six distinct categories — target, missingness, train/test contamination, temporal, preprocessing, and aggregate — each flagged separately with its own evidence. Not a single generic "leakage warning."
-
-**The LLM proposes; code validates and executes. Hard boundary.**
-No LLM-generated Python or shell commands execute on the host. Formula evaluation uses a safe AST parser restricted to arithmetic over actual DataFrame columns. This is auditable and explainable — which matters if someone asks why a feature was included.
-
-**Reproducible by default.**
-Every completed experiment can be reconstructed from its stored configuration. Exported training scripts reproduce the reported result.
-
-**Direct read-only SQL connection.**
-Connect directly to a data warehouse via read-only query instead of forcing a CSV export step, matching how real ML pipelines ingest data.
-
----
-
-## How to Run
-
-From the repo root:
+You need Python 3.13 and Node.js 20.19 or newer (Vite 7 requires it). From the repository root:
 
 ```bash
+# 1. Backend dependencies
+python3.13 -m venv backend/.venv
+source backend/.venv/bin/activate          # Windows: backend\.venv\Scripts\activate
+pip install -r backend/requirements.txt
+
+# 2. Frontend dependencies
+cd frontend && npm ci && cd ..
+
+# 3. Start both servers (run with the venv's Python)
 python start.py
 ```
 
-On Windows PowerShell (handles emoji encoding):
+- UI: http://localhost:5173 (click "Start with sample data" to try the telecom churn data)
+- API: http://localhost:8000 (interactive docs at http://localhost:8000/docs)
+- API keys are optional. Without them, MLPilot uses the offline stub provider, whose suggestions are fixed placeholders. To use a real LLM, copy `backend/.env.example` to `backend/.env` and fill in a key. Never commit `.env`.
 
-```powershell
-$env:PYTHONIOENCODING="utf-8"; python start.py
+On Windows PowerShell, set `$env:PYTHONIOENCODING="utf-8"` before `python start.py`.
+
+### Run the checks
+
+```bash
+cd backend && pytest && ruff check . --select E9,F63,F7,F82
+cd frontend && npm run build && npx tsc --noEmit
 ```
-
-- **Frontend:** http://localhost:5173
-- **Backend API:** http://localhost:8000
-- **API Keys:** Add to `backend/.env`. The system falls back to `StubProvider` (offline mode) if no key is available.
-
----
 
 ## Architecture
 
 ```
-React / TypeScript UI  (mlpilot-agentic-platform-ui/)
-        |
-FastAPI backend  (backend/)
-        |
-   ┌────┴────┐
-AI Gateway   ML Engine
-   |              |
-TaskRouter    Safe Runner
-(availability    (AST eval,
- + complexity     sklearn
- tiering)         pipelines)
+React + Vite UI (frontend/)  --HTTP-->  FastAPI (backend/app/)
+                                             |
+                    +------------------------+------------------------+
+                    |                                                 |
+       LLM gateway (backend/ai/)                         ML engine (backend/ml/)
+       providers + routing + cost tracking,              ingestion, profiling, leakage scan,
+       offline stub fallback                             planner, safe executor, decision agent
+                                                                      |
+                                                       SQLite run store (experiments, results)
 ```
 
-- **`backend/ai/`** — AI gateway with two routing dimensions: availability fallback (Groq → Gemini → NVIDIA NIM → Stub) and complexity tiering (cheap/fast for formatting; strongest available for high-stakes decisions like dropping a column or declaring a model worthless).
-- **`backend/ml/`** — experiment executor, leakage detector, data profiler, and preparation pipeline.
-- **`docs/`** — architecture, experiment schema, and interface references.
+- **`backend/ai/`**: the LLM gateway. Every LLM call goes through `AIGateway.complete` or `complete_structured`. LLM output is treated as data and validated, never executed as code.
+- **`backend/ml/`**: data loading (CSV, read-only SQL), profiling, the leakage detector, the experiment planner and the executor. Feature formulas run through a whitelisted AST evaluator.
+- **`frontend/`**: the UI. All API calls live in `frontend/src/api/`, and the base URL comes from `VITE_API_BASE_URL`.
 
----
-
-## Project Status
-
-Core loop is implemented and working: baseline, sequential hypothesis-driven experiments, leakage detection, and reproducible export. See [`MLPilot — Master Build Checklist.md`](MLPilot%20—%20Master%20Build%20Checklist.md) for what is verified complete and what is still open.
+Contributor and agent rules are in [`AGENTS.md`](AGENTS.md).
