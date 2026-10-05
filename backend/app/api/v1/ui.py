@@ -8,7 +8,7 @@ import shutil
 from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 
-from app.api.deps import DBSession
+from app.api.deps import DBSession, Gateway
 from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate, ExperimentRead
 from app.services.experiment_service import ExperimentService
@@ -311,7 +311,8 @@ async def get_optimize_status(job_id: str) -> dict[str, Any]:
 async def auto_clean_dataset(
     data: dict[str, Any], 
     db: DBSession,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    gateway: Gateway,
 ) -> ExperimentRead:
     """Uses AI to generate an advanced cleaning strategy and runs it as a baseline."""
     dataset_path = data.get("dataset_path", "data.csv")
@@ -324,10 +325,12 @@ async def auto_clean_dataset(
     profile = profiler.profile(df, target_column=target_column)
     
     # 2. Get AI Strategy
-    gateway = AIGateway(settings)
-    from ml.agents.cleaning_agent import DataCleaningAgent
+    from ml.agents.cleaning_agent import CleaningStrategyError, DataCleaningAgent
     agent = DataCleaningAgent(gateway)
-    prep_config = await agent.generate_cleaning_strategy(profile, target_column)
+    try:
+        prep_config = await agent.generate_cleaning_strategy(profile, target_column)
+    except CleaningStrategyError as e:
+        raise HTTPException(status_code=502, detail=f"AI cleaning strategy failed: {e}") from e
     
     # 3. Create a clean baseline experiment
     svc = ExperimentService(db)

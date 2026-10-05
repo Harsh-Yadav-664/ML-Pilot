@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.api.deps import DBSession
+from ai.router import TaskType
+from app.api.deps import DBSession, Gateway
 from app.services.experiment_service import ExperimentService
-from ai.gateway import AIGateway
-from ai.prompts.tasks import TaskType
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -18,6 +17,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 # In production, use Redis pub/sub. For MVP, in-memory queues per run_id.
 import asyncio
 from collections import defaultdict
+
 LIVE_CHANNELS: dict[str, set[asyncio.Queue]] = defaultdict(set)
 CHECKPOINT_FUTURES: dict[str, asyncio.Future] = {}
 
@@ -37,6 +37,7 @@ async def wait_for_checkpoint(run_id: str, prompt: str) -> str:
 
 from pydantic import BaseModel
 
+
 class AskRequest(BaseModel):
     query: str
     project_id: str = "demo-project-id"
@@ -49,7 +50,7 @@ class CheckpointReplyRequest(BaseModel):
 
 
 @router.post("/ask")
-async def ask_history(request: AskRequest, db: DBSession) -> dict[str, Any]:
+async def ask_history(request: AskRequest, db: DBSession, gateway: Gateway) -> dict[str, Any]:
     """
     5.2 Grounded Q&A over experiment history.
     Retrieves history and answers based strictly on recorded reasoning.
@@ -63,24 +64,22 @@ async def ask_history(request: AskRequest, db: DBSession) -> dict[str, Any]:
         context_lines.append(f"Exp {e.id}: Model {e.model_name}, Status {e.status}, Metrics: {e.metrics}, Reason: {e.decision_reason}")
     context = "\n".join(context_lines)
     
-    gateway = AIGateway(settings)
     prompt = f"User asked: {request.query}\n\nExperiment History:\n{context}\n\nAnswer strictly based on the history above. Cite experiment IDs."
     
     try:
-        response = await gateway.route_request(TaskType.ANALYZE, prompt)
+        response = await gateway.complete(TaskType.ANALYZE, prompt)
         return {"answer": response, "grounding_context": context}
-    except Exception as e:
+    except RuntimeError as e:
         logger.error(f"Failed to answer Q&A: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/settings")
-async def update_settings_nl(request: SettingsRequest) -> dict[str, Any]:
+async def update_settings_nl(request: SettingsRequest, gateway: Gateway) -> dict[str, Any]:
     """
     5.5 Natural-language settings control.
     Parses NL into structured configuration changes.
     """
-    gateway = AIGateway(settings)
     prompt = f"Extract settings from: '{request.query}'"
     schema = {
         "type": "object",
@@ -92,14 +91,14 @@ async def update_settings_nl(request: SettingsRequest) -> dict[str, Any]:
     }
     
     try:
-        parsed = await gateway.route_structured_request(TaskType.FORMAT, prompt, schema)
+        parsed = await gateway.complete_structured(TaskType.FORMAT, prompt, schema)
         return {"action": "update_settings", "parsed_settings": parsed}
-    except Exception as e:
+    except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/debrief/{experiment_id}")
-async def get_debrief(experiment_id: str, db: DBSession) -> dict[str, Any]:
+async def get_debrief(experiment_id: str, db: DBSession, gateway: Gateway) -> dict[str, Any]:
     """
     5.6 Post-run plain-language debrief.
     Generates an explanation grounded in actual metrics and SHAP values.
@@ -109,7 +108,6 @@ async def get_debrief(experiment_id: str, db: DBSession) -> dict[str, Any]:
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
         
-    gateway = AIGateway(settings)
     # Mocking SHAP values for the functional backend implementation requirement
     # In a fully integrated system, we would load the joblib model and run SHAP explainer here.
     mock_shap = {"age": 0.35, "balance": 0.22, "is_active": -0.15}
@@ -117,9 +115,9 @@ async def get_debrief(experiment_id: str, db: DBSession) -> dict[str, Any]:
     prompt = f"Experiment {exp.id} used {exp.model_name}. Metrics: {exp.metrics}. SHAP feature importance: {mock_shap}. Write a 3-sentence plain-language debrief for the user explaining what drove the predictions."
     
     try:
-        debrief = await gateway.route_request(TaskType.REPORT, prompt)
+        debrief = await gateway.complete(TaskType.REPORT, prompt)
         return {"debrief": debrief, "shap_values": mock_shap}
-    except Exception as e:
+    except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -6,6 +6,8 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai.gateway import AIGateway
+from app.core.config import settings
 from app.db.session import get_db
 
 # Type alias for injected DB session
@@ -21,3 +23,11 @@ def get_owner_id() -> str:
 
 
 OwnerID = Annotated[str, Depends(get_owner_id)]
+
+
+def get_gateway() -> AIGateway:
+    """Return the LLM gateway built from settings (overridable in tests)."""
+    return AIGateway(settings)
+
+
+Gateway = Annotated[AIGateway, Depends(get_gateway)]
