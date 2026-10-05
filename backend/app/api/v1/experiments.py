@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DBSession
+from app.api.deps import DBSession, Gateway
 from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate, ExperimentRead, ExperimentUpdate, ExperimentSuggestRequest, ExperimentSuggestResponse
 from app.schemas.common import PaginatedResponse
@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
 @router.post("/suggest", response_model=ExperimentSuggestResponse)
-async def suggest_experiments(data: ExperimentSuggestRequest, db: DBSession) -> ExperimentSuggestResponse:
+async def suggest_experiments(
+    data: ExperimentSuggestRequest, db: DBSession, gateway: Gateway
+) -> ExperimentSuggestResponse:
     """Ask the AI Agent to propose new experiments/features based on the dataset."""
     svc = ExperimentService(db)
     try:
@@ -23,16 +25,19 @@ async def suggest_experiments(data: ExperimentSuggestRequest, db: DBSession) -> 
             dataset_version=data.dataset_version,
             target_column=data.target_column,
             objective=data.objective,
-            max_hypotheses=data.max_hypotheses
+            max_hypotheses=data.max_hypotheses,
+            gateway=gateway,
         )
         return ExperimentSuggestResponse(
             dataset_version=data.dataset_version,
             objective=data.objective,
             hypotheses=hypotheses
         )
-    except Exception as e:
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
         logger.error(f"Suggest API failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 async def background_runner(experiment_id: str):
     """Background task to run experiment safely with its own DB session."""

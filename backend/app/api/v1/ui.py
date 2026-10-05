@@ -167,6 +167,7 @@ async def get_leakage_warnings(
 @router.get("/agent/suggestions")
 async def get_agent_suggestions(
     db: DBSession,
+    gateway: Gateway,
     dataset_path: str = "data.csv", 
     target_column: str = "target",
     user_query: Optional[str] = None
@@ -183,12 +184,15 @@ async def get_agent_suggestions(
             dataset_version=dataset_path,
             target_column=target_column,
             objective=objective,
-            max_hypotheses=3
+            max_hypotheses=3,
+            gateway=gateway,
         )
-        return hypotheses
-    except Exception as e:
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
         logger.error(f"Failed to get suggestions: {e}")
-        return []
+        raise HTTPException(status_code=502, detail=f"AI suggestions failed: {e}") from e
+    return hypotheses
 
 async def background_runner(experiment_id: str):
     """Thin wrapper: ExperimentService.run_experiment_background opens its own session."""

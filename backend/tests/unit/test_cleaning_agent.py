@@ -6,17 +6,7 @@ import pytest
 from ai.gateway import AIGateway
 from ml.agents.cleaning_agent import CleaningStrategyError, DataCleaningAgent
 from ml.core.interfaces import ProfileResult
-
-
-class StubOnlySettings:
-    GROQ_API_KEY = None
-    GEMINI_API_KEY = None
-    NVIDIA_API_KEY = None
-    OPENROUTER_API_KEY = None
-    CEREBRAS_API_KEY = None
-    MISTRAL_API_KEY = None
-    OPENAI_API_KEY = None
-    ANTHROPIC_API_KEY = None
+from tests.fixtures.gateway import StubOnlySettings
 
 
 @pytest.fixture

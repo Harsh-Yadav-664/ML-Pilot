@@ -8,30 +8,13 @@ import pandas as pd
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from ai.gateway import AIGateway
 from app.api.deps import get_gateway
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.schemas.experiment import ExperimentCreate
 from app.services.experiment_service import ExperimentService
-
-
-class StubOnlySettings:
-    GROQ_API_KEY = None
-    GEMINI_API_KEY = None
-    NVIDIA_API_KEY = None
-    OPENROUTER_API_KEY = None
-    CEREBRAS_API_KEY = None
-    MISTRAL_API_KEY = None
-    OPENAI_API_KEY = None
-    ANTHROPIC_API_KEY = None
-
-
-def stub_gateway() -> AIGateway:
-    gateway = AIGateway(config=StubOnlySettings())
-    assert gateway.list_providers() == ["stub"]
-    return gateway
+from tests.fixtures.gateway import stub_gateway
 
 
 @pytest.fixture
