@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DBSession, Gateway
+from app.core.datasets import safe_dataset_path
 from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate, ExperimentRead, ExperimentUpdate, ExperimentSuggestRequest, ExperimentSuggestResponse
 from app.schemas.common import PaginatedResponse
@@ -22,7 +23,7 @@ async def suggest_experiments(
     svc = ExperimentService(db)
     try:
         hypotheses = await svc.suggest_experiments(
-            dataset_version=data.dataset_version,
+            dataset_version=safe_dataset_path(data.dataset_version),
             target_column=data.target_column,
             objective=data.objective,
             max_hypotheses=data.max_hypotheses,
@@ -56,6 +57,7 @@ async def create_experiment(
     background_tasks: BackgroundTasks
 ) -> ExperimentRead:
     svc = ExperimentService(db)
+    data = data.model_copy(update={"dataset_version": safe_dataset_path(data.dataset_version)})
     exp = await svc.create(data)
     # Commit before scheduling: the background run reads the row from its own session.
     await db.commit()

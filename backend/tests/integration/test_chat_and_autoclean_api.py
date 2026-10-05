@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.core.datasets as datasets
 from app.api.deps import get_gateway
 from app.db.base import Base
 from app.db.session import get_db
@@ -82,6 +83,7 @@ async def test_chat_debrief_unknown_experiment_is_404(client):
 
 
 async def test_auto_clean_surfaces_llm_failure(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(datasets, "ALLOWED_DATA_DIRS", [tmp_path])
     csv_path = tmp_path / "data.csv"
     pd.DataFrame({"age": [20, 30, 40, 50], "target": [0, 1, 0, 1]}).to_csv(csv_path, index=False)
 

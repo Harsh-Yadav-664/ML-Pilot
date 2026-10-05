@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.core.datasets as datasets
 import app.db.session as db_session
 from app.db.base import Base
 from app.db.session import get_db
@@ -26,6 +27,8 @@ async def client(tmp_path, monkeypatch):
     factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
     # Background runs open their own sessions through app.db.session.AsyncSessionLocal.
     monkeypatch.setattr(db_session, "AsyncSessionLocal", factory)
+    # Let the API load CSVs from this test's temp dir.
+    monkeypatch.setattr(datasets, "ALLOWED_DATA_DIRS", [tmp_path])
 
     async def override_db():
         async with factory() as session:

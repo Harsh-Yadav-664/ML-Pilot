@@ -17,21 +17,20 @@ from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate, ExperimentRead
 from app.services.experiment_service import ExperimentService
 from ml.data.ingestion.csv_loader import CsvLoader
-from ml.data.ingestion.sql_loader import SqlLoader
+from ml.data.ingestion.sql_loader import SqlLoader, redact
 from ml.data.profiling.profiler import DataProfiler
 from ml.data.preparation.native.native_prep import NativeDataPreparationProvider
 from ml.agents.decision_agent import DecisionAgent
 from ai.gateway import AIGateway
 from ml.experiments.executor import MODEL_REGISTRY
 from app.core.config import settings
+from app.core.datasets import DATASETS_DIR, UPLOAD_DIR, safe_dataset_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["ui-adapter"])
 
 # For MVP, default if not provided
 DEMO_PROJECT_ID = "demo-project-id"
-UPLOAD_DIR = "uploads"
-DATASETS_DIR = "datasets"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DATASETS_DIR, exist_ok=True)
 
@@ -48,7 +47,9 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
     
     file_id = str(uuid.uuid4())
-    file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file.filename}")
+    # Keep only the base name so a crafted filename can't escape the upload dir
+    safe_name = os.path.basename(file.filename)
+    file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{safe_name}")
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -58,8 +59,8 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
         df = loader.load(file_path)
         columns = df.columns.tolist()
         return {
-            "dataset_path": file_path,
-            "filename": file.filename,
+            "dataset_path": safe_dataset_path(file_path),
+            "filename": safe_name,
             "columns": columns,
             "total_rows": len(df)
         }
@@ -88,7 +89,7 @@ async def load_sample_dataset(request: SampleDataRequest) -> dict[str, Any]:
         default_target = "Churn" if "Churn" in columns else (columns[-1] if columns else "")
         
         return {
-            "dataset_path": source_path,
+            "dataset_path": safe_dataset_path(source_path),
             "filename": filename,
             "columns": columns,
             "total_rows": len(df),
@@ -118,8 +119,10 @@ async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
             "total_rows": len(df)
         }
     except Exception as e:
-        logger.error(f"Failed to connect and query SQL: {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to connect and query SQL: {str(e)}")
+        # Never echo the connection string or password back or into logs.
+        message = redact(str(e), request.connection_string)
+        logger.error(f"Failed to connect and query SQL: {message}")
+        raise HTTPException(status_code=400, detail=f"Failed to connect and query SQL: {message}") from None
 
 
 @router.get("/data/metrics")
@@ -130,7 +133,7 @@ async def get_data_metrics(
     """Return dataset metrics for the UI."""
     try:
         loader = CsvLoader()
-        df = loader.load(dataset_path)
+        df = loader.load(safe_dataset_path(dataset_path))
         profiler = DataProfiler()
         profile = profiler.profile(df, target_column=target_column)
         
@@ -190,7 +193,7 @@ def _column_profile(series: pd.Series, name: str, target_column: str, n_rows: in
 async def get_data_columns(dataset_path: str, target_column: str) -> list[dict[str, Any]]:
     """Return a real profile of every column for the UI."""
     try:
-        df = CsvLoader().load(dataset_path)
+        df = CsvLoader().load(safe_dataset_path(dataset_path))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not load {dataset_path}: {e}") from e
     return [_column_profile(df[c], c, target_column, len(df)) for c in df.columns]
@@ -203,7 +206,7 @@ async def get_leakage_warnings(
     """Return leakage warnings for the UI."""
     try:
         loader = CsvLoader()
-        df = loader.load(dataset_path)
+        df = loader.load(safe_dataset_path(dataset_path))
         prep = NativeDataPreparationProvider()
         warnings = prep.detect_leakage(df, target_column=target_column)
         
@@ -235,6 +238,7 @@ async def get_agent_suggestions(
     objective = "Maximize F1 score while preventing overfitting"
     if user_query:
         objective += f". User strictly requested: '{user_query}'. Generate features reflecting this."
+    dataset_path = safe_dataset_path(dataset_path)
         
     try:
         hypotheses = await svc.suggest_experiments(
@@ -264,7 +268,7 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
     """Run an experiment based on a suggestion."""
     svc = ExperimentService(db)
     suggestion = data.get("feature_suggestion", {})
-    dataset_path = data.get("dataset_path", "data.csv")
+    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
     target_column = data.get("target_column", "target")
     
     model_name = data.get("model_name") or "XGBClassifier"
@@ -299,7 +303,7 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
 async def run_baseline(data: dict[str, Any], db: DBSession, background_tasks: BackgroundTasks) -> ExperimentRead:
     """Run a deterministic baseline experiment."""
     svc = ExperimentService(db)
-    dataset_path = data.get("dataset_path", "data.csv")
+    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
     target_column = data.get("target_column", "target")
     
     exp_create = ExperimentCreate(
@@ -327,7 +331,8 @@ async def get_experiment_tree(db: DBSession, dataset_path: Optional[str] = None)
     svc = ExperimentService(db)
     exps, _ = await svc.list_by_project(DEMO_PROJECT_ID, page=1, page_size=500)
     if dataset_path:
-        exps = [e for e in exps if e.dataset_version == dataset_path]
+        wanted = safe_dataset_path(dataset_path)
+        exps = [e for e in exps if e.dataset_version == wanted]
     
     result = []
     for e in exps:
@@ -370,7 +375,7 @@ async def auto_optimize(
     background_tasks: BackgroundTasks
 ) -> dict[str, Any]:
     """Trigger autonomous optimization loop."""
-    dataset_path = data.get("dataset_path", "data.csv")
+    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
     target_column = data.get("target_column", "target")
     n_hypotheses = data.get("n_hypotheses", 5)
     
@@ -395,7 +400,7 @@ async def auto_clean_dataset(
     gateway: Gateway,
 ) -> ExperimentRead:
     """Uses AI to generate an advanced cleaning strategy and runs it as a baseline."""
-    dataset_path = data.get("dataset_path", "data.csv")
+    dataset_path = safe_dataset_path(data.get("dataset_path", "data.csv"))
     target_column = data.get("target_column", "target")
     
     # 1. Profile Data
