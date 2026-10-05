@@ -50,6 +50,8 @@ export type FeedItem =
 interface Store {
   loading: boolean;
   live: boolean;
+  demo: boolean;
+  connectionError: string | null;
   started: boolean;
   startApp: (source?: 'sample' | 'upload') => void;
   metrics: DataMetrics | null;
@@ -170,6 +172,8 @@ function readFlag(): boolean {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);
+  const demo = backend.connection.demo;
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [started, setStarted] = useState(readFlag);
   const [metrics, setMetrics] = useState<DataMetrics | null>(null);
   const [warnings, setWarnings] = useState<LeakageWarning[]>([]);
@@ -185,9 +189,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [agentOpen, setAgentOpen] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [datasetName, setDatasetName] = useState('churn_v3');
-  const [fileName, setFileName] = useState<string | null>('churn_customers.csv');
-  const [target, setTargetState] = useState('is_churned');
+  const [datasetName, setDatasetName] = useState(backend.connection.demo ? 'churn_v3' : 'no dataset');
+  const [fileName, setFileName] = useState<string | null>(backend.connection.demo ? 'churn_customers.csv' : null);
+  const [target, setTargetState] = useState(backend.connection.demo ? 'is_churned' : '—');
   const [cleaning, setCleaning] = useState(false);
   const [cleaned, setCleaned] = useState(false);
   const [cleanSteps, setCleanSteps] = useState<CleanStep[]>(CLEAN.map((s) => ({ ...s, done: false })));
@@ -260,18 +264,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), action ? 6500 : 3600);
   }, []);
 
+  /** Actions that would produce numbers need the backend, unless Demo mode is on. */
+  const requireBackend = useCallback(() => {
+    if (demo || live) return true;
+    toast('Not connected to the backend. Start it and reload, or turn on Demo mode.', 'err');
+    return false;
+  }, [demo, live, toast]);
+
   /* ---------------- initial load ---------------- */
   useEffect(() => {
     let dead = false;
     (async () => {
-      const [m, w, c, s, e] = await Promise.all([
-        backend.getDataMetrics(),
-        backend.getLeakageWarnings(),
-        backend.getColumns(),
-        backend.getFeatureSuggestions(),
-        backend.getExperimentTree(),
-      ]);
+      let loaded;
+      try {
+        loaded = await Promise.all([
+          backend.getDataMetrics(),
+          backend.getLeakageWarnings(),
+          backend.getColumns(),
+          backend.getFeatureSuggestions(),
+          backend.getExperimentTree(),
+        ]);
+      } catch (err) {
+        if (dead) return;
+        // No sample data outside Demo mode: show the failure, not numbers.
+        setConnectionError(backend.describeError(err));
+        setLive(false);
+        setFeed([
+          {
+            id: 'intro',
+            kind: 'text',
+            from: 'agent',
+            text: `I can't reach the MLPilot backend at ${backend.API_BASE_URL}, so there is nothing real to show yet. Start the backend and retry, or turn on Demo mode to explore with sample data.`,
+          },
+        ]);
+        setLoading(false);
+        return;
+      }
       if (dead) return;
+      const [m, w, c, s, e] = loaded;
       setMetrics(m);
       setWarnings(w);
       setColumns(c);
@@ -299,7 +329,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ];
       setFeed(intro);
       const now = Date.now();
-      setActivity([
+      // Sample activity only in Demo mode; real activity comes from real runs.
+      if (demo) setActivity([
         { id: 1, t: now - 60_000, text: 'exp_023 queued · CatBoost native categoricals', tone: 'info' },
         { id: 2, t: now - 2 * 60_000, text: 'exp_022 started · LightGBM', tone: 'info' },
         { id: 3, t: now - 44 * 60_000, text: 'exp_021 finished · F1 0.840', tone: 'ok' },
@@ -327,7 +358,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /* ---------------- local worker-pool simulation + live narration ---------------- */
   useEffect(() => {
-    if (loading || live) return;
+    // Simulated runs are sample data: only in Demo mode.
+    if (loading || live || !demo) return;
     const t = setInterval(() => {
       const prev = expRef.current;
       let running = prev.filter((e) => e.status === 'running').length;
@@ -425,7 +457,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }, 800);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, live, commit, log, pushFeed]);
+  }, [loading, live, demo, commit, log, pushFeed]);
 
   const agentStatusRef = useRef<AgentStatus>('idle');
   useEffect(() => {
@@ -510,6 +542,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const ingestCsv = useCallback(
     async (file: File) => {
+      if (!requireBackend()) return;
       const text = await file.text();
       const { headers, rows, samples } = parseCsv(text);
       if (!headers.length) {
@@ -548,7 +581,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       log(`Ingested ${file.name} · ${rows.toLocaleString()} rows`, 'ok');
       toast(`Loaded ${file.name}`, 'ok');
     },
-    [log, toast]
+    [log, toast, requireBackend]
   );
 
   /* ---------------- auto-clean with a human-in-the-loop checkpoint ---------------- */
@@ -576,7 +609,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const autoClean = useCallback(() => {
-    if (cleaning) return;
+    if (cleaning || !requireBackend()) return;
     setCleaning(true);
     setCleaned(false);
     setCleanSteps(CLEAN.map((s) => ({ ...s, done: false })));
@@ -598,7 +631,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } else {
       runCleanSteps(0);
     }
-  }, [cleaning, pushFeed, runCleanSteps]);
+  }, [cleaning, pushFeed, runCleanSteps, requireBackend]);
 
   const answerCheckpoint = useCallback(
     (id: string, choice: number) => {
@@ -645,6 +678,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const runSuggestion = useCallback(
     (feedId: string, modelKey?: string) => {
+      if (!requireBackend()) return;
       const item = feedRef.current.find((f) => f.id === feedId);
       if (!item || item.kind !== 'suggestion' || item.expId) return;
       const key = modelKey ?? pickModelKey();
@@ -668,7 +702,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       backend.runExperiment(item.s, m.cls, exp.parent_id).catch(() => undefined);
     },
-    [enqueue, pickModelKey, log, toast]
+    [enqueue, pickModelKey, log, toast, requireBackend]
   );
 
   const runNext = useCallback(() => {
@@ -678,7 +712,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [runSuggestion, toast]);
 
   const runAutopilot = useCallback(() => {
-    if (autoBusy.current) return;
+    if (autoBusy.current || !requireBackend()) return;
     const pending = feedRef.current.filter((f) => f.kind === 'suggestion' && !f.expId).slice(0, hypotheses);
     if (!pending.length) {
       toast('No unused hypotheses. Steer the agent first.', 'warn');
@@ -701,7 +735,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }, budgetMin * 60_000);
     }
-  }, [hypotheses, runSuggestion, log, toast, budgetMin, pushFeed]);
+  }, [hypotheses, runSuggestion, log, toast, budgetMin, pushFeed, requireBackend]);
 
   const dismissSuggestion = useCallback((feedId: string) => {
     setFeed((f) => f.filter((x) => x.id !== feedId));
@@ -1011,6 +1045,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value: Store = {
     loading,
     live,
+    demo,
+    connectionError,
     started,
     startApp,
     metrics,

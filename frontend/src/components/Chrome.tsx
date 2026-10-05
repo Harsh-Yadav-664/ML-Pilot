@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WORKERS, useStore } from '../store';
 import { View } from '../types';
-import { API_BASE_URL } from '../api';
+import { API_BASE_URL, setDemoMode } from '../api';
 import { algoLabel, f3 } from '../lib';
 import { cn } from '../utils/cn';
 import { Eyebrow, Kbd, Led } from '../ui';
@@ -38,16 +38,47 @@ export function Toasts() {
   );
 }
 
+/** Persistent banner: Demo mode is always labelled, and a dead backend is never hidden. */
+export function ConnectionBanner() {
+  const { demo, connectionError } = useStore();
+  if (demo) {
+    return (
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-copper/60 bg-copper/15 px-3 py-1.5 font-mono text-[11px] text-copper-2">
+        <span>Demo mode: sample data, not connected</span>
+        <button onClick={() => setDemoMode(false)} className="border border-copper/60 px-2 py-0.5 uppercase tracking-[0.1em] hover:bg-copper hover:text-ink">
+          Exit demo
+        </button>
+      </div>
+    );
+  }
+  if (!connectionError) return null;
+  return (
+    <div role="alert" className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#e0705a]/60 bg-[#e0705a]/15 px-3 py-1.5 font-mono text-[11px] text-[#e0705a]">
+      <span>
+        Not connected to the backend at {API_BASE_URL} ({connectionError}). No data is shown.
+      </span>
+      <span className="flex gap-2">
+        <button onClick={() => window.location.reload()} className="border border-[#e0705a]/60 px-2 py-0.5 uppercase tracking-[0.1em] hover:bg-[#e0705a] hover:text-ink">
+          Retry
+        </button>
+        <button onClick={() => setDemoMode(true)} className="border border-[#e0705a]/60 px-2 py-0.5 uppercase tracking-[0.1em] hover:bg-[#e0705a] hover:text-ink">
+          Use demo data
+        </button>
+      </span>
+    </div>
+  );
+}
+
 export function StatusBar() {
-  const { live, experiments, champion, readiness, setPaletteOpen } = useStore();
+  const { live, demo, experiments, champion, readiness, setPaletteOpen } = useStore();
   const running = experiments.filter((e) => e.status === 'running').length;
   const queued = experiments.filter((e) => e.status === 'queued').length;
   return (
     <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-ink px-3 font-mono text-[10px] uppercase tracking-[0.1em] text-mute">
       <div className="flex items-center gap-5">
         <span className="flex items-center gap-1.5" title={API_BASE_URL}>
-          <Led color={live ? '#b2cd8b' : '#f7cd82'} />
-          {live ? 'api connected' : 'api · sample data'}
+          <Led color={live ? '#b2cd8b' : demo ? '#f7cd82' : '#e0705a'} />
+          {live ? 'api connected' : demo ? 'demo · sample data' : 'api disconnected'}
         </span>
         <span className="hidden items-center gap-2 sm:flex">
           workers

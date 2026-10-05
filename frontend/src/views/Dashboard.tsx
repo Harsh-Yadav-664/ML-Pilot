@@ -98,6 +98,7 @@ function Hero() {
     datasetName,
     fileName,
     target,
+    demo,
     live,
     optimizeFor,
   } = useStore();
@@ -153,8 +154,8 @@ function Hero() {
             <span>→</span>
             <span className="text-copper-2">{target}</span>
             <span className="ml-auto flex items-center gap-1.5">
-              <Led color={live ? '#b2cd8b' : '#f7cd82'} />
-              {live ? 'backend live' : 'sample data'}
+              <Led color={live ? '#b2cd8b' : demo ? '#f7cd82' : '#e0705a'} />
+              {live ? 'backend live' : demo ? 'demo · sample data' : 'not connected'}
             </span>
           </div>
 
@@ -243,7 +244,7 @@ function Hero() {
 
 /* --------------------------------------------------------------- leakage */
 function Leakage() {
-  const { warnings, excluded, toggleColumn, excludeHighRisk, loading } = useStore();
+  const { warnings, excluded, toggleColumn, excludeHighRisk, loading, connectionError } = useStore();
   const open = warnings.filter((w) => !excluded.has(w.column));
   const high = open.filter((w) => w.severity === 'high').length;
   const sev = { high: '#e0705a', medium: '#f7cd82', low: '#a08d76' } as const;
@@ -264,7 +265,10 @@ function Leakage() {
         }
       />
       <Panel className={cn('mt-3', high > 0 && 'border-clay/40')}>
-        {warnings.length === 0 && !loading && (
+        {connectionError && !loading && (
+          <p className="px-4 py-5 text-[13px] text-mute">Not available: the backend is not connected, so no leakage scan has run.</p>
+        )}
+        {warnings.length === 0 && !loading && !connectionError && (
           <p className="px-4 py-5 text-[13px] text-mute">No leakage detected. Every feature is available at prediction time.</p>
         )}
         {loading && <div className="skeleton m-4 h-16" />}

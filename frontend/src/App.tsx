@@ -9,7 +9,7 @@ import { ExperimentsView } from './views/ExperimentsView';
 import { Deployments } from './views/Deployments';
 import { Settings } from './views/Settings';
 import { AgentPanel } from './components/AgentPanel';
-import { CommandPalette, StatusBar, Toasts } from './components/Chrome';
+import { CommandPalette, ConnectionBanner, StatusBar, Toasts } from './components/Chrome';
 import { Landing } from './Landing';
 
 /** A coffee bean in a caramel block. */
@@ -84,6 +84,7 @@ function Workspace() {
   return (
     <div className="flex h-screen flex-col overflow-hidden text-bone">
       <div className="guides" aria-hidden />
+      <ConnectionBanner />
       <div className="flex min-h-0 flex-1">
         {/* ---------- rail ---------- */}
         <aside className="flex w-14 shrink-0 flex-col items-center border-r border-line bg-ink py-3">
