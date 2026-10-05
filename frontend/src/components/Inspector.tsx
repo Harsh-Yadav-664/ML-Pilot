@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { MODELS, algoLabel, f3, importances, makeCurve, pct, timeAgo, trainingScript } from '../lib';
 import { useStore } from '../store';
+import { connection } from '../api';
 import { Decision } from '../types';
 import { cn } from '../utils/cn';
 import { Btn, Curve, Delta, Eyebrow, Leader, StatusChip, Tag } from '../ui';
@@ -49,8 +50,9 @@ export function Inspector() {
     exp.metrics[k] !== undefined && vs?.metrics[k] !== undefined ? exp.metrics[k]! - vs.metrics[k]! : undefined;
   const isChampion = champion?.id === exp.id;
   const hasKids = experiments.some((e) => e.parent_id === exp.id);
-  const curve = exp.metrics.f1 !== undefined ? makeCurve(exp.id, exp.metrics.f1) : null;
-  const imps = importances(exp, columns);
+  // Learning curves and importances are illustrative sample data: Demo mode only.
+  const curve = connection.demo && exp.metrics.f1 !== undefined ? makeCurve(exp.id, exp.metrics.f1) : null;
+  const imps = connection.demo ? importances(exp, columns) : [];
   const script = trainingScript(exp, target, [...excluded]);
   const mx = Math.max(...imps.map((i) => i.weight), 0.01);
 
@@ -238,7 +240,11 @@ export function Inspector() {
 
         {tab === 'explain' && (
           <div>
-            <p className="mb-4 text-[12.5px] text-mute">Top feature importances for this run. Engineered features, when present, tend to surface first.</p>
+            <p className="mb-4 text-[12.5px] text-mute">
+              {connection.demo
+                ? 'Top feature importances for this run. Engineered features, when present, tend to surface first.'
+                : 'Not available yet: feature importances are not recorded for real runs.'}
+            </p>
             <div className="space-y-3">
               {imps.map((f, i) => (
                 <div key={f.name} className="grid grid-cols-[150px_minmax(0,1fr)_54px] items-center gap-3">

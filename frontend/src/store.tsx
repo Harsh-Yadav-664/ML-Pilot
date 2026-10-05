@@ -8,7 +8,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import api, * as backend from './api';
+import * as backend from './api';
+import type { ActiveDataset } from './api';
 import { craftReply, mockDrift, mockEndpoints, mockVolume } from './api/mock';
 import {
   AgentStatus,
@@ -140,6 +141,7 @@ function pickChampion(list: Experiment[], id: string | null, metric: MetricKey) 
   return list.find((e) => e.id === id && e.status === 'completed' && e.decision !== 'reject') ?? bestOf(list, metric);
 }
 
+// Demo mode only: sample metrics for simulated runs.
 function simulateMetrics(e: Experiment, all: Experiment[]) {
   const parent = all.find((p) => p.id === e.parent_id)?.metrics.f1 ?? 0.72;
   const boost = /xgb|lgbm|cat/i.test(e.model_name) ? 0.004 : 0;
@@ -161,6 +163,33 @@ const CLEAN: Omit<CleanStep, 'done'>[] = [
   { id: 'enc', label: 'Encode categoricals', detail: 'Target encoding with CV folds' },
 ];
 
+const DATASET_KEY = 'mlpilot.dataset';
+
+function readDataset(): ActiveDataset | null {
+  try {
+    const raw = sessionStorage.getItem(DATASET_KEY);
+    return raw ? (JSON.parse(raw) as ActiveDataset) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDataset(d: ActiveDataset) {
+  try {
+    sessionStorage.setItem(DATASET_KEY, JSON.stringify(d));
+  } catch {
+    /* private mode: dataset choice not remembered across reloads */
+  }
+}
+
+/** Models the backend can train (MODEL_REGISTRY in ml/experiments/executor.py). */
+const BACKEND_MODELS = new Set(['XGBClassifier', 'LGBMClassifier', 'RandomForestClassifier', 'LogisticRegression', 'GradientBoostingClassifier']);
+
+function pickTarget(columns: string[], suggested?: string): string {
+  if (suggested && columns.includes(suggested)) return suggested;
+  return columns.find((h) => /churn|label|target|y$/i.test(h)) ?? columns[columns.length - 1] ?? '';
+}
+
 function readFlag(): boolean {
   try {
     return sessionStorage.getItem('mlpilot.started') === '1';
@@ -174,6 +203,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [live, setLive] = useState(false);
   const demo = backend.connection.demo;
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [dataset, setDatasetState] = useState<ActiveDataset | null>(() => (backend.connection.demo ? null : readDataset()));
+  const datasetRef = useRef<ActiveDataset | null>(dataset);
   const [started, setStarted] = useState(readFlag);
   const [metrics, setMetrics] = useState<DataMetrics | null>(null);
   const [warnings, setWarnings] = useState<LeakageWarning[]>([]);
@@ -271,18 +302,115 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return false;
   }, [demo, live, toast]);
 
-  /* ---------------- initial load ---------------- */
-  useEffect(() => {
-    let dead = false;
-    (async () => {
+  /* ---------------- real backend: load a dataset ---------------- */
+  const setDataset = useCallback((d: ActiveDataset) => {
+    datasetRef.current = d;
+    setDatasetState(d);
+    saveDataset(d);
+  }, []);
+
+  const loadDataset = useCallback(
+    async (d: ActiveDataset) => {
+      setLoading(true);
+      setDatasetName(d.filename.replace(/\.csv$/i, ''));
+      setFileName(d.filename);
+      setTargetState(d.target_column);
       let loaded;
       try {
         loaded = await Promise.all([
-          backend.getDataMetrics(),
-          backend.getLeakageWarnings(),
-          backend.getColumns(),
-          backend.getFeatureSuggestions(),
-          backend.getExperimentTree(),
+          backend.getDataMetrics(d),
+          backend.getLeakageWarnings(d),
+          backend.getColumns(d),
+          backend.getExperimentTree(d),
+        ]);
+      } catch (err) {
+        const msg = backend.describeError(err);
+        if (!backend.isHttpError(err)) setConnectionError(msg);
+        setFeed([{ id: 'intro', kind: 'text', from: 'agent', text: `Could not load ${d.filename}: ${msg}` }]);
+        setLoading(false);
+        return;
+      }
+      const [m, w, c, e] = loaded;
+      setLive(true);
+      setConnectionError(null);
+      setMetrics(m);
+      setWarnings(w);
+      setColumns(c);
+      commit(e);
+      setFeed([
+        {
+          id: 'intro',
+          kind: 'text',
+          from: 'agent',
+          text: `Loaded ${d.filename}: ${m.total_rows.toLocaleString('en-US')} rows, ${m.total_columns} columns, target ${d.target_column}. ${w.length} leakage findings (${w.filter((x) => x.severity === 'high').length} high-risk). ${e.length ? `${e.length} recorded runs on this dataset.` : 'Queuing a baseline run now.'} Asking the planner for feature ideas…`,
+        },
+      ]);
+      setLoading(false);
+      if (!e.length) {
+        try {
+          const b = await backend.runBaseline(d);
+          log(`Baseline queued · ${algoLabel(b.model_name)}`, 'info');
+        } catch (err) {
+          toast(`Baseline failed to start: ${backend.describeError(err)}`, 'err');
+        }
+      }
+      try {
+        const sug = await backend.getFeatureSuggestions(d);
+        const stamp = Date.now();
+        setFeed((f) => [...f, ...sug.map((x, i): FeedItem => ({ id: `s${stamp}_${i}`, kind: 'suggestion', s: x }))]);
+      } catch (err) {
+        setFeed((f) => [...f, { id: `m${++uid.current}`, kind: 'text', from: 'agent', text: `Feature suggestions failed: ${backend.describeError(err)}` }]);
+      }
+    },
+    [commit, log, toast]
+  );
+
+  /* ---------------- real backend: initial connection ---------------- */
+  useEffect(() => {
+    if (demo) return;
+    (async () => {
+      try {
+        await backend.getExperimentTree(null);
+      } catch (err) {
+        // No sample data outside Demo mode: show the failure, not numbers.
+        setConnectionError(backend.describeError(err));
+        setLive(false);
+        setFeed([
+          {
+            id: 'intro',
+            kind: 'text',
+            from: 'agent',
+            text: `I can't reach the MLPilot backend at ${backend.API_BASE_URL}, so there is nothing real to show yet. Start the backend and retry, or turn on Demo mode to explore with sample data.`,
+          },
+        ]);
+        setLoading(false);
+        return;
+      }
+      setLive(true);
+      const d = datasetRef.current;
+      if (d) await loadDataset(d);
+      else {
+        setFeed([{ id: 'intro', kind: 'text', from: 'agent', text: 'Connected to the backend. Load the sample dataset or upload a CSV to start.' }]);
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ---------------- Demo mode: sample data only ---------------- */
+  useEffect(() => {
+    if (!demo) return;
+    let dead = false;
+    (async () => {
+      let loaded;
+      const sample: ActiveDataset = { dataset_path: 'demo', filename: 'churn_customers.csv', target_column: 'is_churned' };
+      try {
+        loaded = await Promise.all([
+          backend.getDataMetrics(sample),
+          backend.getLeakageWarnings(sample),
+          backend.getColumns(sample),
+          backend.getFeatureSuggestions(sample),
+          backend.getExperimentTree(sample),
         ]);
       } catch (err) {
         if (dead) return;
@@ -342,16 +470,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       dead = true;
     };
-  }, [commit]);
+  }, [commit, demo]);
 
   /* ---------------- live polling (real backend) ---------------- */
   useEffect(() => {
     if (!live) return;
     const t = setInterval(() => {
-      api
-        .get<Experiment[]>('/experiments/tree')
-        .then((r) => commit(r.data))
-        .catch(() => undefined);
+      const d = datasetRef.current;
+      if (!d) return;
+      backend
+        .getExperimentTree(d)
+        .then(commit)
+        .catch((err) => setConnectionError(backend.isHttpError(err) ? null : backend.describeError(err)));
     }, 4000);
     return () => clearInterval(t);
   }, [live, commit]);
@@ -379,6 +509,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }
             return { ...e, progress, runtime_seconds: runtime };
           }
+          // Demo mode only (this effect returns early unless demo).
           if (Math.random() < 0.06) {
             const f: Experiment = {
               ...e,
@@ -471,11 +602,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const base = list.find((e) => e.decision === 'baseline') ?? list.find((e) => !e.parent_id);
     const mk = metricRef.current;
     if (!ch || ch.metrics[mk] === undefined) return 'No completed runs yet, so there is nothing to debrief. Queue a hypothesis first.';
-    const imps = importances(ch, columnsRef.current);
     const done = list.filter((e) => e.status === 'completed').length;
     const tested = list.filter((e) => e.feature).length;
-    const drivers = imps.slice(0, 3).map((i, n) => `${['first', 'second', 'third'][n]} ${i.name} (${(i.weight * 100).toFixed(0)}%)`).join(', ');
     const baseM = base?.metrics[mk];
+    if (!backend.connection.demo) {
+      return `Debrief. ${algoLabel(ch.model_name)} (${ch.id}) leads at ${mk} ${f3(ch.metrics[mk])} on ${list.length} total runs, ${done} completed, ${tested} feature hypotheses tested since ${base?.id ?? 'the baseline'}${baseM !== undefined ? ` (${f3(baseM)})` : ''}. Feature importances are not available yet.`;
+    }
+    const imps = importances(ch, columnsRef.current);
+    const drivers = imps.slice(0, 3).map((i, n) => `${['first', 'second', 'third'][n]} ${i.name} (${(i.weight * 100).toFixed(0)}%)`).join(', ');
     return `Debrief. ${algoLabel(ch.model_name)} (${ch.id}) leads at ${mk} ${f3(ch.metrics[mk])} on ${list.length} total runs, ${done} completed, ${tested} feature hypotheses tested since ${base?.id ?? 'the baseline'}${baseM !== undefined ? ` (${f3(baseM)})` : ''}. What drives the model, in order: ${drivers}. Nothing else cleared the keep line. The full ranked explanation is in the champion's Importance tab.`;
   }, []);
 
@@ -488,7 +622,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       /* private mode */
     }
     if (source === 'upload') setUploadOpen(true);
-  }, []);
+    if (source === 'sample' && !backend.connection.demo) {
+      backend
+        .loadSampleDataset()
+        .then((info) => {
+          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns, info.default_target) };
+          setDataset(d);
+          return loadDataset(d);
+        })
+        .catch((err) => {
+          if (!backend.isHttpError(err)) setConnectionError(backend.describeError(err));
+          toast(`Could not load the sample dataset: ${backend.describeError(err)}`, 'err');
+        });
+    }
+  }, [setDataset, loadDataset, toast]);
 
   /* ---------------- actions ---------------- */
   const select = useCallback((id: string | null) => setSelectedId(id), []);
@@ -533,16 +680,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const setTarget = useCallback(
     (t: string) => {
+      const d = datasetRef.current;
+      if (!demo && d) {
+        const next = { ...d, target_column: t };
+        setDataset(next);
+        void loadDataset(next);
+        log(`Target set to ${t}`, 'info');
+        return;
+      }
       setTargetState(t);
       setColumns((cols) => cols.map((c) => ({ ...c, role: c.name === t ? 'target' : c.role === 'target' ? 'feature' : c.role })));
       log(`Target set to ${t}`, 'info');
     },
-    [log]
+    [log, demo, setDataset, loadDataset]
   );
 
   const ingestCsv = useCallback(
     async (file: File) => {
       if (!requireBackend()) return;
+      if (!demo) {
+        try {
+          const info = await backend.uploadDataset(file);
+          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns) };
+          setDataset(d);
+          setUploadOpen(false);
+          toast(`Uploaded ${info.filename}`, 'ok');
+          await loadDataset(d);
+        } catch (err) {
+          toast(`Upload failed: ${backend.describeError(err)}`, 'err');
+        }
+        return;
+      }
       const text = await file.text();
       const { headers, rows, samples } = parseCsv(text);
       if (!headers.length) {
@@ -553,6 +721,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const cols: ColumnProfile[] = headers.map((name, i) => {
         const dtype = inferDtype(name, samples[i] ?? '');
         const role: ColumnProfile['role'] = /id$/i.test(name) ? 'id' : name === guessTarget ? 'target' : 'feature';
+        // Demo mode only: real uploads return above with backend stats.
         const dist = Array.from({ length: 12 }, () => Math.random());
         const mx = Math.max(...dist) || 1;
         return {
@@ -581,7 +750,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       log(`Ingested ${file.name} · ${rows.toLocaleString()} rows`, 'ok');
       toast(`Loaded ${file.name}`, 'ok');
     },
-    [log, toast, requireBackend]
+    [log, toast, requireBackend, demo, setDataset, loadDataset]
   );
 
   /* ---------------- auto-clean with a human-in-the-loop checkpoint ---------------- */
@@ -610,6 +779,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const autoClean = useCallback(() => {
     if (cleaning || !requireBackend()) return;
+    if (!demo) {
+      const d = datasetRef.current;
+      if (!d) return toast('Load a dataset first.', 'warn');
+      setCleaning(true);
+      backend
+        .runAutoClean(d)
+        .then((exp) => {
+          log(`Auto-clean run queued · ${exp.id}`, 'info');
+          toast('AI cleaning recipe accepted; training a cleaned baseline', 'ok');
+          setCleaned(true);
+        })
+        .catch((err) => toast(`Auto-clean failed: ${backend.describeError(err)}`, 'err'))
+        .finally(() => setCleaning(false));
+      return;
+    }
     setCleaning(true);
     setCleaned(false);
     setCleanSteps(CLEAN.map((s) => ({ ...s, done: false })));
@@ -631,7 +815,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } else {
       runCleanSteps(0);
     }
-  }, [cleaning, pushFeed, runCleanSteps, requireBackend]);
+  }, [cleaning, pushFeed, runCleanSteps, requireBackend, demo, log, toast]);
 
   const answerCheckpoint = useCallback(
     (id: string, choice: number) => {
@@ -672,8 +856,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const pickModelKey = useCallback(() => {
-    const pool = treeOnlyRef.current ? MODELS.filter((m) => m.tree) : MODELS;
-    return pool[expCounter.current % pool.length].key;
+    const available = backend.connection.demo ? MODELS : MODELS.filter((m) => BACKEND_MODELS.has(m.cls));
+    const pool = treeOnlyRef.current ? available.filter((m) => m.tree) : available;
+    // Rotate models; real runs don't go through enqueue, so advance the counter here.
+    return pool[(backend.connection.demo ? expCounter.current : expCounter.current++) % pool.length].key;
   }, []);
 
   const runSuggestion = useCallback(
@@ -684,6 +870,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const key = modelKey ?? pickModelKey();
       const m = MODELS.find((x) => x.key === key) ?? MODELS[0];
       const parent = pickChampion(expRef.current, championRef.current, metricRef.current);
+      if (!demo) {
+        const d = datasetRef.current;
+        if (!d) return toast('Load a dataset first.', 'warn');
+        if (!BACKEND_MODELS.has(m.cls)) return toast(`${m.label} isn't available in the backend yet.`, 'warn');
+        backend
+          .runExperiment(d, item.s, m.cls, parent?.id ?? null)
+          .then((exp) => {
+            setFeed((f) => f.map((x) => (x.id === feedId && x.kind === 'suggestion' ? { ...x, expId: exp.id } : x)));
+            log(`${exp.id} queued · ${m.label} + ${item.s.name}`, 'info');
+            toast(`Queued ${exp.id}`, 'info', {
+              label: 'View',
+              run: () => {
+                setView('experiments');
+                setSelectedId(exp.id);
+              },
+            });
+          })
+          .catch((err) => toast(`Run failed to start: ${backend.describeError(err)}`, 'err'));
+        return;
+      }
       const exp = enqueue({
         parent_id: parent?.id ?? null,
         model_name: m.cls,
@@ -700,9 +906,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setSelectedId(exp.id);
         },
       });
-      backend.runExperiment(item.s, m.cls, exp.parent_id).catch(() => undefined);
     },
-    [enqueue, pickModelKey, log, toast, requireBackend]
+    [enqueue, pickModelKey, log, toast, requireBackend, demo]
   );
 
   const runNext = useCallback(() => {
@@ -713,6 +918,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const runAutopilot = useCallback(() => {
     if (autoBusy.current || !requireBackend()) return;
+    if (!demo) {
+      const d = datasetRef.current;
+      if (!d) return toast('Load a dataset first.', 'warn');
+      autoBusy.current = true;
+      setAgentStatus('autopilot');
+      log(`Autopilot · ${hypotheses} hypotheses`, 'info');
+      const done = (text: string, tone: Tone) => {
+        autoBusy.current = false;
+        setAgentStatus('idle');
+        pushFeed({ kind: 'text', from: 'agent', text });
+        log(text, tone);
+      };
+      backend
+        .startAutoOptimize(d, hypotheses)
+        .then((jobId) => {
+          const poll = window.setInterval(() => {
+            backend
+              .getAutoOptimize(jobId)
+              .then((job) => {
+                if (job.status === 'running') return;
+                window.clearInterval(poll);
+                if (job.status === 'completed') done(`Autopilot finished. ${job.result?.summary ?? ''}`, 'ok');
+                else done(`Autopilot failed: ${job.error ?? 'unknown error'}`, 'err');
+              })
+              .catch((err) => {
+                window.clearInterval(poll);
+                done(`Lost track of the autopilot job: ${backend.describeError(err)}`, 'err');
+              });
+          }, 3000);
+        })
+        .catch((err) => done(`Autopilot failed to start: ${backend.describeError(err)}`, 'err'));
+      return;
+    }
     const pending = feedRef.current.filter((f) => f.kind === 'suggestion' && !f.expId).slice(0, hypotheses);
     if (!pending.length) {
       toast('No unused hypotheses. Steer the agent first.', 'warn');
@@ -735,7 +973,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }, budgetMin * 60_000);
     }
-  }, [hypotheses, runSuggestion, log, toast, budgetMin, pushFeed, requireBackend]);
+  }, [hypotheses, runSuggestion, log, toast, budgetMin, pushFeed, requireBackend, demo]);
 
   const dismissSuggestion = useCallback((feedId: string) => {
     setFeed((f) => f.filter((x) => x.id !== feedId));
@@ -754,6 +992,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAgentStatus('thinking');
       pushFeed({ kind: 'text', from: 'user', text: p });
       pushFeed({ id: thinkId, kind: 'thinking' });
+      if (!backend.connection.demo) {
+        // Real grounded Q&A over the recorded experiment history.
+        let text: string;
+        try {
+          text = await backend.chatAsk(p);
+        } catch (err) {
+          text = `Chat failed: ${backend.describeError(err)}`;
+        }
+        setFeed((f) => f.filter((x) => x.id !== thinkId));
+        pushFeed({ kind: 'text', from: 'agent', text, stream: true });
+        setAgentStatus('idle');
+        return;
+      }
       await sleep(550);
       setFeed((f) => f.filter((x) => x.id !== thinkId));
 
@@ -895,6 +1146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...feedRef.current.flatMap((x) => (x.kind === 'suggestion' ? [x.s.name] : [])),
         ...expRef.current.flatMap((e) => (e.feature ? [e.feature] : [])),
       ];
+      // Demo mode only: real chat returns above via /chat/ask.
       const reply = craftReply(lower, used);
       if (!reply.suggestion) {
         say(reply.text);

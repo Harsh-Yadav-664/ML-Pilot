@@ -6,6 +6,9 @@ import os
 import uuid
 import logging
 import shutil
+
+import numpy as np
+import pandas as pd
 from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 
@@ -19,6 +22,7 @@ from ml.data.profiling.profiler import DataProfiler
 from ml.data.preparation.native.native_prep import NativeDataPreparationProvider
 from ml.agents.decision_agent import DecisionAgent
 from ai.gateway import AIGateway
+from ml.experiments.executor import MODEL_REGISTRY
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -138,7 +142,58 @@ async def get_data_metrics(
         }
     except Exception as e:
         logger.error(f"Failed to get metrics: {e}")
-        return {"total_rows": 0, "total_columns": 0, "missing_data_percent": 0, "duplicate_rows": 0}
+        raise HTTPException(status_code=400, detail=f"Could not profile {dataset_path}: {e}") from e
+
+
+def _column_profile(series: pd.Series, name: str, target_column: str, n_rows: int) -> dict[str, Any]:
+    """Real per-column summary for the UI: dtype, missing %, unique count, 12-bin shape."""
+    non_null = series.dropna()
+    unique = int(non_null.nunique())
+    if pd.api.types.is_bool_dtype(series):
+        dtype = "bool"
+    elif pd.api.types.is_integer_dtype(series):
+        dtype = "int"
+    elif pd.api.types.is_float_dtype(series):
+        dtype = "float"
+    elif pd.api.types.is_datetime64_any_dtype(series):
+        dtype = "datetime"
+    elif unique <= 50:
+        dtype = "category"
+    else:
+        dtype = "string"
+
+    if dtype in ("int", "float") and unique > 12:
+        counts, _ = np.histogram(non_null.astype(float), bins=12)
+        dist = counts.tolist()
+    else:
+        dist = non_null.astype(str).value_counts().head(12).tolist()
+    peak = max(dist) if dist else 0
+    dist = [round(c / peak, 4) if peak else 0.0 for c in dist] + [0.0] * (12 - len(dist))
+
+    if name == target_column:
+        role = "target"
+    elif dtype in ("string", "int") and n_rows > 0 and unique == n_rows:
+        role = "id"
+    else:
+        role = "feature"
+    return {
+        "name": name,
+        "dtype": dtype,
+        "role": role,
+        "missing_pct": round(float(series.isna().mean()) * 100, 2),
+        "unique": unique,
+        "dist": dist,
+    }
+
+
+@router.get("/data/columns")
+async def get_data_columns(dataset_path: str, target_column: str) -> list[dict[str, Any]]:
+    """Return a real profile of every column for the UI."""
+    try:
+        df = CsvLoader().load(dataset_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not load {dataset_path}: {e}") from e
+    return [_column_profile(df[c], c, target_column, len(df)) for c in df.columns]
 
 @router.get("/data/leakage-warnings")
 async def get_leakage_warnings(
@@ -157,13 +212,14 @@ async def get_leakage_warnings(
                 "id": f"warn_{i}",
                 "column": w.column,
                 "message": w.reason,
-                "severity": w.severity
+                "severity": w.severity,
+                "category": w.leakage_type,
             }
             for i, w in enumerate(warnings)
         ]
     except Exception as e:
         logger.error(f"Failed to get leakage: {e}")
-        return []
+        raise HTTPException(status_code=400, detail=f"Leakage scan failed: {e}") from e
 
 @router.get("/agent/suggestions")
 async def get_agent_suggestions(
@@ -211,12 +267,20 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
     dataset_path = data.get("dataset_path", "data.csv")
     target_column = data.get("target_column", "target")
     
+    model_name = data.get("model_name") or "XGBClassifier"
+    if model_name not in MODEL_REGISTRY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported model {model_name!r}. Supported: {sorted(MODEL_REGISTRY)}",
+        )
+
     exp_create = ExperimentCreate(
         project_id=DEMO_PROJECT_ID,
+        parent_id=data.get("parent_id"),
         dataset_version=dataset_path,
         hypothesis=suggestion.get("reason", "No reason provided"),
         change_description=f"Added feature: {suggestion.get('name')} via formula {suggestion.get('formula')}",
-        model_name="XGBClassifier",
+        model_name=model_name,
         feature_set=[suggestion.get("name")] if suggestion.get("name") else [],
         parameters={
             "target_column": target_column,
@@ -258,13 +322,16 @@ async def run_baseline(data: dict[str, Any], db: DBSession, background_tasks: Ba
     return ExperimentRead.model_validate(exp)
 
 @router.get("/experiments/tree")
-async def get_experiment_tree(db: DBSession) -> list[dict[str, Any]]:
-    """Return all experiments formatted as a flat list."""
+async def get_experiment_tree(db: DBSession, dataset_path: Optional[str] = None) -> list[dict[str, Any]]:
+    """Return experiments as a flat list, optionally only those on one dataset."""
     svc = ExperimentService(db)
-    exps, _ = await svc.list_by_project(DEMO_PROJECT_ID, page=1, page_size=100)
+    exps, _ = await svc.list_by_project(DEMO_PROJECT_ID, page=1, page_size=500)
+    if dataset_path:
+        exps = [e for e in exps if e.dataset_version == dataset_path]
     
     result = []
     for e in exps:
+        params = e.parameters or {}
         result.append({
             "id": e.id,
             "parent_id": e.parent_id,
@@ -272,7 +339,11 @@ async def get_experiment_tree(db: DBSession) -> list[dict[str, Any]]:
             "status": e.status,
             "metrics": e.metrics or {},
             "runtime_seconds": e.runtime_seconds or 0.0,
-            "created_at": e.created_at.isoformat()
+            "created_at": e.created_at.isoformat(),
+            "title": e.change_description,
+            "feature": params.get("feature_name"),
+            "decision": e.decision if e.decision in ("keep", "reject") else ("baseline" if not e.parent_id else "none"),
+            "error": e.decision_reason if e.status == "failed" else None,
         })
     return result
 
