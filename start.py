@@ -20,11 +20,11 @@ def main():
         cwd="backend"
     )
     
-    # Start Frontend (shell=True is required on Windows for npm)
+    # Start Frontend (npm needs a shell on Windows; on Linux/macOS shell=True would drop "run dev")
     frontend = subprocess.Popen(
         ["npm", "run", "dev"],
         cwd="frontend",
-        shell=True
+        shell=(os.name == "nt"),
     )
     
     try:

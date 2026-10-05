@@ -51,3 +51,24 @@ async def test_run_rejects_unknown_model(client):
     )
     assert resp.status_code == 400
     assert "Unsupported model" in resp.json()["detail"]
+
+
+async def test_upload_csv_returns_columns_and_rows(client, tmp_path, monkeypatch):
+    from app.api.v1 import ui
+    from app.core import datasets
+
+    monkeypatch.setattr(ui, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(datasets, "ALLOWED_DATA_DIRS", [tmp_path])
+    csv = b"a,b,label\n1,2,yes\n3,4,no\n5,6,yes\n"
+    resp = await client.post("/api/v1/ui/data/upload", files={"file": ("../../evil.csv", csv, "text/csv")})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["columns"] == ["a", "b", "label"]
+    assert body["total_rows"] == 3
+    assert body["filename"] == "evil.csv"
+    assert Path(body["dataset_path"]).parent == tmp_path.resolve()
+
+
+async def test_upload_rejects_non_csv(client):
+    resp = await client.post("/api/v1/ui/data/upload", files={"file": ("data.xlsx", b"x", "application/octet-stream")})
+    assert resp.status_code == 400
