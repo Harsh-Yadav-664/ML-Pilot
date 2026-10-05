@@ -226,6 +226,8 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
     )
     
     exp = await svc.create(exp_create)
+    # Commit before scheduling: the background run reads the row from its own session.
+    await db.commit()
     background_tasks.add_task(background_runner, exp.id)
     return ExperimentRead.model_validate(exp)
 
@@ -250,6 +252,8 @@ async def run_baseline(data: dict[str, Any], db: DBSession, background_tasks: Ba
     )
     
     exp = await svc.create(exp_create)
+    # Commit before scheduling: the background run reads the row from its own session.
+    await db.commit()
     background_tasks.add_task(background_runner, exp.id)
     return ExperimentRead.model_validate(exp)
 
@@ -354,6 +358,8 @@ async def auto_clean_dataset(
     )
     
     exp = await svc.create(exp_create)
+    # Commit before scheduling: the background run reads the row from its own session.
+    await db.commit()
     background_tasks.add_task(background_runner, exp.id)
     return ExperimentRead.model_validate(exp)
 

@@ -72,8 +72,8 @@ class ExperimentService:
         async with AsyncSessionLocal() as session:
             exp = await session.get(Experiment, experiment_id)
             if not exp:
-                logger.error(f"Experiment {experiment_id} not found for execution.")
-                return
+                # Nothing to mark as failed; raise so the caller logs it loudly.
+                raise LookupError(f"Experiment {experiment_id} not found for execution")
 
             exp.status = ExperimentStatus.RUNNING.value
             await session.commit()

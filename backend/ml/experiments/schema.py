@@ -14,7 +14,7 @@ class ExperimentStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
-    EVALUATED = "failed"
+    FAILED = "failed"
 
 
 class ExperimentDecision(str, Enum):
