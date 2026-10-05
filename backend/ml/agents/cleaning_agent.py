@@ -1,9 +1,34 @@
-import json
-from ai.gateway import AIGateway
-from ml.core.interfaces import ProfileResult
 import logging
 
+from ai.gateway import AIGateway
+from ai.router import TaskType
+from ml.core.interfaces import ProfileResult
+
 logger = logging.getLogger(__name__)
+
+# Steps understood by ml.data.preparation.dynamic_builder.DynamicPipelineBuilder
+ALLOWED_STEPS = frozenset({
+    "impute_median", "impute_mean", "impute_constant", "impute_most_frequent",
+    "standard_scale", "robust_scale", "minmax_scale",
+    "onehot_encode", "target_encode",
+    "log1p",
+})
+
+STRATEGY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "columns": {
+            "type": "object",
+            "additionalProperties": {"type": "array", "items": {"type": "string"}},
+        }
+    },
+    "required": ["columns"],
+}
+
+
+class CleaningStrategyError(RuntimeError):
+    """The LLM could not produce a usable cleaning strategy."""
+
 
 class DataCleaningAgent:
     def __init__(self, gateway: AIGateway):
@@ -12,13 +37,14 @@ class DataCleaningAgent:
     async def generate_cleaning_strategy(self, profile: ProfileResult, target_column: str) -> dict:
         """
         Takes a ProfileResult and asks the LLM to generate an optimal preprocessing JSON strategy.
+
+        Raises CleaningStrategyError if the LLM call fails or returns an invalid strategy.
         """
         
         system_prompt = (
             "You are an expert Data Scientist specializing in data preparation and feature engineering. "
             "You will receive a dataset profile containing columns, missing values, skewness, and cardinality. "
             "Your task is to output a strictly valid JSON configuration for a ColumnTransformer builder. "
-            "Do not output markdown code blocks like ```json, just output the raw JSON object. "
             "For each column (except the target), specify a list of sequential transformation steps. "
             "Available steps:\n"
             "- 'impute_median', 'impute_mean', 'impute_constant', 'impute_most_frequent'\n"
@@ -57,26 +83,33 @@ Column Details:
         user_prompt += "\nPlease provide the JSON configuration."
 
         try:
-            response = await self.gateway.chat_completion(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
+            config = await self.gateway.complete_structured(
+                TaskType.ANALYZE,
+                user_prompt,
+                schema=STRATEGY_SCHEMA,
+                system=system_prompt,
             )
-            
-            # clean response if there are markdown tags
-            cleaned = response.content.strip()
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            if cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-                
-            config = json.loads(cleaned)
-            return config
-            
         except Exception as e:
             logger.error(f"Failed to generate cleaning strategy: {e}")
-            # Fallback to empty config if failed
-            return {"columns": {}}
+            raise CleaningStrategyError(f"LLM call failed: {e}") from e
+
+        return _validate_strategy(config, profile, target_column)
+
+
+def _validate_strategy(config: object, profile: ProfileResult, target_column: str) -> dict:
+    """Check the LLM output against the profile and the allowed steps."""
+    if not isinstance(config, dict) or not isinstance(config.get("columns"), dict):
+        raise CleaningStrategyError("LLM output has no 'columns' object")
+
+    known = set(profile.column_stats) - {target_column}
+    columns: dict[str, list[str]] = {}
+    for col, steps in config["columns"].items():
+        if col not in known:
+            raise CleaningStrategyError(f"LLM output names unknown column {col!r}")
+        if not isinstance(steps, list) or not all(isinstance(st, str) for st in steps):
+            raise CleaningStrategyError(f"Steps for column {col!r} must be a list of strings")
+        bad = [st for st in steps if st not in ALLOWED_STEPS]
+        if bad:
+            raise CleaningStrategyError(f"Unknown steps for column {col!r}: {bad}")
+        columns[col] = steps
+    return {"columns": columns}
