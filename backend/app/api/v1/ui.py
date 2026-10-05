@@ -1,6 +1,7 @@
 """UI Adapter API endpoints for the Frontend."""
 from __future__ import annotations
 
+import json
 import os
 import uuid
 import logging
@@ -364,6 +365,14 @@ async def export_experiment_script(experiment_id: str, db: DBSession):
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
     
+    target_encoding = exp.parameters.get("target_encoding")
+    if not target_encoding:
+        raise HTTPException(
+            status_code=409,
+            detail="Experiment has no recorded target encoding; run it to completion before exporting.",
+        )
+    classes_literal = json.dumps(target_encoding["classes"])
+
     script = f"""# MLPilot Auto-Generated Training Script
 # Experiment ID: {exp.id}
 # Hypothesis: {exp.hypothesis}
@@ -378,6 +387,7 @@ from sklearn.compose import ColumnTransformer
 # Install dependencies if needed: pip install scikit-learn pandas xgboost lightgbm
 
 import ast
+import json
 
 def load_and_prepare_data():
     df = pd.read_csv("{exp.dataset_version}")
@@ -421,6 +431,16 @@ def load_and_prepare_data():
     X = df.drop(columns=["{exp.parameters.get('target_column', 'target')}"])
     
     return train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Class labels in encoded order (index = model output); recorded when the experiment ran
+CLASSES = json.loads({classes_literal!r})
+CLASS_INDEX = {{label: i for i, label in enumerate(CLASSES)}}
+
+def encode_target(y):
+    return y.map(CLASS_INDEX).astype(int)
+
+def decode_predictions(codes):
+    return [CLASSES[int(c)] for c in codes]
 
 def build_model():
     # Preprocessor
@@ -469,8 +489,10 @@ if __name__ == "__main__":
     pipeline.steps[0][1].transformers[0] = ('num', pipeline.steps[0][1].transformers[0][1], numeric_features)
     pipeline.steps[0][1].transformers[1] = ('cat', pipeline.steps[0][1].transformers[1][1], categorical_features)
     
-    pipeline.fit(X_train, y_train)
-    print("Training complete! Model Score:", pipeline.score(X_test, y_test))
+    pipeline.fit(X_train, encode_target(y_train))
+    print("Training complete! Accuracy:", pipeline.score(X_test, encode_target(y_test)))
+    predictions = decode_predictions(pipeline.predict(X_test))
+    print("Sample predictions:", predictions[:10])
 """
     return {"script": script, "filename": f"train_{exp.id}.py"}
 

@@ -17,6 +17,8 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 
+from ml.core.targets import TargetEncoder
+
 
 @dataclass
 class BaselineResult:
@@ -70,6 +72,13 @@ class ClassificationBaseline:
         results = []
         preprocessor = self._build_preprocessor(X_train)
 
+        # Encode class labels with the shared encoder (fit on training labels only)
+        target_encoder = TargetEncoder.fit(y_train)
+        y_train = target_encoder.transform(y_train)
+        if y_val is not None:
+            y_val = target_encoder.transform(y_val)
+        f1_average = 'binary' if target_encoder.is_binary else 'weighted'
+
         for name, model_cls in self.models.items():
             try:
                 # Initialize model, passing random_state if supported
@@ -82,10 +91,10 @@ class ClassificationBaseline:
                 
                 if X_val is None:
                     # Use Cross Validation
-                    scoring = ['f1_weighted', 'accuracy']
+                    scoring = ['f1' if target_encoder.is_binary else 'f1_weighted', 'accuracy']
                     cv_results = cross_validate(pipeline, X_train, y_train, cv=self.cv_folds, scoring=scoring)
                     metrics = {
-                        "f1": float(np.mean(cv_results['test_f1_weighted'])),
+                        "f1": float(np.mean(cv_results[f"test_{scoring[0]}"])),
                         "accuracy": float(np.mean(cv_results['test_accuracy']))
                     }
                 else:
@@ -94,11 +103,15 @@ class ClassificationBaseline:
                     y_pred = pipeline.predict(X_val)
                     from sklearn.metrics import f1_score, accuracy_score
                     metrics = {
-                        "f1": float(f1_score(y_val, y_pred, average='weighted', zero_division=0)),
+                        "f1": float(f1_score(y_val, y_pred, average=f1_average, zero_division=0)),
                         "accuracy": float(accuracy_score(y_val, y_pred))
                     }
                 
-                results.append(BaselineResult(model_name=name, metrics=metrics))
+                results.append(BaselineResult(
+                    model_name=name,
+                    metrics=metrics,
+                    params={"target_encoding": target_encoder.to_dict()},
+                ))
             except Exception as e:
                 results.append(BaselineResult(model_name=name, metrics={}, error=str(e)))
         
