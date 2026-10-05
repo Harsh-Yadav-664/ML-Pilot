@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from datetime import datetime, timezone
 
 from sqlalchemy import select, func
@@ -14,6 +14,9 @@ from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
 from ml.experiments.schema import ExperimentSpec, ExperimentStatus
 from ml.experiments.executor import LocalExperimentExecutor
 from ml.data.ingestion.csv_loader import CsvLoader
+
+if TYPE_CHECKING:
+    from ai.gateway import AIGateway
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +115,19 @@ class ExperimentService:
             finally:
                 await session.commit()
 
-    async def suggest_experiments(self, dataset_version: str, target_column: str, objective: str, max_hypotheses: int = 3) -> list[dict]:
-        """Use the AI Gateway to generate feature hypotheses based on data."""
+    async def suggest_experiments(
+        self,
+        dataset_version: str,
+        target_column: str,
+        objective: str,
+        max_hypotheses: int = 3,
+        gateway: AIGateway | None = None,
+    ) -> list[dict]:
+        """Use the AI Gateway to generate feature hypotheses based on data.
+
+        Raises ValueError if the dataset can't be loaded and RuntimeError if the
+        planner fails.
+        """
         from ai.gateway import AIGateway
         from app.core.config import settings
         from ml.experiments.planner import ExperimentPlanner
@@ -125,25 +139,32 @@ class ExperimentService:
             df = loader.load(dataset_version)
         except Exception as e:
             logger.error(f"Failed to load dataset {dataset_version} for suggestion: {e}")
-            raise ValueError(f"Could not load dataset {dataset_version}")
+            raise ValueError(f"Could not load dataset {dataset_version}: {e}") from e
 
         # Profile the dataset deterministically
         profiler = DataProfiler()
         profile = profiler.profile(df, target_column=target_column)
 
-        # Generate hypotheses via AI
-        gateway = AIGateway(settings)
-        planner = ExperimentPlanner(gateway)
-        
+        # The planner proposes one hypothesis at a time; feed earlier proposals
+        # back as history so each new one is distinct.
+        planner = ExperimentPlanner(gateway or AIGateway(settings))
+        hypotheses: list[dict] = []
         try:
-            hypotheses = await planner.generate_hypotheses(
-                profile=profile,
-                target_column=target_column,
-                objective=objective,
-                max_hypotheses=max_hypotheses
-            )
-            return hypotheses
+            for _ in range(max_hypotheses):
+                history = [
+                    {"name": h.get("name"), "formula": h.get("formula"), "status": "proposed"}
+                    for h in hypotheses
+                ]
+                hypotheses.append(
+                    await planner.generate_next_hypothesis(
+                        profile=profile,
+                        target_column=target_column,
+                        objective=objective,
+                        history=history,
+                    )
+                )
         except Exception as e:
             logger.error(f"AI Planner failed: {e}")
-            raise RuntimeError(f"Failed to generate hypotheses: {e}")
+            raise RuntimeError(f"Failed to generate hypotheses: {e}") from e
+        return hypotheses
 
