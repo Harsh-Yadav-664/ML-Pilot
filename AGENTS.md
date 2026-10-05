@@ -54,7 +54,7 @@ Branch names: `issue-<number>-<short-slug>` unless your tool assigns one.
 | `backend/ml/experiments/` | Planner, executor (safe AST evaluator, training), runner |
 | `backend/ml/agents/` | Decision agent (experiment loop), cleaning agent |
 | `backend/tests/` | `unit/` and `integration/` tests (pytest, asyncio auto mode) |
-| `frontend/` | React + Vite UI started by `start.py` (`frontend/new_ui/` is a duplicate scheduled for deletion in issue [0.6]) |
+| `frontend/` | React + Vite UI started by `start.py`. Sample data only in the explicit Demo mode |
 | `docker/` | docker-compose (demo Postgres DB planned in [2.6]) |
 | `docs/` | Architecture notes, `ROADMAP.md`, `roadmap/ISSUES.md` |
 
