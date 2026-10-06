@@ -35,6 +35,8 @@ class DatasetInfo(BaseModel):
 
 
 class DataMetrics(BaseModel):
+    # Deliberate drift to show CI catching an unregenerated contract (reverted next commit).
+    constant_columns: int = 0
     total_rows: int
     total_columns: int
     missing_data_percent: float
