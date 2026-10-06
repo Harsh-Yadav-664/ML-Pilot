@@ -10,7 +10,7 @@ Most of a company's prediction questions ("which customers will stop ordering ne
 
 MLPilot connects read-only to a company database. It turns a question into a reviewable prediction task, builds a point-in-time-correct training table, and lets an LLM propose features as readable SQL. It keeps a feature only if time-based validation shows a real gain. It ends with an evidence report and exportable SQL and model files. The LLM only proposes; deterministic code validates and runs everything.
 
-The reasoning, competitors and phases are in [`docs/ROADMAP.md`](docs/ROADMAP.md). Work is tracked in GitHub issues, listed in [issue #21](https://github.com/Harsh-Yadav-664/ML-Pilot/issues/21) and mirrored in [`docs/roadmap/ISSUES.md`](docs/roadmap/ISSUES.md).
+The reasoning, competitors and phases are in [`docs/ROADMAP.md`](docs/ROADMAP.md). Work is tracked in GitHub issues, listed in [issue #21](https://github.com/Harsh-Yadav-664/ML-Pilot/issues/21).
 
 ## What works today
 
