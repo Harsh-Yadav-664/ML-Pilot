@@ -67,12 +67,41 @@ MLPilot is structured as a layered, provider-interface-based system:
 
 ## Database Schema
 
-See `docs/experiment_schema.md` for the experiment JSON schema.
+The metadata DB (SQLite by default, Postgres via `DATABASE_URL`) is owned by Alembic
+(`backend/migrations/`). The app runs `alembic upgrade head` on start-up
+(`app/db/migrations.py`); a database made before migrations existed is stamped at
+`0001` first so its rows are kept. See `docs/experiment_schema.md` for the experiment JSON.
 
-Core tables:
-- `users` — User accounts
-- `projects` — ML projects (binary_classification, multiclass, regression)
-- `datasets` — Dataset versions with profile JSON
-- `experiments` — Full experiment lifecycle
-- `hypotheses` — Agent-generated hypotheses
-- `model_artifacts` — Trained model files and metadata
+| Table | What it holds |
+|---|---|
+| `users`, `projects` | Accounts and projects; `projects.settings` holds privacy level and budgets |
+| `datasets` | Uploaded files with their profile (pre-relational) |
+| `data_versions` | Immutable snapshots of a file or database, keyed by content hash |
+| `connections` | Saved read-only DB connections; only a `secret_ref`, never the password |
+| `task_specs` | Versioned prediction task specs (YAML), draft or confirmed |
+| `runs` | One run of a task spec on a data version: split plan, engine, seed, budget, status |
+| `experiments` | One trained candidate; linked to its run and data version, with val/test metrics and `decision_mode` |
+| `features` | Proposed features (SQL, formula or IR), guard results, validated gain and status |
+| `llm_calls` | Every LLM call: provider, model, tokens, cost, `decision_mode`, prompt hash |
+| `hypotheses`, `model_artifacts` | Agent hypotheses and trained model files |
+
+```mermaid
+erDiagram
+    users ||--o{ projects : owns
+    projects ||--o{ datasets : has
+    projects ||--o{ data_versions : has
+    projects ||--o{ connections : has
+    projects ||--o{ task_specs : has
+    projects ||--o{ runs : has
+    projects ||--o{ experiments : has
+    task_specs ||--o{ runs : "run with"
+    data_versions ||--o{ runs : "run on"
+    runs ||--o{ experiments : contains
+    data_versions ||--o{ experiments : "trained on"
+    runs |o--o| experiments : champion
+    experiments ||--o{ experiments : parent
+    runs ||--o{ features : proposes
+    runs ||--o{ llm_calls : logs
+    experiments ||--o{ hypotheses : has
+    experiments ||--o{ model_artifacts : produces
+```

@@ -73,6 +73,10 @@ ruff check .                         # lint (CI fails on any error)
 ruff format --check .                # formatting (run `ruff format .` to fix)
 mypy                                 # type check of ai/, ml/, app/
 
+# Metadata DB schema changes (Alembic owns the schema; never create tables from the models directly)
+alembic revision --autogenerate -m "what changed"   # after editing app/db/models/, then review the file
+alembic upgrade head                 # the app also runs this on start-up
+
 # Frontend
 cd frontend
 npm ci
