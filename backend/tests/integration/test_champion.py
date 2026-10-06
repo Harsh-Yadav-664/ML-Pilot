@@ -79,6 +79,7 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
     assert sum(e["on_champion_path"] for e in tree) == 4
     assert exported.status_code == 200, exported.text
     script = exported.json()["script"]
+    assert champion.id in script and f'model_name = "{champion.model_name}"' in script
     for f in FEATURES:
         assert f["name"] in script
     # The exported champion script rebuilds all three features and trains.

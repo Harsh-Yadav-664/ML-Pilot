@@ -35,7 +35,8 @@ function ExpNode({ data }: NodeProps<NodeData>) {
     <div
       className={cn(
         'node-in relative w-[248px] cursor-pointer border bg-panel transition-[transform,box-shadow,border-color] duration-200 hover:-translate-x-px hover:-translate-y-px',
-        selected ? 'border-copper shadow-[5px_5px_0_0_rgba(224,162,79,0.22)]' : 'border-line hover:border-rule'
+        selected ? 'border-copper shadow-[5px_5px_0_0_rgba(224,162,79,0.22)]' : 'border-line hover:border-rule',
+        exp.decision === 'reject' && !selected && 'opacity-50 grayscale'
       )}
     >
       <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: st.hex }} />
