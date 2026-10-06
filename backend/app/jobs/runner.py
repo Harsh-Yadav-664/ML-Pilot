@@ -214,29 +214,42 @@ class JobWorker:
         self.stale_after = settings.JOB_STALE_SECONDS if stale_after is None else stale_after
         self.idle_poll = idle_poll
         self._tasks: list[asyncio.Task[None]] = []
+        self._loops: list[asyncio.Task[None]] = []
         self._wakeup = asyncio.Event()
+        self._stopping = False
 
     async def start(self) -> None:
         await recover_interrupted(self.stale_after)
         _wakeups.add(self._wakeup)
-        self._tasks = [
+        self._stopping = False
+        self._loops = [
             asyncio.create_task(self._loop(), name=f"job-worker-{i}")
             for i in range(self.concurrency)
         ]
-        self._tasks.append(asyncio.create_task(self._sweep(), name="job-sweeper"))
+        self._tasks = [*self._loops, asyncio.create_task(self._sweep(), name="job-sweeper")]
 
-    async def stop(self) -> None:
-        """Stop at once. Running jobs keep status ``running`` and are recovered on start-up."""
+    async def stop(self, drain: float = 0.0) -> None:
+        """Stop claiming jobs, give running ones up to ``drain`` seconds to finish, then cancel.
+
+        With the default ``drain=0`` running jobs are cancelled at once, like a crash: they keep
+        status ``running`` and are recovered as interrupted on the next start-up. Cancelling in
+        the middle of a database write can leave that SQLite transaction open, so a caller
+        that keeps using the database afterwards (tests) should drain first.
+        """
         _wakeups.discard(self._wakeup)
+        self._stopping = True
+        self._wakeup.set()
+        if drain > 0 and self._loops:
+            await asyncio.wait(self._loops, timeout=drain)
         for task in self._tasks:
             task.cancel()
         for task in self._tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        self._tasks = []
+        self._tasks, self._loops = [], []
 
     async def _loop(self) -> None:
-        while True:
+        while not self._stopping:
             job = await _claim()
             if job is None:
                 self._wakeup.clear()

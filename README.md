@@ -36,6 +36,7 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 | The frontend's TypeScript API types match the backend's response models | CI: `python -m scripts.export_openapi --check` and `npm run gen:api` + `git diff --exit-code` |
 | Training and the agent loop run as durable jobs: an interrupted job is reported `failed: interrupted by restart`, a cancelled one stops before its next step, and progress is an ordered event log (poll or SSE) | `test_job_runner.py`, `test_agent_loop_telecom.py` |
 | Every API call needs the local access token (401 without it); only the UI origins pass CORS; `python start.py` sets the token up with no manual step | `test_local_token_and_cors.py`, CI `ui-smoke` |
+| Binary tasks report base rate, PR-AUC, precision/recall/lift at the top 1/5/10% and top 100, Brier and ECE for validation and test; the probability threshold and any calibration are fitted on validation only | `test_business_metrics.py`, `test_threshold_and_calibration_split.py`, `test_agent_loop_telecom.py` |
 
 ### Not working yet, or planned
 

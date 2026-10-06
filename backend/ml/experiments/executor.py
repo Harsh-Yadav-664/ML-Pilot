@@ -25,8 +25,10 @@ from ml.experiments.schema import (
     ExperimentStatus,
 )
 from ml.features.safe_eval import InvalidFormula, evaluate, parse
-from ml.metrics.classification import compute_classification_metrics
+from ml.metrics.calibration import choose_threshold, fit_calibrator
+from ml.metrics.classification import binary_business_metrics, compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
+from ml.metrics.ranking import DEFAULT_ABSOLUTE_K, DEFAULT_FRACTIONS
 from ml.models.engines import DEFAULT_ENGINE, ENGINES, get_engine, one_hot_preprocessor
 from ml.validation.splits import SplitPlan, make_splits
 
@@ -268,12 +270,30 @@ class LocalExperimentExecutor(ExperimentRunner):
             metric_notes: dict[str, str] = {}
             val_notes: dict[str, str] = {}
 
-            def fit_and_score_val():
-                return compute_classification_metrics(
-                    *validation_predictions(engine, best_params, with_proba=True), notes=val_notes
-                )
+            y_true_val, y_pred_val, prob_val = await asyncio.to_thread(
+                validation_predictions, engine, best_params, True
+            )
+            val_metrics = compute_classification_metrics(
+                y_true_val, y_pred_val, prob_val, notes=val_notes
+            )
 
-            val_metrics = await asyncio.to_thread(fit_and_score_val)
+            # Binary tasks: calibration and the decision threshold are fitted here, on the
+            # validation predictions only, and later applied unchanged to the test split.
+            business = None
+            if len(target_encoder.classes) == 2 and prob_val is not None:
+                pos_val = prob_val[:, 1]
+                calibrator, spec.parameters["calibration"] = fit_calibrator(y_true_val, pos_val)
+                threshold = choose_threshold(y_true_val, calibrator.apply(pos_val))
+                spec.parameters["threshold"] = threshold
+                business = {
+                    "calibrator": calibrator,
+                    "threshold": threshold["value"],
+                    "fractions": spec.parameters.get("ranking_fractions", DEFAULT_FRACTIONS),
+                    "absolute_k": spec.parameters.get("ranking_k", DEFAULT_ABSOLUTE_K),
+                }
+                val_metrics.update(
+                    binary_business_metrics(y_true_val, pos_val, **business, notes=val_notes)
+                )
 
             # Majority-vote ensemble of three built-in engines, reported on the validation split only.
             if spec.parameters.get("ensemble", True):
@@ -305,6 +325,10 @@ class LocalExperimentExecutor(ExperimentRunner):
             test_metrics = compute_classification_metrics(
                 y_test, y_pred, y_prob, notes=metric_notes
             )
+            if business is not None and y_prob is not None:
+                test_metrics.update(
+                    binary_business_metrics(y_test, y_prob[:, 1], **business, notes=metric_notes)
+                )
 
             # Unprefixed keys are the test metrics (what the UI shows); val_* are what
             # tuning and keep/reject decisions may use.

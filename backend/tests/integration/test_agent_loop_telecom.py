@@ -90,6 +90,14 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
     for exp in exps:
         assert exp["status"] == "completed", exp["decision_reason"]
         assert exp["metrics"] and "f1" in exp["metrics"]
+        # Business metrics (#93) on both splits: base rate, PR-AUC and lift at the top 10%.
+        for part in ("val", "test"):
+            m = exp["metrics"]
+            assert 0.2 < m[f"{part}_base_rate"] < 0.35  # about 26.5% churn in this sample
+            assert m[f"{part}_pr_auc"] > m[f"{part}_base_rate"]  # beats scoring at random
+            assert m[f"{part}_lift_at_10pct"] > 1
+        assert exp["parameters"]["threshold"]["chosen_on"] == "validation"
+        assert exp["parameters"]["calibration"]["method"] in ("none", "isotonic", "platt")
         # Default positive class is the minority class ("Yes" in this sample)
         assert exp["parameters"]["target_encoding"] == {
             "classes": ["No", "Yes"],

@@ -42,6 +42,10 @@ export interface Experiment {
     accuracy?: number;
     precision?: number;
     recall?: number;
+    /** Binary tasks (test split): average precision, lift in the top 10%, positive rate. */
+    pr_auc?: number;
+    lift_at_10pct?: number;
+    base_rate?: number;
   };
   runtime_seconds: number;
   created_at: string;

@@ -97,7 +97,10 @@ async def job_worker(isolated_storage: Path, metadata_db_url: str) -> AsyncGener
     worker = JobWorker(concurrency=2, heartbeat=0.2, stale_after=30, idle_poll=0.1)
     await worker.start()
     yield worker
-    await worker.stop()
+    # A test often ends as soon as its experiment completes, while the job is still
+    # recording its last events. Let it finish: cancelling in the middle of a write leaves
+    # that SQLite transaction open and the clean-up below fails with "database is locked".
+    await worker.stop(drain=30)
     # Jobs a test queued but didn't wait for must not run during the next test.
     engine = create_async_engine(metadata_db_url, poolclass=NullPool)
     async with engine.begin() as conn:
