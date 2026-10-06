@@ -59,6 +59,7 @@ export const STATUS: Record<ExperimentStatus, { label: string; hex: string }> = 
   running: { label: 'Running', hex: '#f7cd82' },
   failed: { label: 'Failed', hex: '#e0705a' },
   queued: { label: 'Queued', hex: '#a08d76' },
+  rejected_invalid: { label: 'Invalid formula', hex: '#c9895e' },
 };
 
 /** Square LED. The whole UI uses squares where other tools use dots. */

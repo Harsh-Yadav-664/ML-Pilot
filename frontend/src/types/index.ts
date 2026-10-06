@@ -29,7 +29,7 @@ export interface FeatureSuggestion {
   impact?: number;
 }
 
-export type ExperimentStatus = 'running' | 'completed' | 'failed' | 'queued';
+export type ExperimentStatus = 'running' | 'completed' | 'failed' | 'queued' | 'rejected_invalid';
 export type Decision = 'keep' | 'reject' | 'baseline' | 'none';
 
 export interface Experiment {

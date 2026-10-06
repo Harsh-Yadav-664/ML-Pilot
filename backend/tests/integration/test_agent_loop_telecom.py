@@ -18,6 +18,7 @@ from app.db.models.experiment import Experiment
 from app.db.session import get_db
 from app.main import app
 from ml.agents.decision_agent import DecisionAgent
+from ml.experiments.planner import ExperimentPlanner
 from tests.fixtures.gateway import stub_gateway
 
 SAMPLE = Path(__file__).resolve().parents[2] / "datasets" / "telecom_churn.csv"
@@ -38,8 +39,23 @@ async def session_factory(tmp_path, monkeypatch):
     await engine.dispose()
 
 
+@pytest.fixture
+def real_formulas(monkeypatch):
+    """The offline stub has no planner output, so propose real formulas on this sample.
+    (Without this the planner falls back to a formula that the safe evaluator rejects.)"""
+    proposals = iter([
+        {"name": "charge_x_tenure", "formula": "MonthlyCharges * tenure"},
+        {"name": "avg_charge", "formula": "TotalCharges / (tenure + 1)"},
+    ])
+
+    async def propose(self, **kwargs):
+        return {**next(proposals), "reason": "test proposal", "non_redundant_reasoning": "new"}
+
+    monkeypatch.setattr(ExperimentPlanner, "generate_next_hypothesis", propose)
+
+
 async def test_baseline_and_two_iterations_complete_and_export_decodes(
-    session_factory, tmp_path, monkeypatch
+    session_factory, tmp_path, monkeypatch, real_formulas
 ):
     # Skip Optuna tuning (20 trials per run) to keep the test fast; training still runs.
     monkeypatch.setitem(sys.modules, "optuna", None)
@@ -100,7 +116,7 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
     assert "0" not in preds_line.split(":", 1)[1] and "1" not in preds_line.split(":", 1)[1]
 
 
-async def test_explanation_failure_does_not_change_the_decision(session_factory, monkeypatch):
+async def test_explanation_failure_does_not_change_the_decision(session_factory, monkeypatch, real_formulas):
     monkeypatch.setitem(sys.modules, "optuna", None)
     gateway = stub_gateway()
 

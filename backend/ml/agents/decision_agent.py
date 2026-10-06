@@ -150,7 +150,11 @@ class DecisionAgent:
             # The keep/reject decision is made by code (see ml/experiments/acceptance.py).
             # The LLM only explains it.
             acceptance = result_params.get("acceptance")
-            if acceptance is None:
+            invalid = result_params.get("invalid_formula")
+            if invalid:
+                decision = "reject"
+                rule_summary = f"Rejected: the formula is invalid ({invalid['reason']}), so nothing was trained."
+            elif acceptance is None:
                 decision = "reject"
                 rule_summary = "Rejected: the experiment did not complete, so there is no measured gain."
             else:

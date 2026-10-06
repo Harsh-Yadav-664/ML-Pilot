@@ -123,7 +123,7 @@ export function Inspector() {
                 ))}
               </div>
 
-              {exp.status === 'failed' && exp.error && (
+              {(exp.status === 'failed' || exp.status === 'rejected_invalid') && exp.error && (
                 <div className="mt-3 border-l-[3px] border-clay bg-clay/5 p-3 font-mono text-[11.5px] leading-relaxed text-clay">{exp.error}</div>
               )}
 
