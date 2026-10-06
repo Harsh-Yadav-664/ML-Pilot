@@ -19,7 +19,16 @@ class SampleDatasetRequest(BaseModel):
 
 
 class SqlSnapshotRequest(BaseModel):
-    connection_string: str = Field(..., description="Read-only connection; never stored or echoed")
+    """Run one read-only query and store the result as a data version.
+
+    Name a saved connection (``connection_id``, see /connections) or, until the UI moves to
+    those, pass a ``connection_string`` (never stored or echoed). Exactly one of the two.
+    """
+
+    connection_id: str | None = Field(None, description="A saved connection of this project")
+    connection_string: str | None = Field(
+        None, description="Legacy: read-only connection; never stored or echoed"
+    )
     query: str
 
 

@@ -10,6 +10,28 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # A real Postgres for the connection tests (tests/fixtures/postgres.py). The tests fail,
+    # not skip, in CI when it is missing.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mlpilot_ci
+          POSTGRES_PASSWORD: ci-password-71c9e4
+          POSTGRES_DB: mlpilot_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mlpilot_ci -d mlpilot_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      MLPILOT_TEST_PG_HOST: localhost
+      MLPILOT_TEST_PG_PORT: "5432"
+      MLPILOT_TEST_PG_USER: mlpilot_ci
+      MLPILOT_TEST_PG_PASSWORD: ci-password-71c9e4
+      MLPILOT_TEST_PG_DB: mlpilot_ci
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

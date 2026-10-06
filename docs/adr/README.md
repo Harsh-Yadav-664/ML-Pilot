@@ -16,3 +16,4 @@ One short page per decision that someone would otherwise re-open: what was decid
 | [0008](0008-self-hosted-single-user-security.md) | Self-hosted, single-user security model |
 | [0009](0009-privacy-by-default.md) | The LLM sees schema and aggregates, not rows |
 | [0010](0010-metadata-db-alembic-sqlite.md) | Metadata database owned by Alembic, SQLite by default |
+| [0011](0011-connection-secrets-and-drivers.md) | Saved connections: secrets out of the database and logs, pg8000 as the Postgres driver |
