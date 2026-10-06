@@ -10,6 +10,7 @@ from app.schemas.connection import (
     ConnectionRead,
     ConnectionTestResult,
     ConnectionUpdate,
+    TableStatsRead,
 )
 from app.services.connection_service import ConnectionService, to_read
 from ml.data.schema_graph import SchemaGraph, SchemaOverrides
@@ -74,3 +75,18 @@ async def update_schema(
     given replaces the stored one; a field left out is unchanged. Unknown names are a 422."""
     svc = ConnectionService(db)
     return await svc.update_schema_overrides(await svc.get(project_id, connection_id), data)
+
+
+@router.get("/{connection_id}/tables/{table}/stats", response_model=TableStatsRead)
+async def get_table_stats(
+    connection_id: str,
+    table: str,
+    project_id: ProjectID,
+    db: DBSession,
+    refresh: bool = False,
+) -> TableStatsRead:
+    """Per-column statistics of one table, computed by aggregate SQL in the database (no rows
+    are pulled), sampled above a million rows and cached. ``table`` is the table's ``key`` from
+    the schema graph. ``refresh=true`` recomputes."""
+    svc = ConnectionService(db)
+    return await svc.table_stats(await svc.get(project_id, connection_id), table, refresh=refresh)

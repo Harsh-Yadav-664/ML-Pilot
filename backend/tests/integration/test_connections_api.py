@@ -428,3 +428,71 @@ async def test_the_schema_of_a_postgres_connection_lists_its_tables_and_counts_r
     tables = {t["name"]: t for t in resp.json()["tables"]}
     assert tables[PG_TABLE]["row_count"] == 30
     assert str(pg_body["password"]) not in resp.text
+
+
+async def test_table_stats_endpoint_computes_caches_refreshes_and_follows_file_changes(
+    client: httpx.AsyncClient, project_id: str, tmp_path: Path
+) -> None:
+    from tests.fixtures.demo_db import demo_sqlite
+
+    path = demo_sqlite(tmp_path / "demo.sqlite")
+    conn = (
+        await client.post(
+            _url(project_id), json={"name": "demo", "dialect": "sqlite", "database": str(path)}
+        )
+    ).json()
+    url = _url(project_id, f"{conn['id']}/tables/orders/stats")
+
+    first = await client.get(url)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["cached"] is False and body["stats"]["table"] == "orders"
+    assert body["stats"]["row_count"] == body["stats"]["profiled_rows"] > 5000
+    columns = {c["name"]: c for c in body["stats"]["columns"]}
+    assert columns["total"]["semantic_type"] == "numeric" and columns["total"]["p50"] > 0
+    assert columns["status"]["semantic_type"] == "categorical"
+    assert {v["value"] for v in columns["status"]["top_values"]} >= {"completed"}
+
+    # Once statistics exist, the schema graph's hints use them.
+    graph = (await client.get(_url(project_id, f"{conn['id']}/schema"))).json()
+    hints = {
+        c["name"]: c["hint"] for t in graph["tables"] if t["key"] == "orders" for c in t["columns"]
+    }
+    assert hints["status"] == "categorical" and hints["total"] == "numeric"
+    other = {
+        c["name"]: c["hint"]
+        for t in graph["tables"]
+        if t["key"] == "customers"
+        for c in t["columns"]
+    }
+    assert other["country"] == "text"  # not profiled yet: the declared-type hint
+
+    second = (await client.get(url)).json()
+    assert second["cached"] is True and second["computed_at"] == body["computed_at"]
+    assert second["stats"] == body["stats"]
+    refreshed = (await client.get(url, params={"refresh": "true"})).json()
+    assert refreshed["cached"] is False and refreshed["computed_at"] > body["computed_at"]
+
+    with sqlite3.connect(path) as con:  # the database file changes: the cache no longer applies
+        con.execute("DELETE FROM orders WHERE order_id <= 100")
+    changed = (await client.get(url)).json()
+    assert changed["cached"] is False
+    assert changed["stats"]["row_count"] == body["stats"]["row_count"] - 100
+
+    assert (
+        await client.get(_url(project_id, f"{conn['id']}/tables/nope/stats"))
+    ).status_code == 404
+    deleted = await client.delete(_url(project_id, conn["id"]))
+    assert deleted.status_code == 204  # cached statistics go with the connection
+
+
+async def test_table_stats_of_a_postgres_connection(
+    client: httpx.AsyncClient, project_id: str, pg_body: dict[str, object]
+) -> None:
+    conn = (await client.post(_url(project_id), json=pg_body)).json()
+    resp = await client.get(_url(project_id, f"{conn['id']}/tables/{PG_TABLE}/stats"))
+    assert resp.status_code == 200, resp.text
+    columns = {c["name"]: c for c in resp.json()["stats"]["columns"]}
+    assert resp.json()["stats"]["row_count"] == 30
+    assert columns["churned"]["mean"] == 0.5 and columns["plan"]["distinct"] == 3
+    assert str(pg_body["password"]) not in resp.text

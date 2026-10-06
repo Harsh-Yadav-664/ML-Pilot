@@ -10,18 +10,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import datasets, secrets
 from app.db.models.connection import Connection
+from app.db.models.table_stats import TableStatsCache
 from app.schemas.connection import (
     ConnectionCreate,
     ConnectionRead,
     ConnectionTestResult,
     ConnectionUpdate,
+    TableStatsRead,
 )
 from ml.data.engine import EngineError
+from ml.data.profiling.db_stats import StatsConfig, TableStats, profile_table
 from ml.data.schema_graph import (
     OverrideError,
     SchemaGraph,
@@ -29,6 +32,8 @@ from ml.data.schema_graph import (
     apply_overrides,
     build_schema_graph,
     merge_overrides,
+    refine_hints,
+    table_key,
     validate_overrides,
 )
 from ml.data.sources import ConnectionFailure, ConnectionSpec, SourceWithChecks, open_source
@@ -172,11 +177,13 @@ class ConnectionService:
             )
         conn.last_tested_at = None  # what was tested is no longer what is saved
         conn.can_write = None
+        await self._drop_cached_stats(conn.id)  # the database it describes may be another one
         await self.db.flush()
         return conn
 
     async def delete(self, project_id: str, connection_id: str) -> None:
         conn = await self.get(project_id, connection_id)
+        await self._drop_cached_stats(conn.id)
         await self.db.delete(conn)
         await self.db.flush()
 
@@ -209,7 +216,8 @@ class ConnectionService:
     async def schema_graph(self, conn: Connection) -> SchemaGraph:
         """Tables, keys and time columns of the database, with the saved overrides applied."""
         overrides = SchemaOverrides.model_validate(conn.schema_overrides or {})
-        return apply_overrides(await self._read_schema(conn), overrides)
+        graph = apply_overrides(await self._read_schema(conn), overrides)
+        return refine_hints(graph, await self._cached_semantic_types(conn))
 
     async def update_schema_overrides(
         self, conn: Connection, patch: SchemaOverrides
@@ -231,6 +239,76 @@ class ConnectionService:
             return await asyncio.to_thread(build_schema_graph, source)
         except (ConnectionFailure, EngineError) as e:
             raise HTTPException(502, f"Could not read the schema: {e}") from None
+
+    async def table_stats(
+        self, conn: Connection, table: str, *, refresh: bool = False
+    ) -> TableStatsRead:
+        """Column statistics of one table, computed in the database and cached on the connection.
+
+        ``refresh`` recomputes. A database file that changed (size or mtime) is recomputed on its
+        own; a live Postgres database keeps its statistics until they are refreshed."""
+        source = self.source(conn)
+        key = _stats_cache_key(conn, source)
+        row = (
+            await self.db.execute(
+                select(TableStatsCache).where(
+                    TableStatsCache.connection_id == conn.id, TableStatsCache.table_key == table
+                )
+            )
+        ).scalar_one_or_none()
+        if row is not None and row.cache_key == key and not refresh:
+            return TableStatsRead(
+                stats=TableStats.model_validate(row.payload),
+                computed_at=row.computed_at.replace(tzinfo=UTC),  # SQLite drops the zone
+                cached=True,
+            )
+
+        def run() -> TableStats:
+            refs = {table_key(r): r for r in source.list_tables()}
+            if table not in refs:
+                raise HTTPException(404, f"Table {table!r} not found")
+            return profile_table(source, refs[table], StatsConfig())
+
+        try:
+            stats = await asyncio.to_thread(run)
+        except (ConnectionFailure, EngineError) as e:
+            raise HTTPException(502, f"Could not profile {table!r}: {e}") from None
+        now = datetime.now(UTC)
+        payload = stats.model_dump(mode="json")
+        if row is None:
+            self.db.add(
+                TableStatsCache(
+                    id=str(uuid.uuid4()),
+                    connection_id=conn.id,
+                    table_key=table,
+                    cache_key=key,
+                    payload=payload,
+                    computed_at=now,
+                )
+            )
+        else:
+            row.cache_key, row.payload, row.computed_at = key, payload, now
+        await self.db.flush()
+        return TableStatsRead(stats=stats, computed_at=now, cached=False)
+
+    async def _cached_semantic_types(self, conn: Connection) -> dict[str, dict[str, str]]:
+        """Semantic types from the statistics computed so far (still valid for the database)."""
+        key = _stats_cache_key(conn, self.source(conn))
+        rows = (
+            await self.db.execute(
+                select(TableStatsCache).where(
+                    TableStatsCache.connection_id == conn.id, TableStatsCache.cache_key == key
+                )
+            )
+        ).scalars()
+        return {
+            r.table_key: {c["name"]: c["semantic_type"] for c in r.payload["columns"]} for r in rows
+        }
+
+    async def _drop_cached_stats(self, connection_id: str) -> None:
+        await self.db.execute(
+            delete(TableStatsCache).where(TableStatsCache.connection_id == connection_id)
+        )
 
     async def test(self, conn: Connection) -> ConnectionTestResult:
         """Connect, read the server version and the role's privileges. Failures are reported
@@ -265,3 +343,10 @@ class ConnectionService:
 def _ssl_json(mode: str | None, root_cert: str | None) -> dict[str, str] | None:
     out = {k: v for k, v in (("mode", mode), ("root_cert", root_cert)) if v}
     return out or None
+
+
+def _stats_cache_key(conn: Connection, source: SourceWithChecks) -> str:
+    if conn.dialect == "postgres":
+        return "live"
+    stat = Path(conn.database or "").stat()
+    return f"{stat.st_size}:{stat.st_mtime_ns}"

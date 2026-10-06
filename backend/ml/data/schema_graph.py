@@ -16,13 +16,14 @@ Everything MLPilot asks the database goes through ``sql_guard.catalog``, so the 
 runs in the same read-only session, with the same limits, as any other query. Nothing here
 reads cell values into a prompt: the overlap check returns two counts per candidate.
 
-Not here: per-column statistics and a ``categorical`` hint, which need cardinalities (#96).
+Per-column statistics live in ``ml.data.profiling.db_stats`` (#96); ``refine_hints`` copies the
+semantic types they find (``categorical`` needs cardinalities) onto the graph's columns.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +37,7 @@ OVERLAP_SAMPLE_ROWS = 20_000  # child rows read per candidate (the first rows, n
 MAX_OVERLAP_CHECKS = 400  # candidates checked per graph; the rest are reported, not guessed
 ESTIMATE_ABOVE_ROWS = 1_000_000  # Postgres only: below this the exact count is cheap
 
-Hint = Literal["id", "time", "numeric", "boolean", "text", "other"]
+Hint = Literal["id", "time", "numeric", "categorical", "boolean", "text", "other"]
 Kind = Literal["integer", "float", "text", "boolean", "timestamp", "date", "other"]
 EdgeSource = Literal["declared", "inferred", "user"]
 Cardinality = Literal["1:1", "1:N"]
@@ -46,7 +47,10 @@ class Column(BaseModel):
     name: str
     type: str
     nullable: bool
-    hint: Hint = Field(description="id, time, numeric, boolean, text or other")
+    hint: Hint = Field(
+        description="id, time, numeric, boolean, text or other from the declared type and name; "
+        "categorical (and a sharper id/text/boolean) once column statistics exist (#96)"
+    )
     is_primary_key: bool = False
 
 
@@ -350,21 +354,27 @@ def _table(source: SourceWithChecks, schema: TableSchema, warnings: list[str]) -
     )
 
 
+def table_row_count(source: SourceWithChecks, ref: TableRef) -> tuple[int, bool]:
+    """(rows, estimated). Postgres tables over a million rows use the planner's estimate; every
+    other count is exact. Raises ``EngineError`` / ``ConnectionFailure`` if the count fails."""
+    if source.dialect == "postgres":
+        rows = sql_guard.catalog(
+            source,
+            "SELECT c.reltuples::bigint FROM pg_catalog.pg_class AS c "
+            "JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :s AND c.relname = :t",
+            {"s": ref.schema, "t": ref.name},
+        )
+        estimate = int(rows[0][0]) if rows and rows[0][0] is not None else -1
+        if estimate >= ESTIMATE_ABOVE_ROWS:
+            return estimate, True
+    rows = sql_guard.catalog(source, f"SELECT count(*) FROM {_qualified(ref)}")
+    return int(rows[0][0]), False
+
+
 def _row_count(source: SourceWithChecks, ref: TableRef, warnings: list[str]) -> tuple[int, bool]:
     try:
-        if source.dialect == "postgres":
-            rows = sql_guard.catalog(
-                source,
-                "SELECT c.reltuples::bigint FROM pg_catalog.pg_class AS c "
-                "JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace "
-                "WHERE n.nspname = :s AND c.relname = :t",
-                {"s": ref.schema, "t": ref.name},
-            )
-            estimate = int(rows[0][0]) if rows and rows[0][0] is not None else -1
-            if estimate >= ESTIMATE_ABOVE_ROWS:
-                return estimate, True
-        rows = sql_guard.catalog(source, f"SELECT count(*) FROM {_qualified(ref)}")
-        return int(rows[0][0]), False
+        return table_row_count(source, ref)
     except (EngineError, ConnectionFailure) as e:
         warnings.append(f"Could not count the rows of {table_key(ref)}: {e}")
         return 0, False
@@ -601,6 +611,20 @@ def _edge_exists(tables: dict[str, Table], ref: EdgeRef) -> bool:
         if table not in tables or not set(columns) <= {c.name for c in tables[table].columns}:
             return False
     return True
+
+
+def refine_hints(graph: SchemaGraph, semantic_types: dict[str, dict[str, str]]) -> SchemaGraph:
+    """The graph with column hints replaced by statistics-based semantic types.
+
+    ``semantic_types`` maps a table key to {column: semantic type}; tables or columns it does
+    not mention keep their declared-type hints."""
+    tables = [t.model_copy(deep=True) for t in graph.tables]
+    for table in tables:
+        for column in table.columns:
+            found = semantic_types.get(table.key, {}).get(column.name)
+            if found in get_args(Hint):
+                column.hint = found  # type: ignore[assignment]
+    return graph.model_copy(update={"tables": tables})
 
 
 def merge_overrides(stored: dict[str, Any] | None, patch: SchemaOverrides) -> SchemaOverrides:
