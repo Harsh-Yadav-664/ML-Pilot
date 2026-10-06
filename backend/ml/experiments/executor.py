@@ -206,6 +206,7 @@ class LocalExperimentExecutor(ExperimentRunner):
                 X, y, spec.validation_config
             )
             spec.parameters["split"] = split_info
+            spec.parameters["feature_columns"] = list(X_train.columns)
 
             # Encode class labels (fit on training labels only) and record the
             # mapping so predictions and exports can be decoded.

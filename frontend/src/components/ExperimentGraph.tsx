@@ -137,7 +137,8 @@ function layout(
       },
     });
     if (parent) {
-      const color = e.status === 'completed' ? '#5a4a38' : STATUS[e.status].hex;
+      const onPath = !!e.on_champion_path && !!p?.on_champion_path;
+      const color = onPath ? '#e0a24f' : e.status === 'completed' ? '#5a4a38' : STATUS[e.status].hex;
       edges.push({
         id: `${parent}>${id}`,
         source: parent,
@@ -150,7 +151,7 @@ function layout(
         labelBgPadding: [6, 3],
         labelBgBorderRadius: 0,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 12, height: 12 },
-        style: { stroke: color, strokeWidth: 1.5, strokeDasharray: e.status === 'failed' ? '4 4' : undefined },
+        style: { stroke: color, strokeWidth: onPath ? 2.5 : 1.5, strokeDasharray: e.status === 'failed' ? '4 4' : undefined },
       });
     }
     let cur = top;

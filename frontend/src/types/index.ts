@@ -51,6 +51,9 @@ export interface Experiment {
   progress?: number;
   error?: string;
   decision?: Decision;
+  /** Set by the backend: the best measured model so far, and the lineage that leads to it. */
+  champion?: boolean;
+  on_champion_path?: boolean;
 }
 
 export interface ColumnProfile {
