@@ -5,7 +5,6 @@ import time
 import asyncio
 import numpy as np
 import pandas as pd
-import ast
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -25,6 +24,7 @@ from ml.core.targets import TargetEncoder
 from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES, prepare_feature_frame
 from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
 from ml.experiments.acceptance import compare_feature_sets
+from ml.features.safe_eval import InvalidFormula, evaluate, parse
 from ml.validation.splits import SplitPlan, make_splits
 from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
@@ -123,40 +123,13 @@ class LocalExperimentExecutor(ExperimentRunner):
             candidate = feature_name if feature_name and formula else None
             if candidate:
                 engineered.append({"name": feature_name, "formula": formula})
-            if engineered:
-                def _safe_eval(node):
-                    if isinstance(node, ast.Expression):
-                        return _safe_eval(node.body)
-                    elif isinstance(node, ast.Constant):
-                        return node.value
-                    elif isinstance(node, ast.Name):
-                        if node.id in df.columns:
-                            return df[node.id]
-                        raise ValueError(f"Column '{node.id}' not found")
-                    elif isinstance(node, ast.BinOp):
-                        left = _safe_eval(node.left)
-                        right = _safe_eval(node.right)
-                        if isinstance(node.op, ast.Add): return left + right
-                        elif isinstance(node.op, ast.Sub): return left - right
-                        elif isinstance(node.op, ast.Mult): return left * right
-                        elif isinstance(node.op, ast.Div): return left / right
-                        elif isinstance(node.op, ast.Pow): return left ** right
-                        raise ValueError(f"Unsupported op: {type(node.op)}")
-                    elif isinstance(node, ast.UnaryOp):
-                        operand = _safe_eval(node.operand)
-                        if isinstance(node.op, ast.USub): return -operand
-                        elif isinstance(node.op, ast.UAdd): return +operand
-                        raise ValueError(f"Unsupported unary: {type(node.op)}")
-                    raise ValueError(f"Unsupported node: {type(node)}")
-
-                for feat in engineered:
-                    try:
-                        tree = ast.parse(feat["formula"], mode='eval')
-                        df[feat["name"]] = _safe_eval(tree)
-                    except Exception:
-                        # MVP: if safe eval fails due to syntax or unsupported node, fallback to 0
-                        # (a constant column is then rejected by the acceptance rule; see [1.4]).
-                        df[feat["name"]] = 0
+            # Formulas are LLM output: validated and evaluated by the one safe evaluator.
+            # An invalid formula rejects the experiment; it never becomes a column of zeros.
+            for feat in engineered:
+                try:
+                    df[feat["name"]] = evaluate(parse(feat["formula"], df.columns), df)
+                except InvalidFormula as e:
+                    return self._rejected_invalid(spec, feat, e.reason, start_time)
 
             y = df[target_col]
             X = df.drop(columns=[target_col])
@@ -166,8 +139,7 @@ class LocalExperimentExecutor(ExperimentRunner):
             if spec.feature_set:
                 missing_feats = [f for f in spec.feature_set if f not in X.columns]
                 if missing_feats:
-                    for f in missing_feats:
-                        X[f] = 0  # Fallback to prevent crash
+                    raise ValueError(f"Feature columns not found: {missing_feats}")
 
             # One split contract (ml/validation/splits.py): tuning and decisions see only
             # train/validation rows; the test rows are scored once at the end.
@@ -239,7 +211,7 @@ class LocalExperimentExecutor(ExperimentRunner):
                     if with_proba and hasattr(pipe, "predict_proba"):
                         fold_prob = pipe.predict_proba(X_train.iloc[val_idx])
                         if prob is None:
-                            prob = np.zeros((len(y_train), fold_prob.shape[1]))
+                            prob = np.full((len(y_train), fold_prob.shape[1]), np.nan)
                         prob[val_idx] = fold_prob
                 return y_train, y_pred, prob
 
@@ -381,6 +353,29 @@ class LocalExperimentExecutor(ExperimentRunner):
         except Exception as e:
             self._running[spec.id] = ExperimentStatus.FAILED.value
             raise
+
+    def _rejected_invalid(self, spec: ExperimentSpec, feat: dict, reason: str, start_time: float) -> ExperimentResult:
+        """Result for an experiment whose formula failed validation: nothing trained, no metrics."""
+        spec.parameters["invalid_formula"] = {"name": feat.get("name"), "formula": feat.get("formula"), "reason": reason}
+        self._running[spec.id] = ExperimentStatus.REJECTED_INVALID.value
+        return ExperimentResult(
+            id=spec.id,
+            parent_id=spec.parent_id,
+            project_id=spec.project_id,
+            dataset_version=spec.dataset_version,
+            hypothesis=spec.hypothesis,
+            change_description=spec.change_description,
+            model_name=spec.model_name,
+            parameters=spec.parameters,
+            validation_config=spec.validation_config,
+            metrics={},
+            runtime_seconds=time.time() - start_time,
+            cost_usd=0.0,
+            status=ExperimentStatus.REJECTED_INVALID,
+            decision=ExperimentDecision.REJECT,
+            decision_reason=f"Invalid formula for '{feat.get('name')}': {reason}",
+            timestamp=datetime.now(timezone.utc),
+        )
 
     def validate_spec(self, spec: ExperimentSpec) -> list[str]:
         """Validate an ExperimentSpec. Return list of error strings."""

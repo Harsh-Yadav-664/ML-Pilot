@@ -107,6 +107,8 @@ class ExperimentService:
                 exp.runtime_seconds = result.runtime_seconds
                 exp.cost_usd = result.cost_usd
                 exp.decision = result.decision.value
+                if result.decision_reason:
+                    exp.decision_reason = result.decision_reason
                 logger.info(f"Experiment {experiment_id} completed. F1: {result.metrics.get('f1')}")
 
             except Exception as e:

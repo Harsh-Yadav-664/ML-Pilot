@@ -15,6 +15,8 @@ class ExperimentStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    # The candidate formula failed validation; nothing was trained.
+    REJECTED_INVALID = "rejected_invalid"
 
 
 class ExperimentDecision(str, Enum):

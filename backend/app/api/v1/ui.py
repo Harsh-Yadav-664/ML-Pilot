@@ -6,6 +6,7 @@ import os
 import uuid
 import logging
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -26,6 +27,7 @@ from ml.experiments.executor import MODEL_REGISTRY
 from app.core.config import settings
 from app.core.datasets import DATASETS_DIR, UPLOAD_DIR, safe_dataset_path
 from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES
+from ml.features import safe_eval as safe_eval_module
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["ui-adapter"])
@@ -359,7 +361,7 @@ async def get_experiment_tree(db: DBSession, dataset_path: Optional[str] = None)
             "title": e.change_description,
             "feature": params.get("feature_name"),
             "decision": e.decision if e.decision in ("keep", "reject") else ("baseline" if not e.parent_id else "none"),
-            "error": e.decision_reason if e.status == "failed" else None,
+            "error": e.decision_reason if e.status in ("failed", "rejected_invalid") else None,
             "on_champion_path": e.id in path_ids,
             "champion": bool(path_ids) and e.id == path_ids[-1],
         })
@@ -482,6 +484,8 @@ async def export_experiment_script(experiment_id: str, db: DBSession, dataset_pa
     features_literal = json.dumps(engineered)
     excluded_literal = json.dumps(sorted(exp.parameters.get("excluded_features", {})))
     numeric_text_literal = json.dumps(sorted(exp.parameters.get("numeric_coercion", {})))
+    # The script embeds the same safe evaluator the experiment used (no second copy to drift).
+    safe_eval_source = Path(safe_eval_module.__file__).read_text()
 
     script = f"""# MLPilot Auto-Generated Training Script
 # Experiment ID: {exp.id}
@@ -496,8 +500,11 @@ from sklearn.compose import ColumnTransformer
 
 # Install dependencies if needed: pip install scikit-learn pandas xgboost lightgbm
 
-import ast
 import json
+
+# --- Safe formula evaluator, copied from MLPilot (ml/features/safe_eval.py) ---
+{safe_eval_source}
+# --- end of safe formula evaluator ---
 
 # Engineered features used by this experiment, in the order they were added
 FEATURES = json.loads({features_literal!r})
@@ -514,39 +521,10 @@ def load_and_prepare_data():
     for col in NUMERIC_TEXT_COLUMNS:
         df[col] = pd.to_numeric(df[col].astype("string").str.strip(), errors="coerce").astype("float64")
 
-    # Feature Engineering
-    if FEATURES:
-        def _safe_eval(node):
-            if isinstance(node, ast.Expression):
-                return _safe_eval(node.body)
-            elif isinstance(node, ast.Constant):
-                return node.value
-            elif isinstance(node, ast.Name):
-                if node.id in df.columns:
-                    return df[node.id]
-                raise ValueError(f"Column '{{node.id}}' not found")
-            elif isinstance(node, ast.BinOp):
-                left = _safe_eval(node.left)
-                right = _safe_eval(node.right)
-                if isinstance(node.op, ast.Add): return left + right
-                elif isinstance(node.op, ast.Sub): return left - right
-                elif isinstance(node.op, ast.Mult): return left * right
-                elif isinstance(node.op, ast.Div): return left / right
-                elif isinstance(node.op, ast.Pow): return left ** right
-                raise ValueError(f"Unsupported op: {{type(node.op)}}")
-            elif isinstance(node, ast.UnaryOp):
-                operand = _safe_eval(node.operand)
-                if isinstance(node.op, ast.USub): return -operand
-                elif isinstance(node.op, ast.UAdd): return +operand
-                raise ValueError(f"Unsupported unary: {{type(node.op)}}")
-            raise ValueError(f"Unsupported node: {{type(node)}}")
-            
-        for feat in FEATURES:
-            try:
-                df[feat["name"]] = _safe_eval(ast.parse(feat["formula"], mode='eval'))
-            except Exception:
-                df[feat["name"]] = 0
-        
+    # Feature engineering with the same safe evaluator MLPilot used; an invalid formula raises.
+    for feat in FEATURES:
+        df[feat["name"]] = evaluate_formula(feat["formula"], df)
+
     y = df["{exp.parameters.get('target_column', 'target')}"]
     X = df.drop(columns=["{exp.parameters.get('target_column', 'target')}"])
     
