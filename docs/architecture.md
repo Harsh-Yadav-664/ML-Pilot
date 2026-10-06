@@ -33,7 +33,7 @@ Solid boxes are built and covered by tests in CI. Dashed boxes are planned.
 
 | Component | Where | What it does today |
 |---|---|---|
-| Web UI | `frontend/` | Loads a sample or a CSV, shows experiments and metrics, runs the agent loop. All API calls go through `frontend/src/api/`, typed from the generated `schema.d.ts`. |
+| Web UI | `frontend/` | Loads a sample or a CSV, shows experiments and metrics, runs the agent loop. A separate "Connect a database" page (`#/connect`, `frontend/src/views/Connect.tsx`) saves and tests a connection, draws the schema graph (React Flow) and shows aggregate column statistics. All API calls go through `frontend/src/api/`, typed from the generated `schema.d.ts`. |
 | API | `backend/app/api/v1/` | Resource routes under `/api/v1/projects/{id}/...` (datasets, experiments, agent, jobs, chat). Every route needs the local token ([ADR 0008](adr/0008-self-hosted-single-user-security.md)). |
 | Data engine | `backend/ml/data/engine.py`, `workspace.py` | Every file becomes a table in the project's `work.duckdb`; profiling, the leakage scan and training read it through one `DataSource` interface ([ADR 0002](adr/0002-duckdb-internal-engine.md)). |
 | Job runner | `backend/app/jobs/` | Training and the agent loop run as durable jobs: they survive restarts, report an ordered event log and can be cancelled. |

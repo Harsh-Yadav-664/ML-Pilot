@@ -12,6 +12,8 @@ import { AgentPanel } from './components/AgentPanel';
 import { connection } from './api';
 import { CommandPalette, ConnectionBanner, StatusBar, Toasts } from './components/Chrome';
 import { Landing } from './Landing';
+import { ConnectView } from './views/Connect';
+import { useRoute } from './route';
 
 /** A coffee bean in a caramel block. */
 function Logo() {
@@ -37,6 +39,8 @@ const NAV = ALL_NAV.filter((n) => connection.demo || n.key !== 'deployments');
 
 function Shell() {
   const { started } = useStore();
+  const route = useRoute();
+  if (route === 'connect') return <ConnectView />;
   if (!started) return <Landing />;
   return <Workspace />;
 }

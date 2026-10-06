@@ -1,6 +1,7 @@
 import { useStore } from './store';
 import { Btn, Eyebrow, Tag } from './ui';
 import { ExperimentGraph } from './components/ExperimentGraph';
+import { goConnect } from './route';
 
 function Logo() {
   return (
@@ -37,7 +38,7 @@ const DIFFS: { n: string; claim: string; sub: React.ReactNode }[] = [
   {
     n: '03',
     claim: 'Your data, or a live source',
-    sub: 'Drop a CSV or point MLPilot at a read-only warehouse query. The profile, the leakage scan and every experiment run against what you actually have.',
+    sub: 'Drop a CSV to run the whole experiment loop on it. Or connect a Postgres, SQLite or DuckDB database read-only to see its tables, how they relate and their column statistics; prediction tasks on a database are the next step.',
   },
   {
     n: '04',
@@ -84,9 +85,12 @@ export function Landing() {
               <Btn size="lg" onClick={() => startApp('upload')}>
                 Upload your own CSV
               </Btn>
+              <Btn size="lg" onClick={goConnect}>
+                Connect a database
+              </Btn>
             </div>
             <p className="mt-4 font-mono text-[10.5px] uppercase tracking-[0.1em] text-mute">
-              or connect a read-only source · bigquery / snowflake / postgres
+              read-only · postgres / sqlite / duckdb · schema and statistics only for now
             </p>
           </div>
 
