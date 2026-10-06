@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * UI smoke test: the real backend (offline stub LLM, throwaway SQLite DB) and the real UI.
+ * UI smoke test via `python start.py`: the real backend (offline stub LLM, throwaway SQLite DB) and the real UI.
  * PW_CHROMIUM lets a machine with a preinstalled Chromium skip `playwright install`.
  */
 const python = process.env.PYTHON ?? 'python';
@@ -18,20 +18,17 @@ export default defineConfig({
     launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: [
-    {
-      command: `${python} -m uvicorn app.main:app --port 8000`,
-      cwd: '../backend',
-      url: 'http://localhost:8000/health',
-      env: { DATABASE_URL: db },
-      timeout: 120_000,
-      reuseExistingServer: false,
+  // The one command a user runs: it creates the access token on first start and hands
+  // it to the UI, so the test proves there is no manual token step.
+  webServer: {
+    command: `${python} start.py`,
+    cwd: '..',
+    url: 'http://localhost:5173',
+    env: {
+      DATABASE_URL: db,
+      MLPILOT_TOKEN_FILE: process.env.SMOKE_TOKEN_FILE ?? '/tmp/mlpilot-smoke/token',
     },
-    {
-      command: 'npm run dev -- --port 5173 --strictPort',
-      url: 'http://localhost:5173',
-      timeout: 60_000,
-      reuseExistingServer: false,
-    },
-  ],
+    timeout: 120_000,
+    reuseExistingServer: false,
+  },
 });

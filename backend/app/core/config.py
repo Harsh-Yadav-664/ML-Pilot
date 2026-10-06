@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -32,8 +32,15 @@ class Settings(BaseSettings):
     # A running job whose heartbeat is older than this was interrupted (restart, crash).
     JOB_STALE_SECONDS: float = 30.0
 
-    # ── CORS ─────────────────────────────────────────────────────────
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # ── Network (AGENTS.md: self-hosted, local by default) ────────────
+    # The host start.py binds to; anything but loopback is logged as a warning.
+    MLPILOT_HOST: str = "127.0.0.1"
+    # Browser origins allowed to call the API (the Vite dev server by default).
+    # Set MLPILOT_CORS_ORIGINS as a JSON list or comma-separated.
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
+        default=["http://localhost:5173", "http://127.0.0.1:5173"],
+        validation_alias=AliasChoices("MLPILOT_CORS_ORIGINS", "CORS_ORIGINS"),
+    )
 
     # ── AI Providers (all optional) ──────────────────────────────────
     GROQ_API_KEY: str | None = None
@@ -60,8 +67,10 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             import json
 
-            return json.loads(v)
-        return v
+            if v.strip().startswith("["):
+                return list(json.loads(v))
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return list(v)
 
 
 settings = Settings()

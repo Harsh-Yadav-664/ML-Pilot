@@ -1,5 +1,7 @@
 version: "3.9"
 
+# Ports are published on 127.0.0.1 only: MLPilot is a local tool by default.
+
 services:
   db:
     image: postgres:16-alpine
@@ -9,7 +11,7 @@ services:
       POSTGRES_PASSWORD: mlpilot_dev
       POSTGRES_DB: mlpilot
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +24,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
 
   backend:
@@ -34,8 +36,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://mlpilot:mlpilot_dev@db:5432/mlpilot
       LOG_LEVEL: INFO
       DEBUG: "false"
+      # Inside the container the API listens on all interfaces; the port is published
+      # on localhost only. Every API call needs this token (openssl rand -hex 32).
+      MLPILOT_HOST: 0.0.0.0
+      MLPILOT_TOKEN: ${MLPILOT_TOKEN:?set MLPILOT_TOKEN to a random value of 16+ characters}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -50,7 +56,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
       - backend
 
