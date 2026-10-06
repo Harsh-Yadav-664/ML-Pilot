@@ -23,6 +23,7 @@ from ml.data.schema_graph import (
     id_stem,
     merge_overrides,
     name_strength,
+    refine_hints,
     singular,
     time_candidates,
     type_kind,
@@ -484,3 +485,17 @@ def test_a_patch_replaces_the_fields_it_gives_and_keeps_the_others() -> None:
     assert merged.time_columns == {"orders": "ordered_at"}
     assert merged.static_tables == {}
     assert merge_overrides(None, SchemaOverrides()) == SchemaOverrides()
+
+
+def test_refine_hints_replaces_only_the_hints_the_statistics_name(tmp_path: Path) -> None:
+    graph = demo_graph(tmp_path, "sqlite", fks=True)
+    refined = refine_hints(
+        graph, {"orders": {"status": "categorical", "total": "numeric", "bogus": "id"}}
+    )
+    orders = {t.key: t for t in refined.tables}["orders"]
+    assert {c.name: c.hint for c in orders.columns}["status"] == "categorical"
+    before = {t.key: t for t in graph.tables}["orders"]
+    assert {c.name: c.hint for c in before.columns}["status"] == "text"  # the input is unchanged
+    assert {t.key: t for t in refined.tables}["customers"] == {t.key: t for t in graph.tables}[
+        "customers"
+    ]

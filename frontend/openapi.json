@@ -74,11 +74,12 @@
       "Column": {
         "properties": {
           "hint": {
-            "description": "id, time, numeric, boolean, text or other",
+            "description": "id, time, numeric, boolean, text or other from the declared type and name; categorical (and a sharper id/text/boolean) once column statistics exist (#96)",
             "enum": [
               "id",
               "time",
               "numeric",
+              "categorical",
               "boolean",
               "text",
               "other"
@@ -165,6 +166,163 @@
           "dist"
         ],
         "title": "ColumnProfile",
+        "type": "object"
+      },
+      "ColumnStats": {
+        "properties": {
+          "distinct": {
+            "description": "Distinct values among the profiled rows",
+            "title": "Distinct",
+            "type": "integer"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Booleans: the share of true",
+            "title": "Mean"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "non_null": {
+            "title": "Non Null",
+            "type": "integer"
+          },
+          "null_fraction": {
+            "title": "Null Fraction",
+            "type": "number"
+          },
+          "p1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P1"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p99": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99"
+          },
+          "semantic_type": {
+            "enum": [
+              "id",
+              "categorical",
+              "numeric",
+              "time",
+              "text",
+              "boolean",
+              "other"
+            ],
+            "title": "Semantic Type",
+            "type": "string"
+          },
+          "stddev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sample standard deviation",
+            "title": "Stddev"
+          },
+          "time_max": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Max"
+          },
+          "time_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Min"
+          },
+          "top_values": {
+            "description": "Categorical columns only. These are cell values: they reach an LLM only where the project allows category labels (#48)",
+            "items": {
+              "$ref": "#/components/schemas/TopValue"
+            },
+            "title": "Top Values",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "semantic_type",
+          "non_null",
+          "null_fraction",
+          "distinct"
+        ],
+        "title": "ColumnStats",
         "type": "object"
       },
       "ConnectionCreate": {
@@ -2053,6 +2211,99 @@
         "title": "Table",
         "type": "object"
       },
+      "TableStats": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnStats"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "profiled_rows": {
+            "title": "Profiled Rows",
+            "type": "integer"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "row_count_estimated": {
+            "default": false,
+            "title": "Row Count Estimated",
+            "type": "boolean"
+          },
+          "sample_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Fraction"
+          },
+          "sample_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "system, bernoulli, rowid_modulo or head; None when not sampled",
+            "title": "Sample Method"
+          },
+          "sampled": {
+            "title": "Sampled",
+            "type": "boolean"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          },
+          "table": {
+            "title": "Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table",
+          "row_count",
+          "profiled_rows",
+          "sampled",
+          "seconds",
+          "columns"
+        ],
+        "title": "TableStats",
+        "type": "object"
+      },
+      "TableStatsRead": {
+        "properties": {
+          "cached": {
+            "description": "True when these statistics were computed by an earlier call",
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/TableStats"
+          }
+        },
+        "required": [
+          "stats",
+          "computed_at",
+          "cached"
+        ],
+        "title": "TableStatsRead",
+        "type": "object"
+      },
       "TaskType": {
         "enum": [
           "binary_classification",
@@ -2061,6 +2312,24 @@
         ],
         "title": "TaskType",
         "type": "string"
+      },
+      "TopValue": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "TopValue",
+        "type": "object"
       },
       "ValidationError": {
         "properties": {
@@ -2808,6 +3077,77 @@
           }
         },
         "summary": "Update Schema",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/connections/{connection_id}/tables/{table}/stats": {
+      "get": {
+        "description": "Per-column statistics of one table, computed by aggregate SQL in the database (no rows\nare pulled), sampled above a million rows and cached. ``table`` is the table's ``key`` from\nthe schema graph. ``refresh=true`` recomputes.",
+        "operationId": "get_table_stats_api_v1_projects__project_id__connections__connection_id__tables__table__stats_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "title": "Table",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Refresh",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableStatsRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Table Stats",
         "tags": [
           "connections"
         ]

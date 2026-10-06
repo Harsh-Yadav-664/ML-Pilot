@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
 
+from ml.data.profiling.db_stats import TableStats
+
 Dialect = Literal["postgres", "sqlite", "duckdb"]
 SslMode = Literal["disable", "prefer", "require", "verify-ca", "verify-full"]
 
@@ -81,3 +83,9 @@ class ConnectionTestResult(BaseModel):
     latency_ms: int | None = None
     can_write: bool | None = Field(None, description="True when the role could modify data")
     privilege_notes: list[str] = []
+
+
+class TableStatsRead(BaseModel):
+    stats: TableStats
+    computed_at: datetime
+    cached: bool = Field(description="True when these statistics were computed by an earlier call")

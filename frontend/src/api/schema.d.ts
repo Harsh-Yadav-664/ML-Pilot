@@ -161,6 +161,28 @@ export interface paths {
         patch: operations["update_schema_api_v1_projects__project_id__connections__connection_id__schema_patch"];
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/connections/{connection_id}/tables/{table}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Table Stats
+         * @description Per-column statistics of one table, computed by aggregate SQL in the database (no rows
+         *     are pulled), sampled above a million rows and cached. ``table`` is the table's ``key`` from
+         *     the schema graph. ``refresh=true`` recomputes.
+         */
+        get: operations["get_table_stats_api_v1_projects__project_id__connections__connection_id__tables__table__stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/connections/{connection_id}/test": {
         parameters: {
             query?: never;
@@ -586,10 +608,10 @@ export interface components {
         Column: {
             /**
              * Hint
-             * @description id, time, numeric, boolean, text or other
+             * @description id, time, numeric, boolean, text or other from the declared type and name; categorical (and a sharper id/text/boolean) once column statistics exist (#96)
              * @enum {string}
              */
-            hint: "id" | "time" | "numeric" | "boolean" | "text" | "other";
+            hint: "id" | "time" | "numeric" | "categorical" | "boolean" | "text" | "other";
             /**
              * Is Primary Key
              * @default false
@@ -622,6 +644,56 @@ export interface components {
             role: "feature" | "target" | "id";
             /** Unique */
             unique: number;
+        };
+        /** ColumnStats */
+        ColumnStats: {
+            /**
+             * Distinct
+             * @description Distinct values among the profiled rows
+             */
+            distinct: number;
+            /** Max */
+            max?: number | null;
+            /**
+             * Mean
+             * @description Booleans: the share of true
+             */
+            mean?: number | null;
+            /** Min */
+            min?: number | null;
+            /** Name */
+            name: string;
+            /** Non Null */
+            non_null: number;
+            /** Null Fraction */
+            null_fraction: number;
+            /** P1 */
+            p1?: number | null;
+            /** P50 */
+            p50?: number | null;
+            /** P99 */
+            p99?: number | null;
+            /**
+             * Semantic Type
+             * @enum {string}
+             */
+            semantic_type: "id" | "categorical" | "numeric" | "time" | "text" | "boolean" | "other";
+            /**
+             * Stddev
+             * @description Sample standard deviation
+             */
+            stddev?: number | null;
+            /** Time Max */
+            time_max?: string | null;
+            /** Time Min */
+            time_min?: string | null;
+            /**
+             * Top Values
+             * @description Categorical columns only. These are cell values: they reach an LLM only where the project allows category labels (#48)
+             */
+            top_values?: components["schemas"]["TopValue"][];
+            /** Type */
+            type: string;
         };
         /** ConnectionCreate */
         ConnectionCreate: {
@@ -1324,11 +1396,59 @@ export interface components {
              */
             time_leakage_hint?: string | null;
         };
+        /** TableStats */
+        TableStats: {
+            /** Columns */
+            columns: components["schemas"]["ColumnStats"][];
+            /** Profiled Rows */
+            profiled_rows: number;
+            /** Row Count */
+            row_count: number;
+            /**
+             * Row Count Estimated
+             * @default false
+             */
+            row_count_estimated: boolean;
+            /** Sample Fraction */
+            sample_fraction?: number | null;
+            /**
+             * Sample Method
+             * @description system, bernoulli, rowid_modulo or head; None when not sampled
+             */
+            sample_method?: string | null;
+            /** Sampled */
+            sampled: boolean;
+            /** Seconds */
+            seconds: number;
+            /** Table */
+            table: string;
+        };
+        /** TableStatsRead */
+        TableStatsRead: {
+            /**
+             * Cached
+             * @description True when these statistics were computed by an earlier call
+             */
+            cached: boolean;
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            stats: components["schemas"]["TableStats"];
+        };
         /**
          * TaskType
          * @enum {string}
          */
         TaskType: "binary_classification" | "multiclass_classification" | "regression";
+        /** TopValue */
+        TopValue: {
+            /** Count */
+            count: number;
+            /** Value */
+            value: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -1820,6 +1940,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SchemaGraph"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_table_stats_api_v1_projects__project_id__connections__connection_id__tables__table__stats_get: {
+        parameters: {
+            query?: {
+                refresh?: boolean;
+            };
+            header?: never;
+            path: {
+                connection_id: string;
+                table: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableStatsRead"];
                 };
             };
             /** @description Validation Error */
