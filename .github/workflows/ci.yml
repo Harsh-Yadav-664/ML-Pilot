@@ -117,6 +117,41 @@ jobs:
       - name: Integration test against the compose service (tables, roles, recency AUC)
         working-directory: backend
         run: pytest -q -s -p no:logging tests/integration/test_demo_db_compose.py
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      # The UI against the compose database: connect as both demo roles, graph, table details,
+      # time-column toggle, write-role warning (screenshot uploaded as an artifact).
+      - name: Connect-a-database UI test (Playwright, python start.py, demo Postgres)
+        working-directory: frontend
+        env:
+          PYTHON: python
+          MLPILOT_E2E_PG_HOST: ${{ env.MLPILOT_DEMO_PG_HOST }}
+          MLPILOT_E2E_PG_PORT: ${{ env.MLPILOT_DEMO_PG_PORT }}
+          MLPILOT_E2E_PG_DB: ${{ env.MLPILOT_DEMO_PG_DB }}
+          MLPILOT_E2E_PG_RO_USER: ${{ env.MLPILOT_DEMO_PG_RO_USER }}
+          MLPILOT_E2E_PG_RO_PASSWORD: ${{ env.MLPILOT_DEMO_PG_RO_PASSWORD }}
+          MLPILOT_E2E_PG_RW_USER: ${{ env.MLPILOT_DEMO_PG_RW_USER }}
+          MLPILOT_E2E_PG_RW_PASSWORD: ${{ env.MLPILOT_DEMO_PG_RW_PASSWORD }}
+          MLPILOT_E2E_SCREENSHOT_DIR: ${{ github.workspace }}/screenshots
+        run: |
+          mkdir -p "$MLPILOT_E2E_SCREENSHOT_DIR"
+          npx playwright test connect.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connect-ui
+          path: |
+            screenshots/
+            frontend/test-results/
+          if-no-files-found: ignore
       - name: Container log (on failure)
         if: failure()
         run: $COMPOSE logs --no-color demo-db | tail -100
