@@ -220,17 +220,20 @@ async def get_leakage_warnings(
         loader = CsvLoader()
         df = loader.load(safe_dataset_path(dataset_path))
         prep = NativeDataPreparationProvider()
-        warnings = prep.detect_leakage(df, target_column=target_column)
-        
+        findings = prep.detect_leakage(df, target_column=target_column)
+        # The UI's severity scale: block -> high, warn -> medium, info -> low.
+        ui_severity = {"block": "high", "warn": "medium", "info": "low"}
         return [
             {
                 "id": f"warn_{i}",
-                "column": w.column,
-                "message": w.reason,
-                "severity": w.severity,
-                "category": w.leakage_type,
+                "column": f.column or "(rows)",
+                "message": f.explanation,
+                "severity": ui_severity[f.severity],
+                "category": f.category,
+                "check": f.check,
+                "evidence": f.evidence,
             }
-            for i, w in enumerate(warnings)
+            for i, f in enumerate(findings)
         ]
     except Exception as e:
         logger.error(f"Failed to get leakage: {e}")

@@ -30,6 +30,8 @@ jobs:
       # iterations on telecom_churn.csv with the offline stub provider.
       - name: Tests (stub LLM provider, no network keys)
         run: pytest -q
+      - name: Planted-leak suite (prints leakage precision/recall)
+        run: python -m tests.fixtures.leakage.suite
 
   frontend:
     runs-on: ubuntu-latest

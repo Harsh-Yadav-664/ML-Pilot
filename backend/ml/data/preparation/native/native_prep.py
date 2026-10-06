@@ -18,7 +18,7 @@ from ml.core.interfaces import (
     LeakageWarning,
 )
 from ml.data.profiling.profiler import DataProfiler
-from ml.validation.leakage import LeakageDetector
+from ml.validation.leakage import scan
 
 
 class NativeDataPreparationProvider(DataPreparationProvider):
@@ -26,7 +26,6 @@ class NativeDataPreparationProvider(DataPreparationProvider):
 
     def __init__(self) -> None:
         self._profiler = DataProfiler()
-        self._leakage_detector = LeakageDetector()
 
     def profile(self, df: pd.DataFrame) -> ProfileResult:
         """Profile the DataFrame using DataProfiler."""
@@ -38,10 +37,10 @@ class NativeDataPreparationProvider(DataPreparationProvider):
         leakage_warnings = self.detect_leakage(df, target_column)
 
         # Derive risk scores from profile
+        flagged = [w for w in leakage_warnings if w.flagged]
         leakage_risk = "none"
-        if leakage_warnings:
-            high_severity = [w for w in leakage_warnings if w.severity == "high"]
-            leakage_risk = "high" if high_severity else "medium"
+        if flagged:
+            leakage_risk = "high" if any(w.severity == "block" for w in flagged) else "medium"
 
         validation_risk = "none"
         if profile.rows < 1000:
@@ -60,7 +59,7 @@ class NativeDataPreparationProvider(DataPreparationProvider):
             feature_risk = "medium"
 
         # Data quality score (0-1)
-        dq_score = max(0.0, 1.0 - profile.missing_rate - (0.1 if leakage_warnings else 0.0))
+        dq_score = max(0.0, 1.0 - profile.missing_rate - (0.1 if flagged else 0.0))
 
         recommendations: list[str] = []
         if validation_risk == "high":
@@ -80,16 +79,8 @@ class NativeDataPreparationProvider(DataPreparationProvider):
         )
 
     def detect_leakage(self, df: pd.DataFrame, target_column: str) -> list[LeakageWarning]:
-        """Run all leakage detectors."""
-        warnings: list[LeakageWarning] = []
-        warnings.extend(self._leakage_detector.detect_target_leakage(df, target_column))
-        warnings.extend(self._leakage_detector.detect_timestamp_leakage(df, target_column))
-        warnings.extend(self._leakage_detector.detect_entity_leakage(df, target_column))
-        warnings.extend(self._leakage_detector.detect_preprocessing_leakage(df, target_column))
-        warnings.extend(self._leakage_detector.detect_missingness_leakage(df, target_column))
-        warnings.extend(self._leakage_detector.detect_contamination_leakage(df, target_column))
-        warnings.extend(self._leakage_detector.detect_aggregate_leakage(df, target_column))
-        return warnings
+        """Run every leakage check (ml/validation/leakage.py)."""
+        return scan(df, target_column)
 
     def prepare(self, df: pd.DataFrame, config: dict[str, Any]) -> tuple[pd.DataFrame, Any]:
         """Transform df according to config using sklearn Pipeline.

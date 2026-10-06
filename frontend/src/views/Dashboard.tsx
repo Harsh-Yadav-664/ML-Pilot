@@ -287,9 +287,11 @@ function Leakage() {
                 </div>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed text-bone-dim">{w.message}</p>
               </div>
-              <Btn variant="outline" size="sm" onClick={() => toggleColumn(w.column)}>
-                {done ? 'Restore' : 'Exclude'}
-              </Btn>
+              {w.column !== '(rows)' && (
+                <Btn variant="outline" size="sm" onClick={() => toggleColumn(w.column)}>
+                  {done ? 'Restore' : 'Exclude'}
+                </Btn>
+              )}
             </div>
           );
         })}
