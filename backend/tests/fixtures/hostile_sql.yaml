@@ -1,0 +1,103 @@
+# Hostile SQL the guard (ml/data/sql_guard.py, #44) must refuse, with the code it must give.
+# {t} is replaced by the test table (columns id, customer, amount).
+# tests/unit/test_sql_guard.py checks every entry offline; the integration tests send
+# them to a real Postgres, SQLite file and DuckDB file and check nothing changed.
+
+postgres:
+  # data changes, including inside CTEs
+  - {sql: "INSERT INTO {t} VALUES (99, 'x', 1)", code: dml}
+  - {sql: "UPDATE {t} SET amount = 0", code: dml}
+  - {sql: "DELETE FROM {t}", code: dml}
+  - {sql: "MERGE INTO {t} AS a USING {t} AS b ON a.id = b.id WHEN MATCHED THEN DELETE", code: dml}
+  - {sql: "WITH d AS (DELETE FROM {t} RETURNING *) SELECT * FROM d", code: dml}
+  - {sql: "WITH u AS (UPDATE {t} SET amount = 0 RETURNING id) SELECT count(*) FROM u", code: dml}
+  - {sql: "WITH i AS (INSERT INTO {t} VALUES (98, 'y', 2) RETURNING id) SELECT * FROM i", code: dml}
+  # schema and permission changes
+  - {sql: "DROP TABLE {t}", code: ddl}
+  - {sql: "CREATE TABLE mlpilot_guard_new AS SELECT * FROM {t}", code: ddl}
+  - {sql: "ALTER TABLE {t} ADD COLUMN extra int", code: ddl}
+  - {sql: "TRUNCATE {t}", code: ddl}
+  - {sql: "GRANT ALL ON {t} TO PUBLIC", code: ddl}
+  - {sql: "SELECT * INTO mlpilot_guard_copy FROM {t}", code: select_into}
+  # several statements, or a way out of the read-only transaction
+  - {sql: "SELECT 1; DROP TABLE {t}", code: multi_statement}
+  - {sql: "ROLLBACK; DELETE FROM {t}", code: multi_statement}
+  - {sql: "COMMIT", code: transaction_control}
+  - {sql: "SET default_transaction_read_only = off", code: set}
+  # COPY, procedures, other commands
+  - {sql: "COPY {t} TO PROGRAM 'touch /tmp/mlpilot_guard_pwned'", code: copy}
+  - {sql: "COPY (SELECT 1) TO '/tmp/mlpilot_guard_copy.csv'", code: copy}
+  - {sql: "CALL some_procedure()", code: command}
+  - {sql: "DO $$ BEGIN DELETE FROM {t}; END $$", code: command}
+  - {sql: "EXPLAIN ANALYZE DELETE FROM {t}", code: command}
+  - {sql: "PREPARE p AS DELETE FROM {t}", code: command}
+  - {sql: "LOCK TABLE {t}", code: command}
+  - {sql: "VACUUM {t}", code: command}
+  - {sql: "NOTIFY mlpilot_channel", code: not_a_select}
+  # locking reads
+  - {sql: "SELECT * FROM {t} FOR UPDATE", code: locking_clause}
+  - {sql: "SELECT * FROM {t} FOR SHARE", code: locking_clause}
+  # side-effect functions
+  - {sql: "SELECT pg_sleep(1000)", code: denied_function}
+  - {sql: "SELECT pg_catalog.pg_sleep(1000)", code: denied_function}
+  - {sql: "SELECT set_config('default_transaction_read_only', 'off', false)", code: denied_function}
+  - {sql: "SELECT nextval('mlpilot_guard_seq')", code: denied_function}
+  - {sql: "SELECT lo_import('/etc/passwd')", code: denied_function}
+  - {sql: "SELECT pg_read_file('/etc/passwd')", code: denied_function}
+  - {sql: "SELECT * FROM pg_ls_dir('.')", code: denied_function}
+  - {sql: "SELECT dblink_exec('dbname=postgres', 'DELETE FROM {t}')", code: denied_function}
+  - {sql: "SELECT query_to_xml('DELETE FROM {t}', true, true, '')", code: denied_function}
+  - {sql: "SELECT pg_terminate_backend(1)", code: denied_function}
+  - {sql: "SELECT pg_advisory_lock(1)", code: denied_function}
+  - {sql: "SELECT (SELECT pg_sleep(1000)) AS nested", code: denied_function}
+  # secrets in system tables
+  - {sql: "SELECT * FROM pg_catalog.pg_shadow", code: denied_table}
+  - {sql: "SELECT rolpassword FROM pg_authid", code: denied_table}
+  - {sql: "SELECT query FROM pg_stat_activity", code: denied_table}
+
+sqlite:
+  - {sql: "INSERT INTO {t} VALUES (99, 'x', 1)", code: dml}
+  - {sql: "DELETE FROM {t}", code: dml}
+  - {sql: "WITH d AS (SELECT 1) UPDATE {t} SET amount = 0", code: dml}
+  - {sql: "DROP TABLE {t}", code: ddl}
+  - {sql: "CREATE TABLE x AS SELECT * FROM {t}", code: ddl}
+  - {sql: "SELECT 1; DROP TABLE {t}", code: multi_statement}
+  - {sql: "ATTACH DATABASE '/tmp/mlpilot_guard_attach.db' AS x", code: not_a_select}
+  - {sql: "PRAGMA writable_schema = 1", code: not_a_select}
+  - {sql: "SELECT load_extension('/tmp/evil')", code: denied_function}
+  - {sql: "SELECT writefile('/tmp/mlpilot_guard_out', 'x')", code: denied_function}
+  - {sql: "SELECT readfile('/etc/passwd')", code: denied_function}
+
+duckdb:
+  - {sql: "INSERT INTO {t} VALUES (99, 'x', 1)", code: dml}
+  - {sql: "DELETE FROM {t}", code: dml}
+  - {sql: "DROP TABLE {t}", code: ddl}
+  - {sql: "SELECT 1; DROP TABLE {t}", code: multi_statement}
+  - {sql: "COPY {t} TO '/tmp/mlpilot_guard_out.csv'", code: copy}
+  - {sql: "ATTACH '/tmp/mlpilot_guard_attach.duckdb' AS x", code: not_a_select}
+  - {sql: "SET enable_external_access = true", code: set}
+  - {sql: "INSTALL httpfs", code: ddl}
+  - {sql: "SELECT * FROM read_csv('/etc/passwd')", code: denied_function}
+  - {sql: "SELECT * FROM read_text('/etc/passwd')", code: denied_function}
+  - {sql: "SELECT * FROM glob('/*')", code: denied_function}
+  - {sql: "SELECT getenv('HOME')", code: denied_function}
+  - {sql: "SELECT * FROM query('DROP TABLE {t}')", code: denied_function}
+
+# Ordinary analytical queries that must pass (no false positives).
+allowed:
+  postgres:
+    - "SELECT customer, sum(amount) AS total FROM {t} GROUP BY customer ORDER BY customer"
+    - "WITH big AS (SELECT * FROM {t} WHERE amount > 10) SELECT count(*) AS n FROM big"
+    - "SELECT id, avg(amount) OVER (PARTITION BY customer ORDER BY id) AS running FROM {t}"
+    - "SELECT 'DELETE FROM x; DROP TABLE y' AS text_that_looks_like_sql FROM {t} LIMIT 1"
+    - "SELECT id FROM {t} WHERE customer IN (SELECT customer FROM {t} WHERE amount > 20)"
+    - "SELECT id FROM {t} UNION SELECT id + 100 FROM {t}"
+    - "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5) SELECT * FROM n"
+    - "SELECT date_trunc('month', now()) AS m, CAST(amount AS int) AS a FROM {t} LIMIT 3"
+  sqlite:
+    - "SELECT customer, sum(amount) AS total FROM {t} GROUP BY customer"
+    - "WITH big AS (SELECT * FROM {t} WHERE amount > 10) SELECT count(*) AS n FROM big"
+    - "SELECT id FROM {t} WHERE customer GLOB 'c*'"
+  duckdb:
+    - "SELECT customer, sum(amount) AS total FROM {t} GROUP BY customer"
+    - "SELECT id, lag(amount) OVER (ORDER BY id) AS prev FROM {t}"

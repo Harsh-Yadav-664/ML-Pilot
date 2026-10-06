@@ -16,9 +16,10 @@ flowchart LR
     GW --> LLM["Providers<br/>offline stub, hosted, Ollama"]
     Exec --> Data["Data versions<br/>content-hashed CSV copies"]
     API --> Conn["Connection manager<br/>saved Postgres, SQLite, DuckDB<br/>backend/ml/data/sources/"]
-    API --> SQLImport["SQL import<br/>single read-only SELECT"]
-    Conn --> UserDB
-    SQLImport --> UserDB[("Your database<br/>read-only")]
+    API --> SQLImport["SQL import<br/>connection string or saved connection"]
+    Conn --> SQLGuard["SQL guard<br/>parse, read-only session, limits<br/>backend/ml/data/sql_guard.py"]
+    SQLImport --> SQLGuard
+    SQLGuard --> UserDB[("Your database<br/>read-only")]
     SQLImport --> Data
 
     Data --> DuckDB["Project DuckDB<br/>work.duckdb, one table per file<br/>backend/ml/data/"]
@@ -42,8 +43,9 @@ Solid boxes are built and covered by tests in CI. Dashed boxes are planned.
 | Executor | `backend/ml/experiments/` | Split, train, tune on validation, score test once, compute metrics, store a run manifest. |
 | Safe evaluator | `backend/ml/features/safe_eval.py` | Parses and evaluates feature formulas against a whitelist. |
 | Leakage scanner | `backend/ml/validation/leakage.py` | Flags columns that look like leaks (single-table). |
-| Connection manager | `backend/ml/data/sources/`, `backend/app/services/connection_service.py` | Named connections to Postgres, SQLite and DuckDB. Passwords are an environment reference or Fernet-encrypted, never returned or logged; every query is one `SELECT` in a read-only session with a row limit and a timeout; a test endpoint reports the server version and whether the role could write ([ADR 0011](adr/0011-connection-secrets-and-drivers.md)). |
-| SQL import | `backend/ml/data/ingestion/sql_loader.py` | Takes one read-only `SELECT` from a user database into a CSV data version ([ADR 0003](adr/0003-read-only-in-three-layers.md)). |
+| Connection manager | `backend/ml/data/sources/`, `backend/app/services/connection_service.py` | Named connections to Postgres, SQLite and DuckDB. Passwords are an environment reference or Fernet-encrypted, never returned or logged; every query goes through the SQL guard; a test endpoint reports the server version and whether the role could write ([ADR 0011](adr/0011-connection-secrets-and-drivers.md)). |
+| SQL guard | `backend/ml/data/sql_guard.py` | The only code that executes SQL on a user database: parses and checks the query, runs it in a read-only session with row, size and time limits, and logs a hash of it ([ADR 0003](adr/0003-read-only-in-three-layers.md)). |
+| SQL import | `backend/ml/data/ingestion/sql_loader.py` | Takes one read-only `SELECT` from a user database (saved connection or connection string) into a CSV data version, through the SQL guard. |
 
 ## Data flow today (single CSV)
 
@@ -95,9 +97,9 @@ flowchart TD
 | Layer | Protects against | Status |
 |---|---|---|
 | Local token, CORS allowlist, localhost bind | Other sites or machines using the API | Implemented (#92) |
-| SQL parser allowlist (single `SELECT`) | Writes or DDL from a query | Implemented for the SQL import (#30) and saved connections (#43); one shared guard module `planned (#44)` |
-| Read-only transaction, row limit, timeout | A query that changes data or runs away | Implemented for the SQL import (timeout on Postgres and MySQL only) and for saved Postgres, SQLite and DuckDB connections (#43) |
-| Read-only database role check | A role that could write | Reported by the connection test (#43); warning or blocking on it is `planned (#44)` |
+| SQL guard, layer 1: parser allowlist | Writes, DDL, side-effect functions, secret system tables, tables outside the schema | Implemented (#44): `ml/data/sql_guard.py`, hostile-query matrix in `tests/fixtures/hostile_sql.yaml` |
+| SQL guard, layer 2: read-only session, row/size limit, timeout | A query that changes data or runs away, even if layer 1 missed it | Implemented for Postgres, SQLite and DuckDB (#44) |
+| SQL guard, layer 3: database role check | A role that could write | Reported as `can_write` by the connection test (#43, #44); the UI warning is `planned (#46, #103)` |
 | Project DuckDB without external file access, `SELECT`-only `DataSource.query` | A query reading or writing files outside the project's own tables | Implemented (#42) |
 | Safe formula evaluator | Executing model output | Implemented (#37) |
 | Acceptance rule in code | Keeping noise, or the LLM judging itself | Implemented (#35) |
@@ -115,7 +117,7 @@ The metadata database holds the tables below. `docs/experiment_schema.md` descri
 | `users`, `projects` | The local user and projects; `projects.settings` holds privacy level and budgets |
 | `datasets` | Uploaded files with their profile (before the relational work) |
 | `data_versions` | Immutable snapshots keyed by content hash |
-| `connections` | Saved read-only connections; only a `secret_ref`, never a password. The table exists; the connection manager is `planned (#43)` |
+| `connections` | Saved read-only connections; only a `secret_ref`, never a password, and the `can_write` result of the last test |
 | `task_specs` | Versioned prediction task specs. The table exists; the feature is `planned (#49)` |
 | `runs` | One run of a task spec on a data version. The table exists; relational runs are `planned (#58)` |
 | `experiments` | One trained candidate with its metrics, decision and run manifest |
@@ -152,7 +154,7 @@ erDiagram
 |---|---|
 | `backend/app/` | FastAPI app, services, ORM models, schemas |
 | `backend/ai/` | LLM gateway: providers, routing, cost tracking |
-| `backend/ml/data/` | Ingestion (CSV, read-only SQL), profiling, preparation |
+| `backend/ml/data/` | The DuckDB engine, live sources, the SQL guard, ingestion, profiling, preparation |
 | `backend/ml/validation/` | Splits and the leakage scanner |
 | `backend/ml/experiments/` | Executor, acceptance rule, run manifest |
 | `backend/ml/models/engines/` | Model engines behind one interface |
@@ -162,4 +164,4 @@ erDiagram
 | `frontend/` | The web UI |
 | `docs/adr/` | Decision records |
 
-Planned modules (created where the issues say): `ml/data/sql_guard.py`, `ml/data/schema_graph.py`, `ml/tasks/`, `ml/reports/`, `ml/export/`, `benchmarks/`.
+Planned modules (created where the issues say): `ml/data/schema_graph.py`, `ml/tasks/`, `ml/reports/`, `ml/export/`, `benchmarks/`.

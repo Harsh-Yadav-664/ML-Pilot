@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import duckdb
 import numpy as np
 import pandas as pd
 import pytest
@@ -146,8 +147,11 @@ def test_a_select_cannot_reach_files_outside_the_database(
 ) -> None:
     secret = tmp_path / "secret.csv"
     secret.write_text("password\nhunter2\n")
-    with pytest.raises(Exception, match="(?i)permission|file system"):
-        source.query(f"SELECT * FROM read_csv('{secret}')", limit=10, timeout_s=5)
+    sql = f"SELECT * FROM read_csv('{secret}')"
+    with pytest.raises(QueryRejected, match="read_csv"):  # the SQL guard refuses it ...
+        source.query(sql, limit=10, timeout_s=5)
+    with pytest.raises(duckdb.Error, match="(?i)permission|file system"):  # ... and so would DuckDB
+        source._fetch(sql)
 
 
 def test_fingerprint_changes_with_the_data_and_not_with_row_order(

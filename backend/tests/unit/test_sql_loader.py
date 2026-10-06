@@ -1,4 +1,4 @@
-"""Interim read-only SQL hardening (sqlglot validation, read-only transaction, row limit)."""
+"""The old connection-string import goes through the same source and SQL guard (#44)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ import sqlite3
 
 import pytest
 
-from ml.data.ingestion.sql_loader import SqlLoader, UnsafeQueryError, redact
+from ml.data.engine import EngineError, RowLimitExceeded
+from ml.data.ingestion.sql_loader import SqlLoader, redact, spec_from_url
+from ml.data.sql_guard import SqlRejected
 
 
 @pytest.fixture
@@ -38,18 +40,39 @@ def row_count(path) -> int:
 )
 def test_unsafe_queries_are_refused_and_data_is_untouched(sqlite_url, query):
     url, path = sqlite_url
-    with pytest.raises(UnsafeQueryError):
+    with pytest.raises(SqlRejected):
         SqlLoader().load(url, query)
     assert row_count(path) == 50
 
 
-def test_select_and_cte_work_with_row_limit(sqlite_url):
+def test_select_and_cte_work_and_the_row_limit_raises_instead_of_truncating(sqlite_url):
     url, _ = sqlite_url
-    df = SqlLoader().load(
-        url, "WITH x AS (SELECT * FROM t WHERE id < 30) SELECT * FROM x", row_limit=10
-    )
-    assert len(df) == 10
+    query = "WITH x AS (SELECT * FROM t WHERE id < 30) SELECT * FROM x"
+    df = SqlLoader().load(url, query, row_limit=30)
+    assert len(df) == 30
     assert list(df.columns) == ["id", "name"]
+    with pytest.raises(RowLimitExceeded):
+        SqlLoader().load(url, query, row_limit=10)
+
+
+def test_connection_strings_become_connection_specs():
+    pg = spec_from_url(
+        "postgresql+psycopg2://alice:s3cretpw@db.internal:6543/sales?sslmode=require"
+    )
+    assert (pg.dialect, pg.host, pg.port, pg.username, pg.database, pg.ssl_mode) == (
+        "postgres",
+        "db.internal",
+        6543,
+        "alice",
+        "sales",
+        "require",
+    )
+    assert pg.password == "s3cretpw" and "s3cretpw" not in repr(pg)
+    assert spec_from_url("sqlite:////data/shop.db").database == "/data/shop.db"
+    assert spec_from_url("duckdb:///shop.duckdb").dialect == "duckdb"
+    for bad in ("mysql://u:p@h/db", "sqlite://", "sqlite:///:memory:", "not a url"):
+        with pytest.raises(EngineError):
+            spec_from_url(bad)
 
 
 def test_redact_removes_password_and_connection_string():

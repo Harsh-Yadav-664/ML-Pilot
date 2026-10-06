@@ -14,8 +14,9 @@ Two connections are kept apart on purpose:
   query that reaches it cannot touch anything outside its own tables. Data enters it
   only as Arrow batches.
 
-``DuckDBSource.query`` accepts a single ``SELECT`` only. Queries against a *user's*
-database must additionally pass the SQL guard (issue #44) before they get here.
+``DuckDBSource.query`` accepts what the SQL guard (``ml.data.sql_guard``) accepts: one
+``SELECT`` with no side effects. A user's own DuckDB file is read through
+``ml.data.sources.duckdb_file`` instead, which opens it read-only.
 """
 
 from __future__ import annotations
@@ -126,6 +127,50 @@ class DataSource(Protocol):
         ...
 
 
+# Catalog queries for a DuckDB database, shared with read-only user DuckDB files.
+DUCKDB_TABLES_SQL = (
+    "SELECT table_schema, table_name FROM information_schema.tables "
+    "WHERE table_type = 'BASE TABLE' AND table_schema NOT IN (?, 'information_schema') "
+    "ORDER BY table_schema, table_name"
+)
+DUCKDB_COLUMNS_SQL = (
+    "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
+    "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position"
+)
+DUCKDB_CONSTRAINTS_SQL = (
+    "SELECT constraint_type, constraint_column_names, referenced_table, "
+    "referenced_column_names FROM duckdb_constraints() "
+    "WHERE schema_name = ? AND table_name = ?"
+)
+
+
+def duckdb_table_schema(
+    table: TableRef, cols: list[tuple[Any, ...]], constraints: list[tuple[Any, ...]]
+) -> TableSchema:
+    """A ``TableSchema`` from the rows of ``DUCKDB_COLUMNS_SQL`` and ``DUCKDB_CONSTRAINTS_SQL``."""
+    if not cols:
+        raise EngineError(f"Table {table.schema}.{table.name} does not exist")
+    primary_key: list[str] = []
+    foreign_keys: list[ForeignKey] = []
+    for kind, columns, ref_table, ref_columns in constraints:
+        if kind == "PRIMARY KEY":
+            primary_key = list(columns)
+        elif kind == "FOREIGN KEY":
+            foreign_keys.append(
+                ForeignKey(
+                    columns=list(columns),
+                    ref_table=TableRef(ref_table, table.schema),
+                    ref_columns=list(ref_columns),
+                )
+            )
+    return TableSchema(
+        table=table,
+        columns=[ColumnInfo(n, t, nullable == "YES") for n, t, nullable in cols],
+        primary_key=primary_key,
+        foreign_keys=foreign_keys,
+    )
+
+
 def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
@@ -194,53 +239,21 @@ class DuckDBSource:
     # -- DataSource -----------------------------------------------------------------
 
     def list_tables(self) -> list[TableRef]:
-        rows = self._fetch(
-            "SELECT table_schema, table_name FROM information_schema.tables "
-            "WHERE table_type = 'BASE TABLE' AND table_schema NOT IN (?, 'information_schema') "
-            "ORDER BY table_schema, table_name",
-            [INTERNAL_SCHEMA],
-        )
+        rows = self._fetch(DUCKDB_TABLES_SQL, [INTERNAL_SCHEMA])
         return [TableRef(name=name, schema=schema) for schema, name in rows]
 
     def table_schema(self, table: TableRef) -> TableSchema:
-        cols = self._fetch(
-            "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
-            "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
-            [table.schema, table.name],
-        )
-        if not cols:
-            raise EngineError(f"Table {table.schema}.{table.name} does not exist")
-        constraints = self._fetch(
-            "SELECT constraint_type, constraint_column_names, referenced_table, "
-            "referenced_column_names FROM duckdb_constraints() "
-            "WHERE schema_name = ? AND table_name = ?",
-            [table.schema, table.name],
-        )
-        primary_key: list[str] = []
-        foreign_keys: list[ForeignKey] = []
-        for kind, columns, ref_table, ref_columns in constraints:
-            if kind == "PRIMARY KEY":
-                primary_key = list(columns)
-            elif kind == "FOREIGN KEY":
-                foreign_keys.append(
-                    ForeignKey(
-                        columns=list(columns),
-                        ref_table=TableRef(ref_table, table.schema),
-                        ref_columns=list(ref_columns),
-                    )
-                )
-        return TableSchema(
-            table=table,
-            columns=[ColumnInfo(n, t, nullable == "YES") for n, t, nullable in cols],
-            primary_key=primary_key,
-            foreign_keys=foreign_keys,
-        )
+        cols = self._fetch(DUCKDB_COLUMNS_SQL, [table.schema, table.name])
+        constraints = self._fetch(DUCKDB_CONSTRAINTS_SQL, [table.schema, table.name])
+        return duckdb_table_schema(table, cols, constraints)
 
     def query(
         self, sql: str, params: list[Any] | None = None, *, limit: int, timeout_s: int
     ) -> pa.Table:
         """Run one SELECT. Raises if it is anything else, runs too long or returns > ``limit`` rows."""
-        self._require_single_select(sql)
+        from ml.data.sql_guard import guard  # the one SQL guard (it imports this module)
+
+        sql = guard(sql, self.dialect).sql
         cursor = self._con.cursor()
         timer = threading.Timer(timeout_s, cursor.interrupt)
         timer.start()
@@ -343,11 +356,3 @@ class DuckDBSource:
             return cursor.execute(sql).to_arrow_table()
         finally:
             cursor.close()
-
-    def _require_single_select(self, sql: str) -> None:
-        try:
-            statements = duckdb.extract_statements(sql)
-        except duckdb.Error as e:
-            raise QueryRejected(f"The SQL could not be parsed: {e}") from e
-        if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
-            raise QueryRejected("Only a single SELECT statement is allowed")

@@ -1,4 +1,4 @@
-"""SQLite through the standard library, opened ``mode=ro`` with ``query_only`` on."""
+"""SQLite through the standard library, opened ``mode=ro``; queries go through the SQL guard."""
 
 from __future__ import annotations
 
@@ -10,26 +10,11 @@ from urllib.parse import quote
 
 import pyarrow as pa
 
-from ml.data.engine import (
-    ColumnInfo,
-    EngineError,
-    QueryTimeout,
-    RowLimitExceeded,
-    TableRef,
-    TableSchema,
-)
-from ml.data.sources.base import (
-    ConnectionFailure,
-    ConnectionSpec,
-    Deadline,
-    Privileges,
-    guard,
-    limited_sql,
-    rows_to_arrow,
-)
+from ml.data import sql_guard
+from ml.data.engine import ColumnInfo, EngineError, QueryTimeout, TableRef, TableSchema
+from ml.data.sources.base import ConnectionFailure, ConnectionSpec, Privileges
 
 HEADER = b"SQLite format 3\x00"
-PROGRESS_STEPS = 10_000  # VM instructions between deadline checks
 
 
 def is_sqlite_file(path: Path) -> bool:
@@ -48,32 +33,44 @@ class SqliteSource:
     def __init__(self, spec: ConnectionSpec) -> None:
         self.path = Path(spec.database)
 
-    def _open(self, timeout_s: float = 10) -> sqlite3.Connection:
+    # -- for the SQL guard ----------------------------------------------------------
+
+    def connect(self, timeout_s: float = 10) -> sqlite3.Connection:
+        """The file opened read-only (``mode=ro``); the guard adds the rest of layer 2."""
         if not is_sqlite_file(self.path):
             raise ConnectionFailure("not_a_database_file")
         uri = f"file:{quote(str(self.path.resolve()))}?mode=ro"
         try:
-            con = sqlite3.connect(uri, uri=True, timeout=timeout_s)
-            con.execute("PRAGMA query_only = ON")
-            return con
+            return sqlite3.connect(uri, uri=True, timeout=timeout_s)
         except sqlite3.Error:
             raise ConnectionFailure("not_a_database_file") from None
+
+    def failure(self, exc: BaseException) -> Exception:
+        text = str(exc)
+        if "interrupt" in text.lower():
+            return QueryTimeout("The query ran past its time limit and was stopped")
+        if isinstance(exc, sqlite3.DatabaseError) and "file is not a database" in text:
+            return ConnectionFailure("not_a_database_file")
+        return EngineError(f"SQLite rejected the query: {text}")
 
     # -- DataSource -----------------------------------------------------------------
 
     def list_tables(self) -> list[TableRef]:
-        rows = self._rows(
+        rows = sql_guard.catalog(
+            self,
             "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') "
-            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name",
         )
         return [TableRef(name=r[0], schema="main") for r in rows]
 
     def table_schema(self, table: TableRef) -> TableSchema:
-        quoted = '"' + table.name.replace('"', '""') + '"'
-        info = self._rows(f"PRAGMA table_info({quoted})")
+        info = sql_guard.catalog(
+            self,
+            'SELECT cid, name, type, "notnull", dflt_value, pk FROM pragma_table_info(?)',
+            [table.name],
+        )
         if not info:
             raise EngineError(f"Table {table.name} does not exist")
-        # cid, name, type, notnull, dflt_value, pk
         pk = [r[1] for r in sorted((r for r in info if r[5]), key=lambda r: r[5])]
         return TableSchema(
             table=table,
@@ -84,27 +81,9 @@ class SqliteSource:
     def query(
         self, sql: str, params: list[Any] | None = None, *, limit: int, timeout_s: int
     ) -> pa.Table:
-        """One SELECT on a read-only handle. Raises on anything else, a timeout or > limit rows."""
-        guard(sql, "sqlite")
-        wrapped = limited_sql(sql, "sqlite", limit)
-        deadline = Deadline(timeout_s)
-        con = self._open(timeout_s)
-        try:
-            con.set_progress_handler(lambda: 1 if deadline.expired() else 0, PROGRESS_STEPS)
-            cur = con.execute(wrapped, params or [])
-            rows = cur.fetchall()
-            names = [d[0] for d in cur.description]
-        except sqlite3.OperationalError as e:
-            if "interrupt" in str(e).lower():
-                raise QueryTimeout(
-                    f"The query ran longer than {timeout_s} s and was stopped"
-                ) from None
-            raise EngineError(f"SQLite rejected the query: {e}") from None
-        finally:
-            con.close()
-        if len(rows) > limit:
-            raise RowLimitExceeded(f"The query returned more than {limit} rows")
-        return rows_to_arrow(names, rows)
+        """One SELECT, guarded and read-only. Raises on anything else, a timeout or > limit rows."""
+        q = sql_guard.guard(sql, self.dialect)
+        return sql_guard.execute(self, q, params=params, limit=limit, timeout_s=timeout_s)
 
     def fingerprint(self) -> str:
         """SHA-256 of the file's bytes (the whole database, since it is one file)."""
@@ -117,19 +96,10 @@ class SqliteSource:
     # -- checks used by the connection manager --------------------------------------
 
     def check(self) -> None:
-        self._rows("SELECT 1")
+        sql_guard.catalog(self, "SELECT 1")
 
     def server_version(self) -> str:
         return f"SQLite {sqlite3.sqlite_version}"
 
     def privileges(self) -> Privileges:
         return Privileges(can_write=False, notes=["opened read-only (mode=ro, query_only)"])
-
-    def _rows(self, sql: str) -> list[tuple]:
-        con = self._open()
-        try:
-            return con.execute(sql).fetchall()
-        except sqlite3.Error:
-            raise ConnectionFailure("not_a_database_file") from None
-        finally:
-            con.close()
