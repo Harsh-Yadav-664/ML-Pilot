@@ -5,6 +5,7 @@ ID columns (one category per row) and numbers stored as text (e.g. blanks
 in a numeric column make pandas read it as strings). Both are handled here,
 and everything that was changed is reported so it can be recorded on the run.
 """
+
 from __future__ import annotations
 
 import re

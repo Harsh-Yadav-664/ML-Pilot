@@ -1,4 +1,5 @@
 """The split contract: disjoint, complete, reproducible, and recorded on the experiment."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,13 +61,24 @@ async def test_split_plan_is_recorded_on_the_experiment():
     X, y = make_classification(n_samples=400, n_features=5, random_state=0)
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)]).assign(target=y)
     spec = ExperimentSpec(
-        id="plan", project_id="p", dataset_version="v", hypothesis="h", change_description="c",
-        model_name="LogisticRegression", parameters={"target_column": "target"}, feature_set=[],
+        id="plan",
+        project_id="p",
+        dataset_version="v",
+        hypothesis="h",
+        change_description="c",
+        model_name="LogisticRegression",
+        parameters={"target_column": "target"},
+        feature_set=[],
     )
     result = await LocalExperimentExecutor(data_loader_func=lambda _: df.copy()).run(spec)
     assert result.status.value == "completed"
     assert result.parameters["split_plan"] == SplitPlan.default_for(400).model_dump()
     assert result.parameters["split"] == {
-        "strategy": "cv", "seed": 42, "stratified": True,
-        "n_train": 320, "n_val": 0, "n_test": 80, "inner_folds": 5,
+        "strategy": "cv",
+        "seed": 42,
+        "stratified": True,
+        "n_train": 320,
+        "n_val": 0,
+        "n_test": 80,
+        "inner_folds": 5,
     }

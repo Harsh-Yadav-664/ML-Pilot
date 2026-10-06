@@ -1,4 +1,5 @@
 """Chat Panel API endpoints."""
+
 from __future__ import annotations
 
 import logging
@@ -21,11 +22,13 @@ from collections import defaultdict
 LIVE_CHANNELS: dict[str, set[asyncio.Queue]] = defaultdict(set)
 CHECKPOINT_FUTURES: dict[str, asyncio.Future] = {}
 
+
 def publish_live_event(run_id: str, message: str, event_type: str = "narration"):
     """Publish a live event to all connected websocket clients for a run."""
     payload = {"type": event_type, "message": message}
     for q in list(LIVE_CHANNELS[run_id]):
         q.put_nowait(payload)
+
 
 async def wait_for_checkpoint(run_id: str, prompt: str) -> str:
     """Pause execution and wait for human input via chat."""
@@ -35,6 +38,7 @@ async def wait_for_checkpoint(run_id: str, prompt: str) -> str:
     CHECKPOINT_FUTURES[run_id] = future
     return await future
 
+
 from pydantic import BaseModel
 
 
@@ -42,8 +46,10 @@ class AskRequest(BaseModel):
     query: str
     project_id: str = "demo-project-id"
 
+
 class SettingsRequest(BaseModel):
     query: str
+
 
 class CheckpointReplyRequest(BaseModel):
     reply: str
@@ -57,15 +63,17 @@ async def ask_history(request: AskRequest, db: DBSession, gateway: Gateway) -> d
     """
     svc = ExperimentService(db)
     exps, _ = await svc.list_by_project(request.project_id, 1, 50)
-    
+
     # Format context
     context_lines = []
     for e in exps:
-        context_lines.append(f"Exp {e.id}: Model {e.model_name}, Status {e.status}, Metrics: {e.metrics}, Reason: {e.decision_reason}")
+        context_lines.append(
+            f"Exp {e.id}: Model {e.model_name}, Status {e.status}, Metrics: {e.metrics}, Reason: {e.decision_reason}"
+        )
     context = "\n".join(context_lines)
-    
+
     prompt = f"User asked: {request.query}\n\nExperiment History:\n{context}\n\nAnswer strictly based on the history above. Cite experiment IDs."
-    
+
     try:
         response = await gateway.complete(TaskType.ANALYZE, prompt)
         return {"answer": response, "grounding_context": context}
@@ -86,10 +94,10 @@ async def update_settings_nl(request: SettingsRequest, gateway: Gateway) -> dict
         "properties": {
             "model_family_restriction": {"type": "string"},
             "optimization_metric": {"type": "string"},
-            "max_runtime_minutes": {"type": "integer"}
-        }
+            "max_runtime_minutes": {"type": "integer"},
+        },
     }
-    
+
     try:
         parsed = await gateway.complete_structured(TaskType.FORMAT, prompt, schema)
         return {"action": "update_settings", "parsed_settings": parsed}
@@ -150,9 +158,9 @@ async def stream_live_narration(websocket: WebSocket, run_id: str):
     WebSocket for streaming events to the UI.
     """
     await websocket.accept()
-    q = asyncio.Queue()
+    q: asyncio.Queue[Any] = asyncio.Queue()
     LIVE_CHANNELS[run_id].add(q)
-    
+
     try:
         while True:
             event = await q.get()

@@ -1,4 +1,5 @@
 """Interim read-only SQL hardening (sqlglot validation, read-only transaction, row limit)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -44,7 +45,9 @@ def test_unsafe_queries_are_refused_and_data_is_untouched(sqlite_url, query):
 
 def test_select_and_cte_work_with_row_limit(sqlite_url):
     url, _ = sqlite_url
-    df = SqlLoader().load(url, "WITH x AS (SELECT * FROM t WHERE id < 30) SELECT * FROM x", row_limit=10)
+    df = SqlLoader().load(
+        url, "WITH x AS (SELECT * FROM t WHERE id < 30) SELECT * FROM x", row_limit=10
+    )
     assert len(df) == 10
     assert list(df.columns) == ["id", "name"]
 

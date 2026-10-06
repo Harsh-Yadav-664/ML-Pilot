@@ -1,14 +1,13 @@
 """Shared Pydantic v2 schemas."""
+
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, ConfigDict
 
-T = TypeVar("T")
 
-
-class APIResponse(BaseModel, Generic[T]):
+class APIResponse[T](BaseModel):
     """Generic API response wrapper."""
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     success: bool = True
@@ -16,8 +15,9 @@ class APIResponse(BaseModel, Generic[T]):
     message: str | None = None
 
 
-class PaginatedResponse(BaseModel, Generic[T]):
+class PaginatedResponse[T](BaseModel):
     """Paginated list response."""
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     items: list[T]

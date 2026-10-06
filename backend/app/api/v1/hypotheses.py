@@ -1,13 +1,15 @@
 """Hypotheses API endpoints."""
+
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
 import uuid
 
-from app.api.deps import DBSession
-from app.schemas.hypothesis import HypothesisCreate, HypothesisRead, HypothesisUpdate
-from app.db.models.hypothesis import Hypothesis
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
+
+from app.api.deps import DBSession
+from app.db.models.hypothesis import Hypothesis
+from app.schemas.hypothesis import HypothesisCreate, HypothesisRead, HypothesisUpdate
 
 router = APIRouter(prefix="/hypotheses", tags=["hypotheses"])
 
@@ -36,7 +38,9 @@ async def get_hypothesis(hypothesis_id: str, db: DBSession) -> HypothesisRead:
 
 
 @router.patch("/{hypothesis_id}", response_model=HypothesisRead)
-async def update_hypothesis(hypothesis_id: str, data: HypothesisUpdate, db: DBSession) -> HypothesisRead:
+async def update_hypothesis(
+    hypothesis_id: str, data: HypothesisUpdate, db: DBSession
+) -> HypothesisRead:
     result = await db.execute(select(Hypothesis).where(Hypothesis.id == hypothesis_id))
     h = result.scalar_one_or_none()
     if not h:

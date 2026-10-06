@@ -1,4 +1,5 @@
 """API tests for the chat endpoints and Auto-Clean, using the offline stub provider."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -8,8 +9,8 @@ import pandas as pd
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import app.core.datasets as datasets
 from app.api.deps import get_gateway
+from app.core import datasets
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app

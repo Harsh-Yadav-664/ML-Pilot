@@ -1,4 +1,5 @@
 """Accepted features accumulate: the champion is the model that was actually measured."""
+
 from __future__ import annotations
 
 import sys
@@ -26,7 +27,9 @@ FEATURES = [
 
 
 def _always_accept(X_base, X_candidate, y, make_pipeline, rule=None, random_state=42):
-    return GainResult("roc_auc", [0.8], [0.9], 0.1, 0.0, (0.1, 0.1), 0.002, True, {"forced": "test"})
+    return GainResult(
+        "roc_auc", [0.8], [0.9], 0.1, 0.0, (0.1, 0.1), 0.002, True, {"forced": "test"}
+    )
 
 
 async def test_three_accepted_features_accumulate_in_the_champion(session_factory, monkeypatch):  # noqa: F811
@@ -42,14 +45,18 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
 
     monkeypatch.setattr(ExperimentPlanner, "generate_next_hypothesis", propose)
 
-    result = await DecisionAgent(stub_gateway(), settings=None).run_optimization_loop(str(SAMPLE), "Churn", n_hypotheses=3)
+    result = await DecisionAgent(stub_gateway(), settings=None).run_optimization_loop(
+        str(SAMPLE), "Churn", n_hypotheses=3
+    )
 
     assert [f["name"] for f in result["champion_features"]] == [f["name"] for f in FEATURES]
     async with session_factory() as session:
         exps = {e.id: e for e in (await session.execute(select(Experiment))).scalars().all()}
     champion = exps[result["champion_id"]]
     # The champion run itself contained all three features...
-    used = [f["name"] for f in champion.parameters["features"]] + [champion.parameters["feature_name"]]
+    used = [f["name"] for f in champion.parameters["features"]] + [
+        champion.parameters["feature_name"]
+    ]
     assert used == [f["name"] for f in FEATURES]
     for f in FEATURES:
         assert f["name"] in champion.parameters["feature_columns"]
@@ -70,8 +77,14 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
     try:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            tree = (await client.get("/api/v1/ui/experiments/tree", params={"dataset_path": str(SAMPLE)})).json()
-            exported = await client.get("/api/v1/ui/experiments/champion/export", params={"dataset_path": str(SAMPLE)})
+            tree = (
+                await client.get(
+                    "/api/v1/ui/experiments/tree", params={"dataset_path": str(SAMPLE)}
+                )
+            ).json()
+            exported = await client.get(
+                "/api/v1/ui/experiments/champion/export", params={"dataset_path": str(SAMPLE)}
+            )
     finally:
         app.dependency_overrides.clear()
     flagged = [e["id"] for e in tree if e["champion"]]
@@ -87,5 +100,8 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
 
     path = Path(session_factory.kw["bind"].url.database).parent / "champion.py"
     path.write_text(script)
-    run = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, timeout=300)
+    # Blocking is fine here: the test waits for the exported script on purpose.
+    run = subprocess.run(  # noqa: ASYNC221
+        [sys.executable, str(path)], capture_output=True, text=True, timeout=300, check=False
+    )
     assert run.returncode == 0, run.stderr[-2000:]

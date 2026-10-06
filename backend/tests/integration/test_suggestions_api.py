@@ -1,4 +1,5 @@
 """API tests for AI feature suggestions, using the offline stub provider."""
+
 from __future__ import annotations
 
 from pathlib import Path

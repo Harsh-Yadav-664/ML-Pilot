@@ -66,7 +66,7 @@ On Windows PowerShell, set `$env:PYTHONIOENCODING="utf-8"` before `python start.
 ### Run the checks
 
 ```bash
-cd backend && pytest && ruff check . --select E9,F63,F7,F82
+cd backend && pip install -r requirements-dev.txt && pytest && ruff check . && ruff format --check . && mypy
 cd frontend && npm run build && npx tsc --noEmit
 ```
 

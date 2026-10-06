@@ -1,4 +1,5 @@
 """The telecom baseline must be fast enough for a demo, and record what it changed."""
+
 from __future__ import annotations
 
 import time
@@ -22,7 +23,10 @@ async def test_telecom_baseline_under_60s_and_records_changes():
         hypothesis="Deterministic baseline without new features",
         change_description="Baseline run using RandomForestClassifier",
         model_name="RandomForestClassifier",
-        parameters={"target_column": "Churn", "model_params": {"n_estimators": 50, "random_state": 42}},
+        parameters={
+            "target_column": "Churn",
+            "model_params": {"n_estimators": 50, "random_state": 42},
+        },
         feature_set=[],
     )
     start = time.perf_counter()
@@ -32,7 +36,9 @@ async def test_telecom_baseline_under_60s_and_records_changes():
 
     assert result.status.value == "completed"
     assert elapsed < 60
-    assert result.parameters["excluded_features"] == {"customerID": "id-like: one unique value per row"}
+    assert result.parameters["excluded_features"] == {
+        "customerID": "id-like: one unique value per row"
+    }
     assert result.parameters["numeric_coercion"] == {"TotalCharges": 11}
     assert result.parameters["tuning"] == "none: no search space for this model"
     assert 0 < result.metrics["f1"] < 1

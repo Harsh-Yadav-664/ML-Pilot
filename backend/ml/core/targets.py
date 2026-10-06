@@ -6,6 +6,7 @@ ties go to the last label in sorted order), so binary metrics and
 `predict_proba[:, 1]` refer to it. Multiclass targets use sorted order, as
 sklearn's LabelEncoder does.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable

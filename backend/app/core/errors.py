@@ -11,6 +11,7 @@ A failure has exactly three allowed outcomes:
 Nothing else: no ``except: pass`` and no empty result standing in for an error.
 This module has no app dependencies so ``ml/`` code can use it too.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,14 +26,18 @@ def describe(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 
-def unavailable(values: dict[str, Any], notes: dict[str, str] | None, name: str, reason: str) -> None:
+def unavailable(
+    values: dict[str, Any], notes: dict[str, str] | None, name: str, reason: str
+) -> None:
     """Outcome 1: record ``name`` as ``None`` with the reason it has no value."""
     values[name] = None
     if notes is not None:
         notes[name] = reason
 
 
-def step_failed(record: dict[str, Any], step: str, exc: BaseException, skipped: str | None = None) -> str:
+def step_failed(
+    record: dict[str, Any], step: str, exc: BaseException, skipped: str | None = None
+) -> str:
     """Outcome 2: mark ``step`` as ``failed (<message>)`` on ``record`` and say what was skipped."""
     status = f"failed ({describe(exc)})"
     record[step] = status

@@ -1,4 +1,5 @@
 """Agentic Experiment Planner."""
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,7 @@ class ExperimentPlanner:
         profile: ProfileResult,
         target_column: str,
         objective: str,
-        history: list[dict[str, Any]]
+        history: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Generate a single, non-redundant feature engineering hypothesis based on history.
 
@@ -38,7 +39,7 @@ class ExperimentPlanner:
         profile_dict = asdict(profile)
         # Simplify column_stats to just names and types to save context window and avoid overwhelm
         simplified_stats = {
-            col: {"type": stats.get("type", "unknown")} 
+            col: {"type": stats.get("type", "unknown")}
             for col, stats in profile_dict.get("column_stats", {}).items()
         }
         profile_summary = {
@@ -75,20 +76,46 @@ Explain what new feature to create, the logic/formula, why it helps, potential l
         schema = {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Name of the new feature (e.g. 'days_since_last_purchase')"},
-                "formula": {"type": "string", "description": "High-level formula or logic (e.g. 'current_date - last_purchase_date')"},
-                "reason": {"type": "string", "description": "Why this helps the model achieve the objective"},
-                "non_redundant_reasoning": {"type": "string", "description": "Explicit reason why this is non-redundant given the history"},
-                "risk": {"type": "string", "description": "Potential leakage or missing data risks"},
+                "name": {
+                    "type": "string",
+                    "description": "Name of the new feature (e.g. 'days_since_last_purchase')",
+                },
+                "formula": {
+                    "type": "string",
+                    "description": "High-level formula or logic (e.g. 'current_date - last_purchase_date')",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why this helps the model achieve the objective",
+                },
+                "non_redundant_reasoning": {
+                    "type": "string",
+                    "description": "Explicit reason why this is non-redundant given the history",
+                },
+                "risk": {
+                    "type": "string",
+                    "description": "Potential leakage or missing data risks",
+                },
                 "required_columns": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Existing columns required for this feature"
+                    "description": "Existing columns required for this feature",
                 },
-                "availability_assumption": {"type": "string", "description": "Assumption about data availability at prediction time"}
+                "availability_assumption": {
+                    "type": "string",
+                    "description": "Assumption about data availability at prediction time",
+                },
             },
-            "required": ["name", "formula", "reason", "non_redundant_reasoning", "risk", "required_columns", "availability_assumption"],
-            "additionalProperties": False
+            "required": [
+                "name",
+                "formula",
+                "reason",
+                "non_redundant_reasoning",
+                "risk",
+                "required_columns",
+                "availability_assumption",
+            ],
+            "additionalProperties": False,
         }
 
         # Ask AI Gateway
@@ -99,4 +126,4 @@ Explain what new feature to create, the logic/formula, why it helps, potential l
             system=system_prompt,
         )
         # Which provider answered, and whether it was the offline fallback, travels with the idea.
-        return {**result.data, "llm": result.meta()}
+        return {**result.structured, "llm": result.meta()}

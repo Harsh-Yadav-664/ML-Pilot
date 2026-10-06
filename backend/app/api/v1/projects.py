@@ -1,11 +1,12 @@
 """Projects API endpoints."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DBSession, OwnerID
-from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.common import PaginatedResponse
+from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.services.project_service import ProjectService
 
 router = APIRouter(prefix="/projects", tags=["projects"])

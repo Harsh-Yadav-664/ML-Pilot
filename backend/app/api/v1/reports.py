@@ -1,4 +1,5 @@
 """Reports API endpoints (Phase 0 stub)."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter

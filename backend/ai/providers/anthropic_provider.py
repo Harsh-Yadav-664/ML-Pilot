@@ -1,9 +1,10 @@
 """AnthropicProvider — Anthropic Claude (paid, future integration)."""
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from ml.core.interfaces import AIProvider, ModelInfo
 
@@ -26,7 +27,17 @@ _ANTHROPIC_MODELS = [
         context_window=200000,
         cost_per_1k_prompt_tokens=3.00,
         cost_per_1k_completion_tokens=15.00,
-        capabilities=["complete", "structured", "format", "summarize", "hypothesize", "analyze", "synthesize", "report", "decide"],
+        capabilities=[
+            "complete",
+            "structured",
+            "format",
+            "summarize",
+            "hypothesize",
+            "analyze",
+            "synthesize",
+            "report",
+            "decide",
+        ],
         is_free=False,
     ),
 ]
@@ -49,6 +60,7 @@ class AnthropicProvider(AIProvider):
         if self._client is None:
             try:
                 import anthropic
+
                 self._client = anthropic.AsyncAnthropic(api_key=self._api_key)
             except ImportError as e:
                 raise ImportError(
@@ -57,7 +69,14 @@ class AnthropicProvider(AIProvider):
                 ) from e
         return self._client
 
-    async def complete(self, prompt: str, system: str = "", model: Optional[str] = None, max_tokens: int = 1024, temperature: float = 0.7) -> str:
+    async def complete(
+        self,
+        prompt: str,
+        system: str = "",
+        model: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> str:
         client = self._get_client()
         kwargs: dict[str, Any] = {
             "model": model or self.DEFAULT_MODEL,
@@ -69,19 +88,31 @@ class AnthropicProvider(AIProvider):
         response = await client.messages.create(**kwargs)
         return response.content[0].text
 
-    async def complete_structured(self, prompt: str, schema: dict[str, Any], system: str = "", model: Optional[str] = None, max_tokens: int = 2048) -> dict[str, Any]:
+    async def complete_structured(
+        self,
+        prompt: str,
+        schema: dict[str, Any],
+        system: str = "",
+        model: str | None = None,
+        max_tokens: int = 2048,
+    ) -> dict[str, Any]:
         sys_json = f"{system}\n\nRespond ONLY with valid JSON: {json.dumps(schema)}"
-        raw = await self.complete(prompt, system=sys_json, model=model, max_tokens=max_tokens, temperature=0.1)
+        raw = await self.complete(
+            prompt, system=sys_json, model=model, max_tokens=max_tokens, temperature=0.1
+        )
         if "```" in raw:
             raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+            raw = raw.removeprefix("json")
         return json.loads(raw.strip())
 
-    def estimate_cost(self, prompt_tokens: int, completion_tokens: int, model: Optional[str] = None) -> float:
+    def estimate_cost(
+        self, prompt_tokens: int, completion_tokens: int, model: str | None = None
+    ) -> float:
         m = model or self.DEFAULT_MODEL
         info = next((mi for mi in _ANTHROPIC_MODELS if mi.name == m), _ANTHROPIC_MODELS[0])
-        return (prompt_tokens / 1000) * info.cost_per_1k_prompt_tokens + (completion_tokens / 1000) * info.cost_per_1k_completion_tokens
+        return (prompt_tokens / 1000) * info.cost_per_1k_prompt_tokens + (
+            completion_tokens / 1000
+        ) * info.cost_per_1k_completion_tokens
 
     async def list_models(self) -> list[ModelInfo]:
         return list(_ANTHROPIC_MODELS)
@@ -89,7 +120,7 @@ class AnthropicProvider(AIProvider):
     async def health_check(self) -> bool:
         try:
             client = self._get_client()
-            response = await client.messages.create(
+            await client.messages.create(
                 model=self.DEFAULT_MODEL,
                 max_tokens=10,
                 messages=[{"role": "user", "content": "ping"}],

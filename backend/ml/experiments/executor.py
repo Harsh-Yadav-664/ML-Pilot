@@ -1,28 +1,34 @@
 """LocalExperimentExecutor - runs experiments in the local process."""
+
 from __future__ import annotations
 
-import time
 import asyncio
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timezone
-from typing import Callable, Optional
-
+from lightgbm import LGBMClassifier
 from sklearn.pipeline import Pipeline
 
-from lightgbm import LGBMClassifier
-
+from app.core.errors import step_failed
 from ml.core.interfaces import ExperimentRunner
 from ml.core.targets import TargetEncoder
 from ml.data.preparation.feature_frame import prepare_feature_frame
-from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
 from ml.experiments.acceptance import compare_feature_sets
+from ml.experiments.schema import (
+    ExperimentDecision,
+    ExperimentResult,
+    ExperimentSpec,
+    ExperimentStatus,
+)
 from ml.features.safe_eval import InvalidFormula, evaluate, parse
-from ml.validation.splits import SplitPlan, make_splits
-from ml.models.engines import DEFAULT_ENGINE, ENGINES, get_engine, one_hot_preprocessor
-from app.core.errors import step_failed
 from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
+from ml.models.engines import DEFAULT_ENGINE, ENGINES, get_engine, one_hot_preprocessor
+from ml.validation.splits import SplitPlan, make_splits
 
 # Model engines (ml/models/engines): every model family behind one interface.
 MODEL_REGISTRY = ENGINES
@@ -31,16 +37,23 @@ MODEL_REGISTRY = ENGINES
 build_preprocessor = one_hot_preprocessor
 
 
-ACCEPTANCE_MODEL = {"model": "LGBMClassifier", "n_estimators": 100, "num_leaves": 15, "learning_rate": 0.1}
+ACCEPTANCE_MODEL: dict[str, Any] = {
+    "model": "LGBMClassifier",
+    "n_estimators": 100,
+    "num_leaves": 15,
+    "learning_rate": 0.1,
+}
 
 
 def acceptance_pipeline(X: pd.DataFrame) -> Pipeline:
     """Fixed, fast model used only to compare feature sets (same for every candidate)."""
     params = {k: v for k, v in ACCEPTANCE_MODEL.items() if k != "model"}
-    return Pipeline(steps=[
-        ('preprocessor', build_preprocessor(X)),
-        ('classifier', LGBMClassifier(**params, random_state=0, verbose=-1)),
-    ])
+    return Pipeline(
+        steps=[
+            ("preprocessor", build_preprocessor(X)),
+            ("classifier", LGBMClassifier(**params, random_state=0, verbose=-1)),
+        ]
+    )
 
 
 def predict_once(pipeline: Pipeline, X: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None]:
@@ -54,9 +67,9 @@ def predict_once(pipeline: Pipeline, X: pd.DataFrame) -> tuple[np.ndarray, np.nd
 class LocalExperimentExecutor(ExperimentRunner):
     """Executes experiments locally (single-process)."""
 
-    def __init__(self, data_loader_func: Optional[Callable[[str], pd.DataFrame]] = None):
+    def __init__(self, data_loader_func: Callable[[str], pd.DataFrame] | None = None):
         """Initialize with an optional data loader function.
-        
+
         Args:
             data_loader_func: A function that takes a dataset_version string and returns a pandas DataFrame.
         """
@@ -79,7 +92,7 @@ class LocalExperimentExecutor(ExperimentRunner):
             # 1. Load Data
             if not self.data_loader_func:
                 raise ValueError("No data loader configured for executor.")
-            
+
             # Using asyncio.to_thread just in case data loading is blocking
             df = await asyncio.to_thread(self.data_loader_func, spec.dataset_version)
 
@@ -129,7 +142,8 @@ class LocalExperimentExecutor(ExperimentRunner):
             y_train, y_val, y_test = y.iloc[split.train], y.iloc[split.val], y.iloc[split.test]
             # Inner folds as positions within X_train (cv plans only).
             inner_folds = [
-                (np.searchsorted(split.train, a), np.searchsorted(split.train, b)) for a, b in split.folds
+                (np.searchsorted(split.train, a), np.searchsorted(split.train, b))
+                for a, b in split.folds
             ]
             spec.parameters["split_plan"] = plan.model_dump()
             spec.parameters["split"] = split.summary()
@@ -167,6 +181,7 @@ class LocalExperimentExecutor(ExperimentRunner):
             custom_preprocessor = None
             if prep_config:
                 from ml.data.preparation.dynamic_builder import DynamicPipelineBuilder
+
                 custom_preprocessor = DynamicPipelineBuilder.build(prep_config, target_col)
 
             def make_pipeline(member, params: dict) -> Pipeline:
@@ -179,7 +194,11 @@ class LocalExperimentExecutor(ExperimentRunner):
                 if not inner_folds:
                     pipe = make_pipeline(member, params)
                     pipe.fit(X_train, y_train)
-                    prob = pipe.predict_proba(X_val) if with_proba and hasattr(pipe, "predict_proba") else None
+                    prob = (
+                        pipe.predict_proba(X_val)
+                        if with_proba and hasattr(pipe, "predict_proba")
+                        else None
+                    )
                     return y_val, pipe.predict(X_val), prob
                 y_pred = np.empty(len(y_train), dtype=y_train.dtype)
                 prob = None
@@ -200,6 +219,7 @@ class LocalExperimentExecutor(ExperimentRunner):
 
             try:
                 import optuna
+
                 optuna.logging.set_verbosity(optuna.logging.WARNING)
                 has_optuna = True
             except ImportError:
@@ -208,36 +228,41 @@ class LocalExperimentExecutor(ExperimentRunner):
             # Engines without a search space are not tuned; that would repeat the same fit n_trials times.
             space = engine.search_space()
             if not space:
-                spec.parameters['tuning'] = 'none: no search space for this model'
+                spec.parameters["tuning"] = "none: no search space for this model"
             elif not has_optuna:
-                spec.parameters['tuning'] = 'none: optuna not installed'
+                spec.parameters["tuning"] = "none: optuna not installed"
             if has_optuna and space:
-                n_trials = spec.parameters.get('n_trials', 20)
-                spec.parameters['tuning'] = (
-                    f'optuna, {n_trials} trials, scored on the validation split'
-                    if not inner_folds else f'optuna, {n_trials} trials, scored out-of-fold on {len(inner_folds)} inner folds'
+                n_trials = spec.parameters.get("n_trials", 20)
+                spec.parameters["tuning"] = (
+                    f"optuna, {n_trials} trials, scored on the validation split"
+                    if not inner_folds
+                    else f"optuna, {n_trials} trials, scored out-of-fold on {len(inner_folds)} inner folds"
                 )
 
                 def objective(trial):
                     params = model_params.copy()
                     for key, (kind, low, high) in space.items():
-                        params[key] = trial.suggest_int(key, low, high) if kind == "int" else trial.suggest_float(key, low, high)
+                        params[key] = (
+                            trial.suggest_int(key, low, high)
+                            if kind == "int"
+                            else trial.suggest_float(key, low, high)
+                        )
                     # Tuning never sees the test split: score on validation rows only.
                     y_true_tune, y_pred_tune, _ = validation_predictions(engine, params)
-                    return compute_classification_metrics(y_true_tune, y_pred_tune, None)['f1']
+                    return compute_classification_metrics(y_true_tune, y_pred_tune, None)["f1"]
 
                 def run_study():
                     sampler = optuna.samplers.TPESampler(seed=random_state)
-                    study = optuna.create_study(direction='maximize', sampler=sampler)
+                    study = optuna.create_study(direction="maximize", sampler=sampler)
                     study.optimize(objective, n_trials=n_trials)
                     return study.best_params
 
                 try:
                     best_tuned = await asyncio.to_thread(run_study)
                     best_params.update(best_tuned)
-                    spec.parameters.setdefault('best_params', {}).update(best_tuned)
+                    spec.parameters.setdefault("best_params", {}).update(best_tuned)
                 except Exception as e:  # noqa: BLE001 - Optuna or any engine can raise; recorded on the run
-                    step_failed(spec.parameters, 'tuning', e, skipped='used the given parameters')
+                    step_failed(spec.parameters, "tuning", e, skipped="used the given parameters")
 
             # 4. Validation metrics (holdout, or out-of-fold for small data).
             metric_notes: dict[str, str] = {}
@@ -251,8 +276,9 @@ class LocalExperimentExecutor(ExperimentRunner):
             val_metrics = await asyncio.to_thread(fit_and_score_val)
 
             # Majority-vote ensemble of three built-in engines, reported on the validation split only.
-            if spec.parameters.get('ensemble', True):
+            if spec.parameters.get("ensemble", True):
                 try:
+
                     def ensemble_val_metrics():
                         preds = {}
                         y_true_val = None
@@ -264,9 +290,11 @@ class LocalExperimentExecutor(ExperimentRunner):
                         return compute_classification_metrics(y_true_val, vote, None)
 
                     for k, v in (await asyncio.to_thread(ensemble_val_metrics)).items():
-                        val_metrics[f'ensemble_{k}'] = v
+                        val_metrics[f"ensemble_{k}"] = v
                 except Exception as e:  # noqa: BLE001 - any member engine can raise; recorded on the run
-                    step_failed(spec.parameters, 'ensemble_status', e, skipped='no ensemble metrics')
+                    step_failed(
+                        spec.parameters, "ensemble_status", e, skipped="no ensemble metrics"
+                    )
 
             # 5. Final model: refit on train + validation, then touch the test split once.
             X_fit = pd.concat([X_train, X_val])
@@ -274,7 +302,9 @@ class LocalExperimentExecutor(ExperimentRunner):
             pipeline = make_pipeline(engine, best_params)
             await asyncio.to_thread(pipeline.fit, X_fit, y_fit)
             y_pred, y_prob = await asyncio.to_thread(predict_once, pipeline, X_test)
-            test_metrics = compute_classification_metrics(y_test, y_pred, y_prob, notes=metric_notes)
+            test_metrics = compute_classification_metrics(
+                y_test, y_pred, y_prob, notes=metric_notes
+            )
 
             # Unprefixed keys are the test metrics (what the UI shows); val_* are what
             # tuning and keep/reject decisions may use.
@@ -288,7 +318,9 @@ class LocalExperimentExecutor(ExperimentRunner):
 
             # Record the model's own feature importances for the real columns (not SHAP).
             try:
-                spec.parameters["feature_importances"] = builtin_importances(pipeline, list(X_train.columns))
+                spec.parameters["feature_importances"] = builtin_importances(
+                    pipeline, list(X_train.columns)
+                )
                 spec.parameters["importance_method"] = IMPORTANCE_METHOD
             except Exception as e:  # noqa: BLE001 - importances are optional; the reason is shown as "not available"
                 spec.parameters["feature_importances"] = {}
@@ -312,19 +344,25 @@ class LocalExperimentExecutor(ExperimentRunner):
                 cost_usd=0.0,
                 status=ExperimentStatus.COMPLETED,
                 decision=ExperimentDecision.PENDING,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
-            
+
             self._running[spec.id] = ExperimentStatus.COMPLETED.value
             return result
 
-        except Exception as e:
+        except Exception:
             self._running[spec.id] = ExperimentStatus.FAILED.value
             raise
 
-    def _rejected_invalid(self, spec: ExperimentSpec, feat: dict, reason: str, start_time: float) -> ExperimentResult:
+    def _rejected_invalid(
+        self, spec: ExperimentSpec, feat: dict, reason: str, start_time: float
+    ) -> ExperimentResult:
         """Result for an experiment whose formula failed validation: nothing trained, no metrics."""
-        spec.parameters["invalid_formula"] = {"name": feat.get("name"), "formula": feat.get("formula"), "reason": reason}
+        spec.parameters["invalid_formula"] = {
+            "name": feat.get("name"),
+            "formula": feat.get("formula"),
+            "reason": reason,
+        }
         self._running[spec.id] = ExperimentStatus.REJECTED_INVALID.value
         return ExperimentResult(
             id=spec.id,
@@ -342,18 +380,24 @@ class LocalExperimentExecutor(ExperimentRunner):
             status=ExperimentStatus.REJECTED_INVALID,
             decision=ExperimentDecision.REJECT,
             decision_reason=f"Invalid formula for '{feat.get('name')}': {reason}",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     def validate_spec(self, spec: ExperimentSpec) -> list[str]:
         """Validate an ExperimentSpec. Return list of error strings."""
         errors: list[str] = []
-        if not spec.id: errors.append("id is required")
-        if not spec.project_id: errors.append("project_id is required")
-        if not spec.hypothesis: errors.append("hypothesis is required")
-        if not spec.model_name: errors.append("model_name is required")
-        if not spec.dataset_version: errors.append("dataset_version is required")
-        if "target_column" not in spec.parameters: errors.append("parameters['target_column'] is required")
+        if not spec.id:
+            errors.append("id is required")
+        if not spec.project_id:
+            errors.append("project_id is required")
+        if not spec.hypothesis:
+            errors.append("hypothesis is required")
+        if not spec.model_name:
+            errors.append("model_name is required")
+        if not spec.dataset_version:
+            errors.append("dataset_version is required")
+        if "target_column" not in spec.parameters:
+            errors.append("parameters['target_column'] is required")
         return errors
 
     async def get_status(self, experiment_id: str) -> str:

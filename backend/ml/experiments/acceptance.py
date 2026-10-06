@@ -5,11 +5,13 @@ the noise of the comparison: both feature sets are scored on the same
 repeated K-fold splits (training rows only, never the test split), and the
 mean paired gain must exceed a margin.
 """
+
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -96,5 +98,8 @@ def compare_feature_sets(
         ci95=(mean_gain - half_width, mean_gain + half_width),
         margin=margin,
         accepted=mean_gain > margin,
-        rule={**rule, "description": "accept if mean paired gain > max(min_gain, std_multiplier * std of paired gains)"},
+        rule={
+            **rule,
+            "description": "accept if mean paired gain > max(min_gain, std_multiplier * std of paired gains)",
+        },
     )

@@ -16,7 +16,18 @@ target-version = "py313"
 python_version = "3.13"
 strict = false
 ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+files = ["ai", "ml", "app"]
+
+# New roadmap modules are fully typed from day one.
+[[tool.mypy.overrides]]
+module = ["ml.tasks.*", "ml.features.*", "ml.data.sql_guard"]
+disallow_untyped_defs = true
 
 [tool.ruff.lint]
 # AGENTS.md rule 8 (failures are loud). CI enforces these with --select; the rest is #88.
 extend-select = ["S110", "BLE001", "SIM105"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares request parameters with calls in defaults; that is the framework's idiom.
+extend-immutable-calls = ["fastapi.File", "fastapi.Depends", "fastapi.Query", "fastapi.Form", "fastapi.Body"]

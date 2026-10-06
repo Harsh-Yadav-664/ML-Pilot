@@ -1,21 +1,22 @@
 """Native sklearn-based DataPreparationProvider."""
+
 from __future__ import annotations
 
 import os
-import joblib
 from typing import Any
 
+import joblib
 import pandas as pd
-from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from ml.core.interfaces import (
     DataPreparationProvider,
+    LeakageWarning,
     ProfileResult,
     ReadinessReport,
-    LeakageWarning,
 )
 from ml.data.profiling.profiler import DataProfiler
 from ml.validation.leakage import scan
@@ -50,8 +51,7 @@ class NativeDataPreparationProvider(DataPreparationProvider):
 
         feature_risk = "none"
         high_missing_cols = [
-            col for col in df.columns
-            if col != target_column and df[col].isna().mean() > 0.3
+            col for col in df.columns if col != target_column and df[col].isna().mean() > 0.3
         ]
         if len(high_missing_cols) > 5:
             feature_risk = "high"
@@ -66,8 +66,7 @@ class NativeDataPreparationProvider(DataPreparationProvider):
             recommendations.append("Dataset is small (<1000 rows). Use stratified k-fold CV.")
         if feature_risk != "none":
             recommendations.append(f"Columns with high missingness: {high_missing_cols}")
-        for w in profile.warnings:
-            recommendations.append(w)
+        recommendations.extend(profile.warnings)
 
         return ReadinessReport(
             data_quality_score=dq_score,
@@ -84,11 +83,11 @@ class NativeDataPreparationProvider(DataPreparationProvider):
 
     def prepare(self, df: pd.DataFrame, config: dict[str, Any]) -> tuple[pd.DataFrame, Any]:
         """Transform df according to config using sklearn Pipeline.
-        
+
         Args:
             df: DataFrame to prepare.
             config: Prep config containing 'target_column', 'numeric_imputer', etc.
-            
+
         Returns:
             Tuple of (transformed_df, fitted_sklearn_pipeline)
         """
@@ -100,45 +99,65 @@ class NativeDataPreparationProvider(DataPreparationProvider):
         X = df.drop(columns=[target_column])
 
         # Find columns
-        numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
-        categorical_features = X.select_dtypes(include=['object', 'category']).columns
+        numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
+        categorical_features = X.select_dtypes(include=["object", "category"]).columns
 
         # Build pipeline
         num_imputer_strategy = config.get("numeric_imputer", "median")
         cat_imputer_strategy = config.get("categorical_imputer", "constant")
-        
+
         preprocessor = ColumnTransformer(
             transformers=[
-                ('num', Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy=num_imputer_strategy)),
-                    ('scaler', StandardScaler())
-                ]), numeric_features),
-                ('cat', Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy=cat_imputer_strategy, fill_value='missing')),
-                    ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
-                ]), categorical_features)
-            ])
+                (
+                    "num",
+                    Pipeline(
+                        steps=[
+                            ("imputer", SimpleImputer(strategy=num_imputer_strategy)),
+                            ("scaler", StandardScaler()),
+                        ]
+                    ),
+                    numeric_features,
+                ),
+                (
+                    "cat",
+                    Pipeline(
+                        steps=[
+                            (
+                                "imputer",
+                                SimpleImputer(strategy=cat_imputer_strategy, fill_value="missing"),
+                            ),
+                            ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+                        ]
+                    ),
+                    categorical_features,
+                ),
+            ]
+        )
 
         transformed_X = preprocessor.fit_transform(X)
-        
+
         # Reconstruct DataFrame (for downstream previewing/debugging)
         num_cols = list(numeric_features)
-        
+
         # One-hot column names; a failure here is a bug and is raised, not papered over with made-up names.
         cat_cols = []
         if len(categorical_features) > 0:
-            cat_cols = list(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_features))
+            cat_cols = list(
+                preprocessor.named_transformers_["cat"]
+                .named_steps["onehot"]
+                .get_feature_names_out(categorical_features)
+            )
 
         all_cols = num_cols + cat_cols
-        
+
         if transformed_X.shape[1] == len(all_cols):
             transformed_df = pd.DataFrame(transformed_X, columns=all_cols, index=df.index)
         else:
             # Fallback if dimension mismatch
             transformed_df = pd.DataFrame(transformed_X, index=df.index)
-            
+
         transformed_df[target_column] = y
-        
+
         return transformed_df, preprocessor
 
     def export_pipeline(self, pipeline: Any, path: str) -> str:

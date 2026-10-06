@@ -1,4 +1,5 @@
 """Tests that StubProvider works without API keys."""
+
 from __future__ import annotations
 
 import pytest
@@ -43,7 +44,7 @@ async def test_stub_complete_structured(stub):
             "decision": {"type": "string"},
             "confidence": {"type": "number"},
             "reasons": {"type": "array"},
-        }
+        },
     }
     result = await stub.complete_structured("make a decision", schema)
     assert isinstance(result, dict)
@@ -54,10 +55,7 @@ async def test_stub_complete_structured(stub):
 
 @pytest.mark.asyncio
 async def test_stub_complete_structured_number_field(stub):
-    schema = {
-        "type": "object",
-        "properties": {"score": {"type": "number"}}
-    }
+    schema = {"type": "object", "properties": {"score": {"type": "number"}}}
     result = await stub.complete_structured("score this", schema)
     assert isinstance(result["score"], (int, float))
 

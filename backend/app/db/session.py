@@ -1,4 +1,5 @@
 """Async SQLAlchemy engine and session factory."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -20,7 +21,7 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_db() -> AsyncGenerator[AsyncSession]:
     """FastAPI dependency: yield a database session."""
     async with AsyncSessionLocal() as session:
         try:
@@ -33,8 +34,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def create_all_tables() -> None:
     """Create all tables (dev only — use Alembic in production)."""
-    from app.db.base import Base  # noqa: F401 — ensure models are imported
     import app.db.models  # noqa: F401
+    from app.db.base import Base
 
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

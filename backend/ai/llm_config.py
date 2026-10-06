@@ -12,6 +12,7 @@ in environment variables; this file only says who to ask.
 The path comes from MLPILOT_LLM_CONFIG (see config/llm.example.yaml). Without it
 the built-in DEFAULT_TIERS below are used.
 """
+
 from __future__ import annotations
 
 import os
@@ -35,23 +36,47 @@ TASK_TIER: dict[TaskType, str] = {
 
 # Every provider the gateway knows how to register.
 KNOWN_PROVIDERS = (
-    "groq", "gemini", "nvidia_nim", "openrouter", "cerebras", "mistral", "openai", "anthropic", "ollama", "stub",
+    "groq",
+    "gemini",
+    "nvidia_nim",
+    "openrouter",
+    "cerebras",
+    "mistral",
+    "openai",
+    "anthropic",
+    "ollama",
+    "stub",
 )
 
 DEFAULT_TIERS: dict[str, list[str]] = {
     "cheap": [
-        "groq:qwen/qwen3.8-27b", "gemini:gemini-flash-latest", "nvidia_nim:meta/llama-3.1-nemotron-70b-instruct",
-        "cerebras:llama3.1-8b", "mistral:mistral-small-latest", "openrouter:meta-llama/llama-3.1-8b-instruct:free",
-        "openai:gpt-4o-mini", "anthropic:claude-3-haiku-20240307", "ollama:llama3.1",
+        "groq:qwen/qwen3.8-27b",
+        "gemini:gemini-flash-latest",
+        "nvidia_nim:meta/llama-3.1-nemotron-70b-instruct",
+        "cerebras:llama3.1-8b",
+        "mistral:mistral-small-latest",
+        "openrouter:meta-llama/llama-3.1-8b-instruct:free",
+        "openai:gpt-4o-mini",
+        "anthropic:claude-3-haiku-20240307",
+        "ollama:llama3.1",
     ],
     "reasoning": [
-        "gemini:gemini-pro-latest", "nvidia_nim:meta/llama-3.1-nemotron-70b-instruct", "groq:openai/gpt-oss-120b",
-        "anthropic:claude-3-5-sonnet-20241022", "openai:gpt-4o", "mistral:mistral-large-latest",
-        "openrouter:meta-llama/llama-3.1-70b-instruct", "cerebras:llama3.1-70b", "ollama:llama3.1",
+        "gemini:gemini-pro-latest",
+        "nvidia_nim:meta/llama-3.1-nemotron-70b-instruct",
+        "groq:openai/gpt-oss-120b",
+        "anthropic:claude-3-5-sonnet-20241022",
+        "openai:gpt-4o",
+        "mistral:mistral-large-latest",
+        "openrouter:meta-llama/llama-3.1-70b-instruct",
+        "cerebras:llama3.1-70b",
+        "ollama:llama3.1",
     ],
     "sql": [
-        "gemini:gemini-pro-latest", "anthropic:claude-3-5-sonnet-20241022", "openai:gpt-4o",
-        "groq:openai/gpt-oss-120b", "ollama:qwen2.5-coder",
+        "gemini:gemini-pro-latest",
+        "anthropic:claude-3-5-sonnet-20241022",
+        "openai:gpt-4o",
+        "groq:openai/gpt-oss-120b",
+        "ollama:qwen2.5-coder",
     ],
 }
 
@@ -62,7 +87,9 @@ def parse_entry(entry: str) -> tuple[str, str]:
     if not sep or not model:
         raise ValueError(f"LLM routing entry {entry!r} must look like 'provider:model'")
     if provider not in KNOWN_PROVIDERS:
-        raise ValueError(f"LLM routing entry {entry!r}: unknown provider {provider!r}; known: {', '.join(KNOWN_PROVIDERS)}")
+        raise ValueError(
+            f"LLM routing entry {entry!r}: unknown provider {provider!r}; known: {', '.join(KNOWN_PROVIDERS)}"
+        )
     return provider, model
 
 
@@ -74,7 +101,7 @@ def validate_tiers(tiers: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
     for tier in TIERS:
         entries = tiers.get(tier, DEFAULT_TIERS[tier])
         if not isinstance(entries, list):
-            raise ValueError(f"LLM tier {tier!r} must be a list of 'provider:model' entries")
+            raise ValueError(f"LLM tier {tier!r} must be a list of 'provider:model' entries")  # noqa: TRY004 - bad config content
         out[tier] = [parse_entry(e) for e in entries]
     return out
 
@@ -91,5 +118,5 @@ def load_routing(path: str | os.PathLike | None = None) -> dict[str, list[tuple[
         raise FileNotFoundError(f"MLPILOT_LLM_CONFIG points to {file}, which does not exist")
     data = yaml.safe_load(file.read_text()) or {}
     if not isinstance(data, dict) or not isinstance(data.get("tiers"), dict):
-        raise ValueError(f"{file}: expected a top-level 'tiers:' mapping")
+        raise ValueError(f"{file}: expected a top-level 'tiers:' mapping")  # noqa: TRY004 - bad config content
     return validate_tiers(data["tiers"])

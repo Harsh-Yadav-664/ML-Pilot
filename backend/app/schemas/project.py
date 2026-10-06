@@ -1,8 +1,8 @@
 """Project Pydantic v2 schemas."""
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -24,7 +24,7 @@ class ProjectBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: str | None = None
     task_type: TaskType
 
 
@@ -35,9 +35,9 @@ class ProjectCreate(ProjectBase):
 class ProjectUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    status: Optional[ProjectStatus] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    status: ProjectStatus | None = None
 
 
 class ProjectRead(ProjectBase):

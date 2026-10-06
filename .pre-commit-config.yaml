@@ -1,0 +1,23 @@
+# Optional for contributors: `pip install pre-commit && pre-commit install`.
+# Runs the same checks as CI (.github/workflows/ci.yml), using the pinned tools in backend/requirements-dev.txt.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd backend && ruff check .'
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+      - id: ruff-format
+        name: ruff format --check
+        entry: bash -c 'cd backend && ruff format --check .'
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd backend && mypy'
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$

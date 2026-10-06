@@ -1,10 +1,11 @@
 """User ORM model."""
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Boolean, DateTime, func
+from sqlalchemy import Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -18,7 +19,7 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -28,7 +29,7 @@ class User(Base):
     )
 
     # Relationships
-    projects: Mapped[list["Project"]] = relationship("Project", back_populates="owner", lazy="select")
+    projects: Mapped[list[Project]] = relationship("Project", back_populates="owner", lazy="select")
 
     def __repr__(self) -> str:
         return f"<User id={self.id!r} email={self.email!r}>"

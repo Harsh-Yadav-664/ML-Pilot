@@ -4,6 +4,7 @@ Each case builds a table deterministically and names the leaks planted in it.
 A row-level leak (duplicated rows) is named ROWS. Run `python -m tests.fixtures.leakage.suite`
 from backend/ to print per-case results and overall precision/recall.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -32,21 +33,25 @@ def _customers(n: int = 1500, seed: int = 0) -> pd.DataFrame:
     monthly = np.round(rng.uniform(20, 120, n), 2)
     contract = rng.choice(["Month-to-month", "One year", "Two year"], n, p=[0.55, 0.25, 0.2])
     internet = rng.choice(["DSL", "Fiber optic", "No"], n)
-    logit = -0.04 * tenure + 0.015 * monthly + np.where(contract == "Month-to-month", 1.0, -0.8) - 0.3
+    logit = (
+        -0.04 * tenure + 0.015 * monthly + np.where(contract == "Month-to-month", 1.0, -0.8) - 0.3
+    )
     churn = rng.random(n) < 1 / (1 + np.exp(-logit))
-    return pd.DataFrame({
-        "tenure": tenure,
-        "MonthlyCharges": monthly,
-        "Contract": contract,
-        "InternetService": internet,
-        "Dependents": rng.choice(["Yes", "No"], n),
-        "StreamingTV": rng.choice(["Yes", "No", "No internet service"], n),
-        "SeniorCitizen": rng.integers(0, 2, n),
-        "support_calls_count": rng.poisson(1.5 + churn, n),
-        "min_balance": np.round(rng.normal(500, 150, n), 2),
-        "signup_date": pd.date_range("2020-01-01", periods=n, freq="h").astype(str),
-        "Churn": np.where(churn, "Yes", "No"),
-    })
+    return pd.DataFrame(
+        {
+            "tenure": tenure,
+            "MonthlyCharges": monthly,
+            "Contract": contract,
+            "InternetService": internet,
+            "Dependents": rng.choice(["Yes", "No"], n),
+            "StreamingTV": rng.choice(["Yes", "No", "No internet service"], n),
+            "SeniorCitizen": rng.integers(0, 2, n),
+            "support_calls_count": rng.poisson(1.5 + churn, n),
+            "min_balance": np.round(rng.normal(500, 150, n), 2),
+            "signup_date": pd.date_range("2020-01-01", periods=n, freq="h").astype(str),
+            "Churn": np.where(churn, "Yes", "No"),
+        }
+    )
 
 
 def _target_copy():
@@ -108,9 +113,14 @@ def _regression_leak():
 
 def _multiclass_leak():
     df = _customers(seed=10)
-    tier = pd.cut(df["MonthlyCharges"] + np.random.default_rng(10).normal(0, 25, len(df)),
-                  [-np.inf, 50, 90, np.inf], labels=["basic", "plus", "premium"]).astype(str)
-    return df.drop(columns=["Churn"]).assign(tier=tier, tier_code=tier.map({"basic": 1, "plus": 2, "premium": 3}))
+    tier = pd.cut(
+        df["MonthlyCharges"] + np.random.default_rng(10).normal(0, 25, len(df)),
+        [-np.inf, 50, 90, np.inf],
+        labels=["basic", "plus", "premium"],
+    ).astype(str)
+    return df.drop(columns=["Churn"]).assign(
+        tier=tier, tier_code=tier.map({"basic": 1, "plus": 2, "premium": 3})
+    )
 
 
 def _clean(seed):
@@ -121,7 +131,10 @@ def _clean_with_strong_signal():
     df = _customers(seed=13)
     rng = np.random.default_rng(13)
     usage = np.where(df["Churn"] == "Yes", rng.normal(40, 15, len(df)), rng.normal(60, 15, len(df)))
-    return df.assign(monthly_usage_gb=np.round(usage, 1), win_probability=np.round(rng.uniform(0.01, 0.99, len(df)), 3))
+    return df.assign(
+        monthly_usage_gb=np.round(usage, 1),
+        win_probability=np.round(rng.uniform(0.01, 0.99, len(df)), 3),
+    )
 
 
 CASES = [
@@ -153,8 +166,15 @@ def evaluate() -> dict:
         got = flagged(case)
         hit, extra, missed = got & case.planted, got - case.planted, case.planted - got
         tp, fp, fn = tp + len(hit), fp + len(extra), fn + len(missed)
-        rows.append({"case": case.name, "planted": sorted(case.planted), "flagged": sorted(got),
-                     "missed": sorted(missed), "false_flags": sorted(extra)})
+        rows.append(
+            {
+                "case": case.name,
+                "planted": sorted(case.planted),
+                "flagged": sorted(got),
+                "missed": sorted(missed),
+                "false_flags": sorted(extra),
+            }
+        )
     precision = tp / (tp + fp) if tp + fp else 1.0
     recall = tp / (tp + fn) if tp + fn else 1.0
     return {"cases": rows, "tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall}
@@ -165,7 +185,9 @@ def main() -> None:
     for r in result["cases"]:
         status = "ok" if not r["missed"] and not r["false_flags"] else "MISMATCH"
         print(f"{status:8} {r['case']:30} planted={r['planted']} flagged={r['flagged']}")
-    print(f"\nPlanted-leak suite: {len(result['cases'])} datasets, TP={result['tp']} FP={result['fp']} FN={result['fn']}")
+    print(
+        f"\nPlanted-leak suite: {len(result['cases'])} datasets, TP={result['tp']} FP={result['fp']} FN={result['fn']}"
+    )
     print(f"precision={result['precision']:.2f} recall={result['recall']:.2f}")
 
 

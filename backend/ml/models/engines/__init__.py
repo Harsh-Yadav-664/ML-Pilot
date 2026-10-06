@@ -9,12 +9,13 @@ which package version produced the model.
 Optional engines (AutoGluon, TabICL) import their package lazily. Asking for one
 that isn't installed raises EngineNotAvailable; there is no silent fallback.
 """
+
 from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
 import tempfile
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import joblib
 import numpy as np
@@ -40,7 +41,9 @@ class ModelEngine(Protocol):
     name: str
     version: str
 
-    def fit(self, X: pd.DataFrame, y: np.ndarray, X_val=None, y_val=None, params=None, seed: int = 0) -> None: ...
+    def fit(
+        self, X: pd.DataFrame, y: np.ndarray, X_val=None, y_val=None, params=None, seed: int = 0
+    ) -> None: ...
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray: ...
     def predict(self, X: pd.DataFrame) -> np.ndarray: ...
     def feature_importances(self) -> dict[str, float]: ...
@@ -50,6 +53,7 @@ class ModelEngine(Protocol):
 
 # ── preprocessing ────────────────────────────────────────────────────────────
 
+
 def _split_columns(X: pd.DataFrame) -> tuple[list[str], list[str]]:
     numeric = list(X.select_dtypes(include=["number", "bool"]).columns)
     return numeric, [c for c in X.columns if c not in numeric]
@@ -58,21 +62,43 @@ def _split_columns(X: pd.DataFrame) -> tuple[list[str], list[str]]:
 def one_hot_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     """Impute and scale numbers; impute and one-hot encode the rest (capped)."""
     numeric, categorical = _split_columns(X)
-    return ColumnTransformer([
-        ("num", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), numeric),
-        ("cat", Pipeline([
-            ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-            ("onehot", OneHotEncoder(handle_unknown="infrequent_if_exist", max_categories=ONEHOT_MAX_CATEGORIES,
-                                     sparse_output=False)),
-        ]), categorical),
-    ])
+    return ColumnTransformer(
+        [
+            (
+                "num",
+                Pipeline(
+                    [("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]
+                ),
+                numeric,
+            ),
+            (
+                "cat",
+                Pipeline(
+                    [
+                        ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+                        (
+                            "onehot",
+                            OneHotEncoder(
+                                handle_unknown="infrequent_if_exist",
+                                max_categories=ONEHOT_MAX_CATEGORIES,
+                                sparse_output=False,
+                            ),
+                        ),
+                    ]
+                ),
+                categorical,
+            ),
+        ]
+    )
 
 
 class ToCategory(BaseEstimator, TransformerMixin):
     """Text columns -> pandas categories with the categories seen in training (unseen -> NaN)."""
 
     def fit(self, X: pd.DataFrame, y=None):
-        self.categories_ = {c: pd.Index(X[c].dropna().astype("string").unique()).sort_values() for c in X.columns}
+        self.categories_ = {
+            c: pd.Index(X[c].dropna().astype("string").unique()).sort_values() for c in X.columns
+        }
         self.feature_names_in_ = np.asarray(X.columns, dtype=object)
         return self
 
@@ -118,7 +144,7 @@ class SklearnEngine:
     name = "base"
     package = "scikit-learn"
     module = "sklearn"
-    defaults: dict[str, Any] = {}
+    defaults: ClassVar[dict[str, Any]] = {}
 
     def __init__(self) -> None:
         self.pipeline: Pipeline | None = None
@@ -153,8 +179,13 @@ class SklearnEngine:
             est.set_params(random_state=seed)
         return est
 
-    def make_pipeline(self, X: pd.DataFrame, params: dict[str, Any] | None = None, seed: int = 0,
-                      preprocessor=None) -> Pipeline:
+    def make_pipeline(
+        self,
+        X: pd.DataFrame,
+        params: dict[str, Any] | None = None,
+        seed: int = 0,
+        preprocessor=None,
+    ) -> Pipeline:
         prep = clone(preprocessor) if preprocessor is not None else self.preprocessor(X)
         return Pipeline([("preprocessor", prep), ("classifier", self.make_estimator(params, seed))])
 
@@ -163,21 +194,27 @@ class SklearnEngine:
         self.pipeline = self.make_pipeline(X, params, seed)
         self.pipeline.fit(X, y)
 
+    def _fitted(self) -> Pipeline:
+        if self.pipeline is None:
+            raise RuntimeError(f"{self.name} engine is not fitted; call fit() first")
+        return self.pipeline
+
     def predict_proba(self, X) -> np.ndarray:
-        return self.pipeline.predict_proba(X)
+        return self._fitted().predict_proba(X)
 
     def predict(self, X) -> np.ndarray:
-        return self.pipeline.predict(X)
+        return self._fitted().predict(X)
 
     def feature_importances(self) -> dict[str, float]:
         from ml.metrics.importance import builtin_importances
+
         return builtin_importances(self.pipeline, self.columns, top_n=len(self.columns))
 
     def save(self, path: str) -> None:
         joblib.dump(self.pipeline, path)
 
     @classmethod
-    def load(cls, path: str) -> "SklearnEngine":
+    def load(cls, path: str) -> SklearnEngine:
         engine = cls()
         engine.pipeline = joblib.load(path)
         return engine
@@ -188,10 +225,11 @@ class SklearnEngine:
 
 class LightGBMEngine(SklearnEngine):
     name, package, module = "LGBMClassifier", "lightgbm", "lightgbm"
-    defaults = {"verbose": -1}
+    defaults: ClassVar[dict[str, Any]] = {"verbose": -1}
 
     def estimator(self, params):
         from lightgbm import LGBMClassifier
+
         return LGBMClassifier(**params)
 
     def preprocessor(self, X):
@@ -206,6 +244,7 @@ class XGBoostEngine(SklearnEngine):
 
     def estimator(self, params):
         from xgboost import XGBClassifier
+
         return XGBClassifier(**params)
 
     def search_space(self):
@@ -217,6 +256,7 @@ class RandomForestEngine(SklearnEngine):
 
     def estimator(self, params):
         from sklearn.ensemble import RandomForestClassifier
+
         return RandomForestClassifier(**params)
 
 
@@ -225,34 +265,44 @@ class GradientBoostingEngine(SklearnEngine):
 
     def estimator(self, params):
         from sklearn.ensemble import GradientBoostingClassifier
+
         return GradientBoostingClassifier(**params)
 
 
 class LogisticRegressionEngine(SklearnEngine):
     name, module = "LogisticRegression", "sklearn"
-    defaults = {"max_iter": 1000}
+    defaults: ClassVar[dict[str, Any]] = {"max_iter": 1000}
 
     def estimator(self, params):
         from sklearn.linear_model import LogisticRegression
+
         return LogisticRegression(**params)
 
 
 class AutoGluonClassifier(BaseEstimator, ClassifierMixin):
     """sklearn-style wrapper around AutoGluon's TabularPredictor (imported on fit)."""
 
-    def __init__(self, presets: str = "medium_quality", time_limit: int = 60, random_state: int = 0):
+    def __init__(
+        self, presets: str = "medium_quality", time_limit: int = 60, random_state: int = 0
+    ):
         self.presets = presets
         self.time_limit = time_limit
         self.random_state = random_state
 
     def fit(self, X, y):
         from autogluon.tabular import TabularPredictor
+
         data = pd.DataFrame(X).copy()
         data["__label__"] = np.asarray(y)
         self.classes_ = np.unique(np.asarray(y))
-        self.predictor_ = TabularPredictor(label="__label__", path=tempfile.mkdtemp(prefix="mlpilot-ag-"),
-                                           verbosity=0).fit(data, presets=self.presets, time_limit=self.time_limit,
-                                                            ag_args_fit={"random_seed": self.random_state})
+        self.predictor_ = TabularPredictor(
+            label="__label__", path=tempfile.mkdtemp(prefix="mlpilot-ag-"), verbosity=0
+        ).fit(
+            data,
+            presets=self.presets,
+            time_limit=self.time_limit,
+            ag_args_fit={"random_seed": self.random_state},
+        )
         return self
 
     def predict_proba(self, X):
@@ -265,7 +315,7 @@ class AutoGluonClassifier(BaseEstimator, ClassifierMixin):
 
 class AutoGluonEngine(SklearnEngine):
     name, package, module = "AutoGluon", "autogluon.tabular", "autogluon.tabular"
-    defaults = {"presets": "medium_quality", "time_limit": 60}
+    defaults: ClassVar[dict[str, Any]] = {"presets": "medium_quality", "time_limit": 60}
 
     def estimator(self, params):
         return AutoGluonClassifier(**params)
@@ -279,13 +329,21 @@ class TabICLEngine(SklearnEngine):
 
     def estimator(self, params):
         from tabicl import TabICLClassifier
+
         return TabICLClassifier(**params)
 
 
 ENGINES: dict[str, type[SklearnEngine]] = {
     cls.name: cls
-    for cls in (LightGBMEngine, XGBoostEngine, RandomForestEngine, GradientBoostingEngine,
-                LogisticRegressionEngine, AutoGluonEngine, TabICLEngine)
+    for cls in (
+        LightGBMEngine,
+        XGBoostEngine,
+        RandomForestEngine,
+        GradientBoostingEngine,
+        LogisticRegressionEngine,
+        AutoGluonEngine,
+        TabICLEngine,
+    )
 }
 OPTIONAL_ENGINES = {"AutoGluon": "pip install autogluon.tabular", "TabICL": "pip install tabicl"}
 
@@ -301,7 +359,9 @@ def get_engine(name: str) -> SklearnEngine:
         raise EngineNotAvailable(f"Unknown engine {name!r}. Available: {sorted(ENGINES)}")
     if not cls.available():
         hint = OPTIONAL_ENGINES.get(name, f"install the '{cls.package}' package")
-        raise EngineNotAvailable(f"Engine {name!r} is not installed ({hint}). No other engine was used instead.")
+        raise EngineNotAvailable(
+            f"Engine {name!r} is not installed ({hint}). No other engine was used instead."
+        )
     return cls()
 
 

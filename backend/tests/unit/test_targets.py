@@ -1,4 +1,5 @@
 """Tests for the shared classification target encoder."""
+
 from __future__ import annotations
 
 import numpy as np

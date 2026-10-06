@@ -1,10 +1,10 @@
 """Dataset CRUD service."""
+
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset
@@ -21,7 +21,7 @@ class DatasetService:
         await self.db.flush()
         return dataset
 
-    async def get(self, dataset_id: str) -> Optional[Dataset]:
+    async def get(self, dataset_id: str) -> Dataset | None:
         result = await self.db.execute(select(Dataset).where(Dataset.id == dataset_id))
         return result.scalar_one_or_none()
 
@@ -42,7 +42,7 @@ class DatasetService:
         )
         return list(result.scalars().all()), total
 
-    async def update(self, dataset_id: str, data: DatasetUpdate) -> Optional[Dataset]:
+    async def update(self, dataset_id: str, data: DatasetUpdate) -> Dataset | None:
         dataset = await self.get(dataset_id)
         if not dataset:
             return None

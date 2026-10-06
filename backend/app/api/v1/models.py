@@ -1,11 +1,12 @@
 """Model artifacts API endpoints."""
+
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 
 from app.api.deps import DBSession
 from app.db.models.model_artifact import ModelArtifact
@@ -21,9 +22,9 @@ class ModelArtifactRead(BaseModel):
     model_name: str
     file_path: str
     format: str
-    metrics: Optional[dict] = None
-    feature_importance: Optional[dict] = None
-    size_bytes: Optional[float] = None
+    metrics: dict | None = None
+    feature_importance: dict | None = None
+    size_bytes: float | None = None
     created_at: datetime
 
 

@@ -1,4 +1,5 @@
 """Failures are loud (AGENTS.md rule 8): every previously swallowed path now leaves a visible record."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,8 +17,14 @@ from ml.metrics.classification import compute_classification_metrics
 
 def _spec(model: str = "LGBMClassifier", **params) -> ExperimentSpec:
     return ExperimentSpec(
-        id="loud", project_id="p", dataset_version="v", hypothesis="h", change_description="c",
-        model_name=model, parameters={"target_column": "target", **params}, feature_set=[],
+        id="loud",
+        project_id="p",
+        dataset_version="v",
+        hypothesis="h",
+        change_description="c",
+        model_name=model,
+        parameters={"target_column": "target", **params},
+        feature_set=[],
     )
 
 
@@ -94,7 +101,10 @@ async def test_metric_notes_reach_the_experiment_record(monkeypatch):
 
 def test_helpers():
     record: dict = {}
-    assert step_failed(record, "step", KeyError("x"), skipped="nothing else") == "failed (KeyError: 'x')"
+    assert (
+        step_failed(record, "step", KeyError("x"), skipped="nothing else")
+        == "failed (KeyError: 'x')"
+    )
     assert record == {"step": "failed (KeyError: 'x')", "skipped": ["step: nothing else"]}
     values, notes = {"a": 1.0}, {}
     unavailable(values, notes, "a", "why")

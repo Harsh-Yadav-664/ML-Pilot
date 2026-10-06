@@ -1,19 +1,28 @@
 """Experiments API endpoints."""
+
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from app.api.deps import DBSession, Gateway
 from app.core.datasets import safe_dataset_path
 from app.db.session import AsyncSessionLocal
-from app.schemas.experiment import ExperimentCreate, ExperimentRead, ExperimentUpdate, ExperimentSuggestRequest, ExperimentSuggestResponse
 from app.schemas.common import PaginatedResponse
+from app.schemas.experiment import (
+    ExperimentCreate,
+    ExperimentRead,
+    ExperimentSuggestion,
+    ExperimentSuggestRequest,
+    ExperimentSuggestResponse,
+    ExperimentUpdate,
+)
 from app.services.experiment_service import ExperimentService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/experiments", tags=["experiments"])
+
 
 @router.post("/suggest", response_model=ExperimentSuggestResponse)
 async def suggest_experiments(
@@ -32,13 +41,14 @@ async def suggest_experiments(
         return ExperimentSuggestResponse(
             dataset_version=data.dataset_version,
             objective=data.objective,
-            hypotheses=hypotheses
+            hypotheses=[ExperimentSuggestion.model_validate(h) for h in hypotheses],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
         logger.error(f"Suggest API failed: {e}")
         raise HTTPException(status_code=502, detail=str(e)) from e
+
 
 async def background_runner(experiment_id: str):
     """Background task to run experiment safely with its own DB session."""
@@ -52,9 +62,7 @@ async def background_runner(experiment_id: str):
 
 @router.post("/", response_model=ExperimentRead, status_code=status.HTTP_201_CREATED)
 async def create_experiment(
-    data: ExperimentCreate, 
-    db: DBSession,
-    background_tasks: BackgroundTasks
+    data: ExperimentCreate, db: DBSession, background_tasks: BackgroundTasks
 ) -> ExperimentRead:
     svc = ExperimentService(db)
     data = data.model_copy(update={"dataset_version": safe_dataset_path(data.dataset_version)})
@@ -64,7 +72,7 @@ async def create_experiment(
 
     # Queue the actual ML execution in the background
     background_tasks.add_task(background_runner, exp.id)
-    
+
     return ExperimentRead.model_validate(exp)
 
 
@@ -97,7 +105,9 @@ async def get_experiment(experiment_id: str, db: DBSession) -> ExperimentRead:
 
 
 @router.patch("/{experiment_id}", response_model=ExperimentRead)
-async def update_experiment(experiment_id: str, data: ExperimentUpdate, db: DBSession) -> ExperimentRead:
+async def update_experiment(
+    experiment_id: str, data: ExperimentUpdate, db: DBSession
+) -> ExperimentRead:
     svc = ExperimentService(db)
     exp = await svc.update(experiment_id, data)
     if not exp:

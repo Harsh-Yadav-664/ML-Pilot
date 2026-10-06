@@ -1,4 +1,5 @@
 """The one safe evaluator: hostile formulas are rejected fast, useful ones work."""
+
 from __future__ import annotations
 
 import random
@@ -10,12 +11,14 @@ import pytest
 
 from ml.features.safe_eval import InvalidFormula, evaluate, evaluate_formula, parse
 
-DF = pd.DataFrame({
-    "income": [0.0, 10.0, 100.0, np.nan],
-    "age": [10, 20, 0, 40],
-    "Monthly Charges": [1.0, 2.0, 3.0, 4.0],
-    "plan": ["a", "b", "c", "a"],
-})
+DF = pd.DataFrame(
+    {
+        "income": [0.0, 10.0, 100.0, np.nan],
+        "age": [10, 20, 0, 40],
+        "Monthly Charges": [1.0, 2.0, 3.0, 4.0],
+        "plan": ["a", "b", "c", "a"],
+    }
+)
 
 HOSTILE = [
     "__import__('os')",
@@ -69,21 +72,24 @@ def test_useful_formulas_work():
     assert evaluate_formula("where(age >= 18, 1, 0)", DF).tolist() == [0.0, 1.0, 0.0, 1.0]
 
 
-@pytest.mark.parametrize("formula, expected", [
-    ("income / age", [0.0, 0.5, np.nan, np.nan]),             # division by zero is NaN, not an error
-    ("age // 3 + age % 3", [4.0, 8.0, 0.0, 14.0]),
-    ("age % (age - 10)", [np.nan, 0.0, 0.0, 10.0]),             # modulo by zero is NaN too
-    ("(age > 5) & (age < 30)", [1.0, 1.0, 0.0, 0.0]),
-    ("(age < 5) | ~(age < 30)", [0.0, 0.0, 1.0, 1.0]),
-    ("age > 5 and not income > 50", [1.0, 1.0, 0.0, 1.0]),
-    ("5 < age <= 20", [1.0, 1.0, 0.0, 0.0]),
-    ("'Monthly Charges' * 2", [2.0, 4.0, 6.0, 8.0]),            # string constant names a column
-    ("clip(age, 5, 30) ** 2", [100.0, 400.0, 25.0, 900.0]),
-    ("minimum(age, 15) + maximum(age, 15)", [25.0, 35.0, 15.0, 55.0]),
-    ("sqrt(abs(-age))", [np.sqrt(10), np.sqrt(20), 0.0, np.sqrt(40)]),
-    ("isnull(income)", [0.0, 0.0, 0.0, 1.0]),
-    ("income ** -1", [np.nan, 0.1, 0.01, np.nan]),              # 1/0 = inf becomes NaN
-])
+@pytest.mark.parametrize(
+    "formula, expected",
+    [
+        ("income / age", [0.0, 0.5, np.nan, np.nan]),  # division by zero is NaN, not an error
+        ("age // 3 + age % 3", [4.0, 8.0, 0.0, 14.0]),
+        ("age % (age - 10)", [np.nan, 0.0, 0.0, 10.0]),  # modulo by zero is NaN too
+        ("(age > 5) & (age < 30)", [1.0, 1.0, 0.0, 0.0]),
+        ("(age < 5) | ~(age < 30)", [0.0, 0.0, 1.0, 1.0]),
+        ("age > 5 and not income > 50", [1.0, 1.0, 0.0, 1.0]),
+        ("5 < age <= 20", [1.0, 1.0, 0.0, 0.0]),
+        ("'Monthly Charges' * 2", [2.0, 4.0, 6.0, 8.0]),  # string constant names a column
+        ("clip(age, 5, 30) ** 2", [100.0, 400.0, 25.0, 900.0]),
+        ("minimum(age, 15) + maximum(age, 15)", [25.0, 35.0, 15.0, 55.0]),
+        ("sqrt(abs(-age))", [np.sqrt(10), np.sqrt(20), 0.0, np.sqrt(40)]),
+        ("isnull(income)", [0.0, 0.0, 0.0, 1.0]),
+        ("income ** -1", [np.nan, 0.1, 0.01, np.nan]),  # 1/0 = inf becomes NaN
+    ],
+)
 def test_operators_and_functions(formula, expected):
     np.testing.assert_allclose(evaluate_formula(formula, DF), expected)
 
@@ -108,12 +114,44 @@ def test_evaluate_checks_columns_of_the_frame_it_gets():
         evaluate(expr, DF.drop(columns=["income"]))
 
 
-_ATOMS = ["income", "age", "plan", "x", "__class__", "1", "2.5", "'age'", "'x'", "()", "[]", "None", "True"]
+_ATOMS = [
+    "income",
+    "age",
+    "plan",
+    "x",
+    "__class__",
+    "1",
+    "2.5",
+    "'age'",
+    "'x'",
+    "()",
+    "[]",
+    "None",
+    "True",
+]
 _WRAPS = [
-    "({}) + ({})", "({}) * ({})", "({}) / ({})", "({}) ** ({})", "({}) > ({})", "({}) & ({})",
-    "({}).__class__", "({})[{}]", "log1p({})", "where({}, {}, 0)", "open({})", "__import__({})",
-    "getattr({}, {})", "lambda: {}", "[{} for _ in {}]", "-({})", "~({})", "{} if {} else 0",
-    "clip({})", "abs({}, {})", "({}).mean()", "sqrt({})",
+    "({}) + ({})",
+    "({}) * ({})",
+    "({}) / ({})",
+    "({}) ** ({})",
+    "({}) > ({})",
+    "({}) & ({})",
+    "({}).__class__",
+    "({})[{}]",
+    "log1p({})",
+    "where({}, {}, 0)",
+    "open({})",
+    "__import__({})",
+    "getattr({}, {})",
+    "lambda: {}",
+    "[{} for _ in {}]",
+    "-({})",
+    "~({})",
+    "{} if {} else 0",
+    "clip({})",
+    "abs({}, {})",
+    "({}).mean()",
+    "sqrt({})",
 ]
 
 
@@ -135,7 +173,9 @@ def test_fuzz_only_safe_outcomes():
         except InvalidFormula:
             outcomes["rejected"] += 1
             continue
-        assert isinstance(out, pd.Series) and out.dtype == "float64" and len(out) == len(DF), formula
+        assert isinstance(out, pd.Series) and out.dtype == "float64" and len(out) == len(DF), (
+            formula
+        )
         assert not np.isinf(out).any(), formula
         outcomes["computed"] += 1
     assert outcomes["rejected"] > 0 and outcomes["computed"] > 0

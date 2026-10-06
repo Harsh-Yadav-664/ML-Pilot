@@ -16,20 +16,21 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff
-      # Critical rules only (syntax errors, undefined names). The full rule set
-      # still reports ~280 pre-existing style errors; those need their own cleanup issue.
-      - name: Lint (ruff, critical rules)
-        run: ruff check . --select E9,F63,F7,F82
-      # Failures are loud (AGENTS.md rule 8): no try-except-pass, no blind `except Exception`
-      # unless it carries `# noqa: BLE001` with the reason the failure is still recorded.
-      - name: Lint (ruff, no silent failures)
-        run: ruff check . --select S110,BLE001,SIM105
+          pip install -r requirements-dev.txt
+      # Full configured rule set (pyproject.toml), including AGENTS.md rule 8:
+      # no try-except-pass, no blind `except Exception` without a recorded reason.
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Format (ruff)
+        run: ruff format --check .
+      - name: Type check (mypy)
+        run: mypy
       # Includes tests/integration/test_agent_loop_telecom.py: baseline + 2 agent
       # iterations on telecom_churn.csv with the offline stub provider.
       - name: Tests (stub LLM provider, no network keys)

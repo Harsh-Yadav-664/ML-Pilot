@@ -1,4 +1,5 @@
 """POST /ui/experiments/baseline must reach a final status, never stay 'created'."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,8 +9,8 @@ import pandas as pd
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import app.core.datasets as datasets
 import app.db.session as db_session
+from app.core import datasets
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -51,15 +52,19 @@ async def client(tmp_path, monkeypatch):
 def small_csv(tmp_path):
     path = tmp_path / "small.csv"
     rows = 60
-    pd.DataFrame({
-        "age": list(range(rows)),
-        "plan": ["a", "b", "c"] * (rows // 3),
-        "churn": ["Yes" if i % 3 == 0 else "No" for i in range(rows)],
-    }).to_csv(path, index=False)
+    pd.DataFrame(
+        {
+            "age": list(range(rows)),
+            "plan": ["a", "b", "c"] * (rows // 3),
+            "churn": ["Yes" if i % 3 == 0 else "No" for i in range(rows)],
+        }
+    ).to_csv(path, index=False)
     return path
 
 
-async def wait_for_final_status(client: httpx.AsyncClient, exp_id: str, timeout: float = 60) -> dict:
+async def wait_for_final_status(
+    client: httpx.AsyncClient, exp_id: str, timeout: float = 60
+) -> dict:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:

@@ -1,4 +1,5 @@
 """Keep/reject is decided by code: noise and constant features are rejected, real signal accepted."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,7 +33,9 @@ def test_constant_and_noise_features_are_rejected(telecom_training_rows, seed):
     X, y = telecom_training_rows
     rng = np.random.default_rng(seed)
     for column in (np.zeros(len(X)), rng.normal(size=len(X))):
-        result = compare_feature_sets(X, X.assign(candidate=column), y, acceptance_pipeline, random_state=seed)
+        result = compare_feature_sets(
+            X, X.assign(candidate=column), y, acceptance_pipeline, random_state=seed
+        )
         assert not result.accepted, result.to_dict()
 
 
