@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
@@ -13,8 +14,8 @@ from app.core import datasets
 from app.core.config import settings
 from app.db.models.experiment import Experiment
 from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
-from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.versions import content_hash, version_id_of
+from ml.data.workspace import workspace_for
 from ml.experiments.executor import LocalExperimentExecutor
 from ml.experiments.manifest import RunManifest, build_manifest, replay
 from ml.experiments.schema import ExperimentResult, ExperimentSpec, ExperimentStatus
@@ -109,8 +110,8 @@ class ExperimentService:
                     budget=exp.budget,
                 )
 
-                loader = CsvLoader()
-                executor = LocalExperimentExecutor(data_loader_func=lambda p: loader.load(p))
+                workspace = workspace_for(exp.project_id, datasets.PROJECTS_DIR)
+                executor = LocalExperimentExecutor(data_loader_func=workspace.load)
 
                 logger.info(f"Starting execution of experiment {experiment_id}...")
                 result = await executor.run(spec)
@@ -153,12 +154,13 @@ class ExperimentService:
         path = datasets.VERSIONS_DIR / f"{manifest.data_version_id}.csv"
         if not path.exists() or content_hash(path) != manifest.data_version_id:
             raise LookupError(f"Data version {manifest.data_version_id} is missing or changed")
-        loader = CsvLoader()
-        return await replay(manifest, str(path), lambda p: loader.load(p))
+        workspace = workspace_for(exp.project_id, datasets.PROJECTS_DIR)
+        return await replay(manifest, str(path), workspace.load)
 
     async def suggest_experiments(
         self,
         dataset_version: str,
+        project_id: str,
         target_column: str,
         objective: str,
         max_hypotheses: int = 3,
@@ -175,9 +177,8 @@ class ExperimentService:
         from ml.experiments.planner import ExperimentPlanner
 
         # In MVP, assume dataset_version is a valid local file path
-        loader = CsvLoader()
         try:
-            df = loader.load(dataset_version)
+            df = workspace_for(project_id, datasets.PROJECTS_DIR).load(Path(dataset_version))
         except Exception as e:
             logger.error(f"Failed to load dataset {dataset_version} for suggestion: {e}")
             raise ValueError(f"Could not load dataset {dataset_version}: {e}") from e

@@ -19,10 +19,10 @@ flowchart LR
     SQLImport --> UserDB[("Your database<br/>read-only")]
     SQLImport --> Data
 
+    Data --> DuckDB["Project DuckDB<br/>work.duckdb, one table per file<br/>backend/ml/data/"]
+
     classDef planned stroke-dasharray: 5 5
-    DuckDB["DuckDB engine<br/>planned (#42)"]:::planned
     Guard["Point-in-time guard<br/>planned (#51)"]:::planned
-    Data -.-> DuckDB
     DuckDB -.-> Guard
 ```
 
@@ -32,6 +32,7 @@ Solid boxes are built and covered by tests in CI. Dashed boxes are planned.
 |---|---|---|
 | Web UI | `frontend/` | Loads a sample or a CSV, shows experiments and metrics, runs the agent loop. All API calls go through `frontend/src/api/`, typed from the generated `schema.d.ts`. |
 | API | `backend/app/api/v1/` | Resource routes under `/api/v1/projects/{id}/...` (datasets, experiments, agent, jobs, chat). Every route needs the local token ([ADR 0008](adr/0008-self-hosted-single-user-security.md)). |
+| Data engine | `backend/ml/data/engine.py`, `workspace.py` | Every file becomes a table in the project's `work.duckdb`; profiling, the leakage scan and training read it through one `DataSource` interface ([ADR 0002](adr/0002-duckdb-internal-engine.md)). |
 | Job runner | `backend/app/jobs/` | Training and the agent loop run as durable jobs: they survive restarts, report an ordered event log and can be cancelled. |
 | Metadata DB | `backend/app/db/`, `backend/migrations/` | Projects, data versions, experiments, jobs and events. Alembic owns the schema ([ADR 0010](adr/0010-metadata-db-alembic-sqlite.md)). |
 | LLM gateway | `backend/ai/` | One entry point for every model call, routing, cost tracking, fallback to an offline stub that is marked as a fallback. |
@@ -73,7 +74,7 @@ sequenceDiagram
 flowchart TD
     Q["Question in chat"] --> TS["Task spec<br/>entity, target, horizon, cutoffs<br/>planned (#49, #53)"]
     TS -->|"user confirms"| LB["Labels at each cutoff<br/>planned (#50)"]
-    DB[("User database<br/>read-only")] --> SN["Snapshot into DuckDB<br/>planned (#42, #97)"]
+    DB[("User database<br/>read-only")] --> SN["Snapshot into DuckDB<br/>planned (#97)"]
     SN --> LB
     LB --> BF["Baseline features<br/>planned (#55)"]
     BF --> LOOP["Agent loop<br/>planned (#58)"]
@@ -94,6 +95,7 @@ flowchart TD
 | SQL parser allowlist (single `SELECT`) | Writes or DDL from a query | Implemented for the SQL import (#30); full connection manager `planned (#43, #44)` |
 | Read-only transaction, row limit, timeout | A query that changes data or runs away | Implemented for the SQL import (timeout on Postgres and MySQL only) |
 | Read-only database role check | A role that could write | `planned (#44)` |
+| Project DuckDB without external file access, `SELECT`-only `DataSource.query` | A query reading or writing files outside the project's own tables | Implemented (#42) |
 | Safe formula evaluator | Executing model output | Implemented (#37) |
 | Acceptance rule in code | Keeping noise, or the LLM judging itself | Implemented (#35) |
 | One split contract, test scored once | Tuning on the data we report | Implemented (#34) |

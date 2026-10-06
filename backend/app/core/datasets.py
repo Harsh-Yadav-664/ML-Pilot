@@ -13,3 +13,5 @@ UPLOAD_DIR = BACKEND_DIR / "uploads"
 DATASETS_DIR = BACKEND_DIR / "datasets"
 # Read-only, content-addressed copies (ml/data/versions.py); experiments train on these.
 VERSIONS_DIR = BACKEND_DIR / "data" / "versions"
+# One DuckDB file per project: <PROJECTS_DIR>/<project id>/work.duckdb (ml/data/workspace.py).
+PROJECTS_DIR = BACKEND_DIR / "data" / "projects"

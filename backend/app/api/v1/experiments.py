@@ -160,7 +160,7 @@ async def run_auto_clean(
     from ml.data.profiling.profiler import DataProfiler
 
     path = await data_service.version_path(db, request.data_version_id)
-    df = data_service.load(path)
+    df = data_service.load(path, project_id)
     profile = DataProfiler().profile(df, target_column=request.target_column)
     try:
         prep_config = await DataCleaningAgent(gateway).generate_cleaning_strategy(
