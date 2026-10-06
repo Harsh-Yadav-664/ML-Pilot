@@ -58,6 +58,18 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
 
     baseline = next(e for e in exps if e.parent_id is None)
 
+    # Keep/reject comes from the acceptance rule, is stored on the experiment, and the
+    # LLM only explains it.
+    by_id = {e.id: e for e in exps}
+    for info in result["experiments"]:
+        exp = by_id[info["id"]]
+        assert info["decision_mode"] == "rule"
+        acceptance = exp.parameters["acceptance"]
+        assert info["decision"] == ("keep" if acceptance["accepted"] else "reject")
+        assert exp.decision == info["decision"]
+        assert exp.decision_reason.startswith(("Accepted by rule", "Rejected by rule"))
+        assert len(acceptance["base_scores"]) == 15
+
     async def override_db():
         async with session_factory() as session:
             yield session
@@ -86,3 +98,18 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
     preds_line = next(line for line in run.stdout.splitlines() if line.startswith("Sample predictions:"))
     assert "'Yes'" in preds_line or "'No'" in preds_line
     assert "0" not in preds_line.split(":", 1)[1] and "1" not in preds_line.split(":", 1)[1]
+
+
+async def test_explanation_failure_does_not_change_the_decision(session_factory, monkeypatch):
+    monkeypatch.setitem(sys.modules, "optuna", None)
+    gateway = stub_gateway()
+
+    async def broken_complete(*args, **kwargs):
+        raise RuntimeError("LLM down")
+
+    monkeypatch.setattr(gateway, "complete", broken_complete)
+    result = await DecisionAgent(gateway, settings=None).run_optimization_loop(str(SAMPLE), "Churn", n_hypotheses=1)
+    info = result["experiments"][0]
+    assert info["decision_mode"] == "rule"
+    assert info["explanation_mode"] == "fallback"
+    assert info["decision"] == ("keep" if info["acceptance"]["accepted"] else "reject")

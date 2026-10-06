@@ -25,6 +25,7 @@ from ml.core.interfaces import ExperimentRunner
 from ml.core.targets import TargetEncoder
 from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES, prepare_feature_frame
 from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
+from ml.experiments.acceptance import compare_feature_sets
 from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
 
@@ -36,6 +37,35 @@ MODEL_REGISTRY = {
     "XGBClassifier": XGBClassifier,
     "LGBMClassifier": LGBMClassifier,
 }
+
+def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
+    """Impute and scale numeric columns; impute and one-hot encode the rest (capped)."""
+    numeric_features = X.select_dtypes(include=['number']).columns
+    categorical_features = X.columns.difference(numeric_features, sort=False)
+    return ColumnTransformer(
+        transformers=[
+            ('num', Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='median')),
+                ('scaler', StandardScaler())
+            ]), numeric_features),
+            ('cat', Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+                ('onehot', OneHotEncoder(handle_unknown='infrequent_if_exist', max_categories=ONEHOT_MAX_CATEGORIES, sparse_output=False))
+            ]), categorical_features)
+        ])
+
+
+ACCEPTANCE_MODEL = {"model": "LGBMClassifier", "n_estimators": 100, "num_leaves": 15, "learning_rate": 0.1}
+
+
+def acceptance_pipeline(X: pd.DataFrame) -> Pipeline:
+    """Fixed, fast model used only to compare feature sets (same for every candidate)."""
+    params = {k: v for k, v in ACCEPTANCE_MODEL.items() if k != "model"}
+    return Pipeline(steps=[
+        ('preprocessor', build_preprocessor(X)),
+        ('classifier', LGBMClassifier(**params, random_state=0, verbose=-1)),
+    ])
+
 
 def split_train_val_test(
     X: pd.DataFrame, y: pd.Series, config: dict[str, Any]
@@ -117,9 +147,15 @@ class LocalExperimentExecutor(ExperimentRunner):
             df = features.assign(**{target_col: df[target_col]})
 
             # Execute feature engineering step safely
+            # Engineered features: the champion's accepted ones ("features"), then the
+            # candidate being tested ("feature_name"/"formula"), evaluated in order.
             feature_name = spec.parameters.get("feature_name")
             formula = spec.parameters.get("formula")
-            if feature_name and formula:
+            engineered = [dict(f) for f in spec.parameters.get("features") or []]
+            candidate = feature_name if feature_name and formula else None
+            if candidate:
+                engineered.append({"name": feature_name, "formula": formula})
+            if engineered:
                 def _safe_eval(node):
                     if isinstance(node, ast.Expression):
                         return _safe_eval(node.body)
@@ -145,12 +181,14 @@ class LocalExperimentExecutor(ExperimentRunner):
                         raise ValueError(f"Unsupported unary: {type(node.op)}")
                     raise ValueError(f"Unsupported node: {type(node)}")
 
-                try:
-                    tree = ast.parse(formula, mode='eval')
-                    df[feature_name] = _safe_eval(tree)
-                except Exception:
-                    # MVP: if safe eval fails due to syntax or unsupported node, fallback to 0
-                    df[feature_name] = 0
+                for feat in engineered:
+                    try:
+                        tree = ast.parse(feat["formula"], mode='eval')
+                        df[feat["name"]] = _safe_eval(tree)
+                    except Exception:
+                        # MVP: if safe eval fails due to syntax or unsupported node, fallback to 0
+                        # (a constant column is then rejected by the acceptance rule; see [1.4]).
+                        df[feat["name"]] = 0
 
             y = df[target_col]
             X = df.drop(columns=[target_col])
@@ -179,26 +217,29 @@ class LocalExperimentExecutor(ExperimentRunner):
             y_test = target_encoder.transform(y_test)
             spec.parameters["target_encoding"] = target_encoder.to_dict()
 
+            # Keep/reject is decided here, in code: does the candidate beat the noise of a
+            # paired repeated-CV comparison on training rows (train + validation, never test)?
+            if candidate:
+                X_fit_rows = pd.concat([X_train, X_val])
+                y_fit_rows = np.concatenate([y_train, y_val])
+                gain = await asyncio.to_thread(
+                    compare_feature_sets,
+                    X_fit_rows.drop(columns=[candidate]),
+                    X_fit_rows,
+                    y_fit_rows,
+                    acceptance_pipeline,
+                    spec.parameters.get("acceptance_rule"),
+                    random_state,
+                )
+                spec.parameters["acceptance"] = {**gain.to_dict(), "model": ACCEPTANCE_MODEL}
+
             # Robust preprocessor to handle real-world messy data
             prep_config = spec.preprocessing_config
             if prep_config:
                 from ml.data.preparation.dynamic_builder import DynamicPipelineBuilder
                 preprocessor = DynamicPipelineBuilder.build(prep_config, target_col)
             else:
-                numeric_features = X_train.select_dtypes(include=['int64', 'float64']).columns
-                categorical_features = X_train.select_dtypes(include=['object', 'category']).columns
-    
-                preprocessor = ColumnTransformer(
-                    transformers=[
-                        ('num', Pipeline(steps=[
-                            ('imputer', SimpleImputer(strategy='median')),
-                            ('scaler', StandardScaler())
-                        ]), numeric_features),
-                        ('cat', Pipeline(steps=[
-                            ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-                            ('onehot', OneHotEncoder(handle_unknown='infrequent_if_exist', max_categories=ONEHOT_MAX_CATEGORIES, sparse_output=False))
-                        ]), categorical_features)
-                    ])
+                preprocessor = build_preprocessor(X_train)
 
             def make_pipeline(estimator) -> Pipeline:
                 # Each pipeline gets its own preprocessor so fits never share state.
