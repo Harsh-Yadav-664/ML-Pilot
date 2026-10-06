@@ -1,6 +1,6 @@
 # 0002. DuckDB as the one internal engine
 
-**Status:** Accepted. `planned (#42)`: nothing in the code uses DuckDB yet; today data is a CSV loaded with pandas.
+**Status:** Accepted. Built for files in #42: uploads, samples and SQL-query snapshots become tables in a per-project DuckDB file and everything reads them through one `DataSource` interface. `planned (#43, #97)`: snapshots of whole live databases.
 
 ## Context
 
@@ -9,6 +9,13 @@ Every data source has to end up somewhere the training-table builder, the featur
 ## Decision
 
 Read from the user's database through the read-only connection (0003), snapshot what a run needs into a local DuckDB file, and run labels, features and checks there. CSV and Parquet files are treated as a one-table database. The snapshot is the data version (#97), so a run says exactly what it trained on.
+
+## What #42 settled
+
+- One file per project, `data/projects/<id>/work.duckdb`, one table per data version named after the file. The read-only content-hashed copies in `data/versions/` stay the record of what was loaded; the table is the working copy.
+- The project file is opened with `enable_external_access=false`, so a query that reaches it cannot read or write other files, attach databases or load extensions. Files are read on a separate in-memory connection and streamed in as Arrow batches. `DataSource.query` also accepts a single `SELECT` only, with a row limit and a timeout.
+- CSV columns are typed like pandas would type them (integers, floats, text; the same list of null spellings). DuckDB's own inference is not used for booleans and dates: it would turn a `Yes`/`No` target into booleans and change the class labels. Dates stay text until a task spec names the event-time column.
+- Results are Arrow. They become pandas only where a model needs a frame.
 
 ## Consequences
 

@@ -55,7 +55,8 @@ async def _f1(dataset_path: str) -> float:
 async def test_uploading_the_same_bytes_twice_yields_one_version(
     client, project_id, isolated_storage, metadata_db_url
 ):
-    csv = b"a,b,label\n1,2,yes\n3,4,no\n5,6,yes\n"
+    # Unique bytes: the metadata DB is shared across tests, and a version id names content.
+    csv = f"a,b,label\n1,2,yes\n3,4,no\n5,6,{project_id}\n".encode()
     url = f"{API}/projects/{project_id}/datasets/upload"
     first = (await client.post(url, files={"file": ("x.csv", csv)})).json()
     second = (await client.post(url, files={"file": ("y.csv", csv)})).json()

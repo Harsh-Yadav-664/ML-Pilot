@@ -25,7 +25,6 @@ from app.schemas.api import (
 from app.services import data_service
 from app.services.data_version_service import register_file_version
 from app.services.experiment_service import ExperimentService
-from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.ingestion.sql_loader import SqlLoader, redact
 from ml.data.versions import StoredVersion
 
@@ -61,24 +60,20 @@ async def upload_dataset(
 
     await asyncio.to_thread(save_upload)
     try:
-        try:
-            df = CsvLoader().load(str(file_path))
-        except Exception as e:  # any parse error becomes an HTTP 400
-            logger.error(f"Failed to parse uploaded CSV: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {e}") from e
+        loaded = await asyncio.to_thread(data_service.register, file_path, project_id, safe_name)
         stored = await register_file_version(
             db,
             file_path,
             project_id,
             kind="file",
-            origin={"type": "upload", "filename": safe_name},
-            n_rows=len(df),
-            n_columns=df.shape[1],
+            origin={"type": "upload", "filename": safe_name, "table": loaded.table},
+            n_rows=loaded.rows,
+            n_columns=len(loaded.columns),
         )
     finally:
         # The versioned copy is what experiments use; the upload itself isn't kept.
         file_path.unlink(missing_ok=True)
-    return _info(stored, safe_name, df.columns.tolist(), len(df))
+    return _info(stored, safe_name, loaded.columns, loaded.rows)
 
 
 @router.post("/sample", response_model=DatasetInfo)
@@ -90,18 +85,18 @@ async def load_sample_dataset(
     source = (Path(datasets.DATASETS_DIR) / filename).resolve()
     if source.parent != Path(datasets.DATASETS_DIR).resolve() or not source.exists():
         raise HTTPException(status_code=404, detail="Sample dataset not found")
-    df = data_service.load(source)
-    columns = df.columns.tolist()
+    loaded = await asyncio.to_thread(data_service.register, source, project_id, filename)
+    columns = loaded.columns
     stored = await register_file_version(
         db,
         source,
         project_id,
         kind="file",
-        origin={"type": "sample", "name": request.dataset_name},
-        n_rows=len(df),
-        n_columns=df.shape[1],
+        origin={"type": "sample", "name": request.dataset_name, "table": loaded.table},
+        n_rows=loaded.rows,
+        n_columns=len(columns),
     )
-    info = _info(stored, filename, columns, len(df))
+    info = _info(stored, filename, columns, loaded.rows)
     # Pre-select a likely target for the UI to be helpful
     info.default_target = "Churn" if "Churn" in columns else (columns[-1] if columns else None)
     return info
@@ -127,15 +122,23 @@ async def snapshot_sql_query(
     file_path = Path(datasets.UPLOAD_DIR) / f"sql_{file_id}.csv"
     df.to_csv(file_path, index=False)
     try:
+        loaded = await asyncio.to_thread(
+            data_service.register, file_path, project_id, f"sql_{file_id}.csv"
+        )
         stored = await register_file_version(
             db,
             file_path,
             project_id,
             kind="db_snapshot",
             # The connection is identified by its hash only: no host, user or password.
-            origin={"type": "sql", "connection": file_id, "query": request.query},
-            n_rows=len(df),
-            n_columns=df.shape[1],
+            origin={
+                "type": "sql",
+                "connection": file_id,
+                "query": request.query,
+                "table": loaded.table,
+            },
+            n_rows=loaded.rows,
+            n_columns=len(loaded.columns),
         )
     finally:
         file_path.unlink(missing_ok=True)
@@ -146,7 +149,7 @@ async def snapshot_sql_query(
 async def get_metrics(
     project_id: ProjectID, data_version_id: str, target_column: str, db: DBSession
 ) -> DataMetrics:
-    df = data_service.load(await data_service.version_path(db, data_version_id))
+    df = data_service.load(await data_service.version_path(db, data_version_id), project_id)
     return data_service.metrics(df, target_column)
 
 
@@ -154,7 +157,7 @@ async def get_metrics(
 async def get_columns(
     project_id: ProjectID, data_version_id: str, target_column: str, db: DBSession
 ) -> list[ColumnProfile]:
-    df = data_service.load(await data_service.version_path(db, data_version_id))
+    df = data_service.load(await data_service.version_path(db, data_version_id), project_id)
     return data_service.columns(df, target_column)
 
 
@@ -162,7 +165,7 @@ async def get_columns(
 async def get_leakage(
     project_id: ProjectID, data_version_id: str, target_column: str, db: DBSession
 ) -> list[LeakageFinding]:
-    df = data_service.load(await data_service.version_path(db, data_version_id))
+    df = data_service.load(await data_service.version_path(db, data_version_id), project_id)
     return await asyncio.to_thread(data_service.leakage, df, target_column)
 
 
@@ -185,6 +188,7 @@ async def get_suggestions(
     try:
         hypotheses = await ExperimentService(db).suggest_experiments(
             dataset_version=str(path),
+            project_id=project_id,
             target_column=target_column,
             objective=objective,
             max_hypotheses=3,

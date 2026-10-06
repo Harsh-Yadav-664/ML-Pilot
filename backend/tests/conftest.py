@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.jobs import handlers  # noqa: F401  (registers the job kinds)
 from app.jobs.runner import JobWorker
 from app.main import app
+from ml.data.workspace import close_all as close_all_workspaces
 from tests.fixtures.api import create_project
 
 # Not a secret: the token every test client sends (app/core/security.py).
@@ -55,6 +56,7 @@ def isolated_storage(
     """
     versions = tmp_path / "versions"
     monkeypatch.setattr(datasets, "VERSIONS_DIR", versions)
+    monkeypatch.setattr(datasets, "PROJECTS_DIR", tmp_path / "projects")
     factory = async_sessionmaker(
         create_async_engine(metadata_db_url, poolclass=NullPool), expire_on_commit=False
     )
@@ -73,6 +75,7 @@ def isolated_storage(
     monkeypatch.setattr(db_session, "AsyncSessionLocal", factory)
     monkeypatch.setattr(decision_agent_module, "AsyncSessionLocal", factory)
     yield versions
+    close_all_workspaces()  # release the project DuckDB files before tmp_path goes away
     if app.dependency_overrides.get(get_db) is test_db:
         del app.dependency_overrides[get_db]
 

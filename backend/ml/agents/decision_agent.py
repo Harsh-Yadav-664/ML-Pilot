@@ -11,15 +11,17 @@ Given a dataset, it will:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Protocol
 
 from ai.gateway import AIGateway
 from ai.router import TaskType
+from app.core import datasets
 from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate
 from app.services.experiment_service import ExperimentService
-from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.profiling.profiler import DataProfiler
+from ml.data.workspace import workspace_for
 from ml.experiments.planner import ExperimentPlanner
 from ml.models.engines import DEFAULT_ENGINE
 
@@ -70,8 +72,8 @@ class DecisionAgent:
         logger.info(f"Starting DecisionAgent optimization loop on {dataset_path}")
 
         # 1. Profile the dataset
-        loader = CsvLoader()
-        df = loader.load(dataset_path)
+        workspace = workspace_for(project_id, datasets.PROJECTS_DIR)
+        df = workspace.load(Path(dataset_path))
         profiler = DataProfiler()
         profile = profiler.profile(df, target_column=target_column)
 

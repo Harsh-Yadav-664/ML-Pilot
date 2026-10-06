@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -13,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import datasets
 from app.db.models import DataVersion
 from app.schemas.api import ColumnProfile, DataMetrics, LeakageFinding
-from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.profiling.profiler import DataProfiler
+from ml.data.versions import content_hash
+from ml.data.workspace import workspace_for
 from ml.validation.leakage import scan
 
 # The UI's severity scale: block -> high, warn -> medium, info -> low.
@@ -38,9 +40,34 @@ async def version_path(db: AsyncSession, data_version_id: str) -> Path:
     return path
 
 
-def load(path: Path) -> pd.DataFrame:
+def load(path: Path, project_id: str, filename: str | None = None) -> pd.DataFrame:
+    """The file as a DataFrame, read from the project's DuckDB table for it."""
     try:
-        return CsvLoader().load(str(path))
+        return workspace_for(project_id, datasets.PROJECTS_DIR).load(path, filename)
+    except Exception as e:  # any read error becomes an HTTP 400
+        raise HTTPException(status_code=400, detail=f"Could not load the dataset: {e}") from e
+
+
+@dataclass(frozen=True)
+class Registered:
+    version_id: str
+    table: str
+    columns: list[str]
+    rows: int
+
+
+def register(path: Path, project_id: str, filename: str) -> Registered:
+    """Load a file into the project's DuckDB as a table; HTTP 400 if it can't be parsed."""
+    ws = workspace_for(project_id, datasets.PROJECTS_DIR)
+    try:
+        version_id = content_hash(path)
+        table = ws.register_version(path, version_id, filename)
+        return Registered(
+            version_id=version_id,
+            table=table.name,
+            columns=[c.name for c in ws.source.table_schema(table).columns],
+            rows=ws.source.row_count(table),
+        )
     except Exception as e:  # any read error becomes an HTTP 400
         raise HTTPException(status_code=400, detail=f"Could not load the dataset: {e}") from e
 
