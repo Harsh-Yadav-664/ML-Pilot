@@ -1,6 +1,6 @@
 # MLPilot roadmap and product direction
 
-This is the product direction and phased plan behind the issues in `docs/roadmap/ISSUES.md`. Research done 2026-10-05 against `main` at `77a3d81`. Items marked **(verified)** were checked in code or a cited source; **(inferred)** marks judgement.
+This is the product direction and phased plan behind the GitHub issues listed in [#21](https://github.com/Harsh-Yadav-664/ML-Pilot/issues/21). Research done 2026-10-05 against `main` at `77a3d81`. Items marked **(verified)** were checked in code or a cited source; **(inferred)** marks judgement.
 
 ---
 

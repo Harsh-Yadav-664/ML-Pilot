@@ -14,7 +14,7 @@ A user connects read-only to a database (Postgres, SQLite, DuckDB; CSV/Parquet a
 4. outputs an **evidence report** and an **export bundle** (SQL/dbt features, model file, scoring script).
 
 Full reasoning, competitors, papers and phases: [`docs/ROADMAP.md`](docs/ROADMAP.md).
-Work items: GitHub issues titled `[phase.n] ...`, mirrored in [`docs/roadmap/ISSUES.md`](docs/roadmap/ISSUES.md) (the source is `docs/roadmap/issues_data.py`).
+Work items: GitHub issues titled `[phase.n] ...`, listed in tracking issue [#21](https://github.com/Harsh-Yadav-664/ML-Pilot/issues/21). GitHub is the only source for issues: edit them there. v1 is done when issue #102 ([5.6], the end-to-end acceptance test) is green on main.
 
 ## 2. Non-negotiable rules
 
@@ -56,7 +56,7 @@ Branch names: `issue-<number>-<short-slug>` unless your tool assigns one.
 | `backend/tests/` | `unit/` and `integration/` tests (pytest, asyncio auto mode) |
 | `frontend/` | React + Vite UI started by `start.py`. Sample data only in the explicit Demo mode |
 | `docker/` | docker-compose (demo Postgres DB planned in [2.6]) |
-| `docs/` | Architecture notes, `ROADMAP.md`, `roadmap/ISSUES.md` |
+| `docs/` | Architecture notes, `ROADMAP.md` |
 
 New modules planned by the roadmap (create them where the issues say): `backend/ml/data/sql_guard.py`, `backend/ml/data/schema_graph.py`, `backend/ml/tasks/` (task spec, labels, point-in-time guard), `backend/ml/features/` (safe eval, DFS, LLM SQL features), `backend/ml/reports/`, `backend/ml/export/`, `benchmarks/`.
 
