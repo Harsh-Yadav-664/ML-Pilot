@@ -27,6 +27,8 @@ class Connection(Base):
     last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Result of the privilege check; None until the connection has been tested.
     can_write: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # What the user decided about the schema graph (edges, time columns, static tables), #45.
+    schema_overrides: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

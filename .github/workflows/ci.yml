@@ -63,6 +63,8 @@ jobs:
         run: pytest -q -s -p no:logging tests/unit/test_demo_db.py -k "checksums or recency_feature or default_size"
       - name: SQL guard against Postgres (prints the refused hostile queries and can_write)
         run: pytest -q -s -p no:logging tests/integration/test_sql_guard_postgres.py
+      - name: Schema graph on the demo database (prints foreign keys found and inferred precision/recall)
+        run: pytest -q -s -p no:logging tests/unit/test_schema_graph.py tests/integration/test_schema_graph_postgres.py -k "declared or inferred"
       - name: Planted-leak suite (prints leakage precision/recall)
         run: python -m tests.fixtures.leakage.suite
       # The OpenAPI schema is the frontend's contract (frontend/openapi.json).

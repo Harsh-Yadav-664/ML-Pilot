@@ -71,6 +71,48 @@
         "title": "Body_upload_dataset_api_v1_projects__project_id__datasets_upload_post",
         "type": "object"
       },
+      "Column": {
+        "properties": {
+          "hint": {
+            "description": "id, time, numeric, boolean, text or other",
+            "enum": [
+              "id",
+              "time",
+              "numeric",
+              "boolean",
+              "text",
+              "other"
+            ],
+            "title": "Hint",
+            "type": "string"
+          },
+          "is_primary_key": {
+            "default": false,
+            "title": "Is Primary Key",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "nullable",
+          "hint"
+        ],
+        "title": "Column",
+        "type": "object"
+      },
       "ColumnProfile": {
         "properties": {
           "dist": {
@@ -725,6 +767,115 @@
           "importance_method"
         ],
         "title": "Debrief",
+        "type": "object"
+      },
+      "Edge": {
+        "properties": {
+          "cardinality": {
+            "description": "1:1 when the child columns are the child's primary key, else 1:N",
+            "enum": [
+              "1:1",
+              "1:N"
+            ],
+            "title": "Cardinality",
+            "type": "string"
+          },
+          "confidence": {
+            "description": "1.0 for declared and user edges",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "from_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "From Columns",
+            "type": "array"
+          },
+          "from_table": {
+            "title": "From Table",
+            "type": "string"
+          },
+          "overlap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inferred edges: share of sampled child keys found in the parent",
+            "title": "Overlap"
+          },
+          "source": {
+            "enum": [
+              "declared",
+              "inferred",
+              "user"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "to_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "To Columns",
+            "type": "array"
+          },
+          "to_table": {
+            "title": "To Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_table",
+          "from_columns",
+          "to_table",
+          "to_columns",
+          "source",
+          "confidence",
+          "cardinality"
+        ],
+        "title": "Edge",
+        "type": "object"
+      },
+      "EdgeRef": {
+        "description": "Names an edge in overrides.",
+        "properties": {
+          "from_columns": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "From Columns",
+            "type": "array"
+          },
+          "from_table": {
+            "title": "From Table",
+            "type": "string"
+          },
+          "to_columns": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "To Columns",
+            "type": "array"
+          },
+          "to_table": {
+            "title": "To Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_table",
+          "from_columns",
+          "to_table",
+          "to_columns"
+        ],
+        "title": "EdgeRef",
         "type": "object"
       },
       "ExperimentDecision": {
@@ -1604,6 +1755,118 @@
         "title": "SampleDatasetRequest",
         "type": "object"
       },
+      "SchemaGraph": {
+        "properties": {
+          "dialect": {
+            "title": "Dialect",
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/SchemaOverrides"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/Table"
+            },
+            "title": "Tables",
+            "type": "array"
+          },
+          "warnings": {
+            "description": "Things that could not be checked or no longer apply; never silent",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dialect",
+          "tables",
+          "edges"
+        ],
+        "title": "SchemaGraph",
+        "type": "object"
+      },
+      "SchemaOverrides": {
+        "description": "What the user decided. In a PATCH, a field that is given replaces the stored one.",
+        "properties": {
+          "add_edges": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EdgeRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Add Edges"
+          },
+          "remove_edges": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EdgeRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remove Edges"
+          },
+          "static_tables": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "table -> is_static",
+            "title": "Static Tables"
+          },
+          "time_columns": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "table -> column; null says the table has no time column",
+            "title": "Time Columns"
+          }
+        },
+        "title": "SchemaOverrides",
+        "type": "object"
+      },
       "SqlSnapshotRequest": {
         "description": "Run one read-only query and store the result as a data version.\n\nName a saved connection (``connection_id``, see /connections) or, until the UI moves to\nthose, pass a ``connection_string`` (never stored or echoed). Exactly one of the two.",
         "properties": {
@@ -1679,6 +1942,115 @@
           }
         },
         "title": "SuggestionIn",
+        "type": "object"
+      },
+      "Table": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/Column"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "db_schema": {
+            "title": "Db Schema",
+            "type": "string"
+          },
+          "is_static": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Confirmed by the user as a table without event times; None = unknown",
+            "title": "Is Static"
+          },
+          "key": {
+            "description": "Name used in edges and overrides: 'orders', or 'schema.orders'",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "primary_key": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Primary Key",
+            "type": "array"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "row_count_estimated": {
+            "default": false,
+            "title": "Row Count Estimated",
+            "type": "boolean"
+          },
+          "time_candidates": {
+            "description": "Best first",
+            "items": {
+              "type": "string"
+            },
+            "title": "Time Candidates",
+            "type": "array"
+          },
+          "time_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The column that says when a row happened",
+            "title": "Time Column"
+          },
+          "time_column_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inferred",
+                  "user"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Column Source"
+          },
+          "time_leakage_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the chosen time column is a last-modified time: rows are rewritten after the event, so it can leak the future (see #54)",
+            "title": "Time Leakage Hint"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "db_schema",
+          "row_count",
+          "primary_key",
+          "columns"
+        ],
+        "title": "Table",
         "type": "object"
       },
       "TaskType": {
@@ -2324,6 +2696,118 @@
           }
         },
         "summary": "Update Connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/connections/{connection_id}/schema": {
+      "get": {
+        "description": "Tables, columns, keys (declared and inferred) and time columns, with the user's\noverrides applied. Read through the SQL guard, so it is read-only.",
+        "operationId": "get_schema_api_v1_projects__project_id__connections__connection_id__schema_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaGraph"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Schema",
+        "tags": [
+          "connections"
+        ]
+      },
+      "patch": {
+        "description": "Store overrides (time columns, static tables, edges to add or remove). A field that is\ngiven replaces the stored one; a field left out is unchanged. Unknown names are a 422.",
+        "operationId": "update_schema_api_v1_projects__project_id__connections__connection_id__schema_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SchemaOverrides"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaGraph"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Schema",
         "tags": [
           "connections"
         ]

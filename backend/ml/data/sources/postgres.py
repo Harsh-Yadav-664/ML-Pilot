@@ -17,7 +17,14 @@ import pg8000.native
 import pyarrow as pa
 
 from ml.data import sql_guard
-from ml.data.engine import ColumnInfo, EngineError, QueryTimeout, TableRef, TableSchema
+from ml.data.engine import (
+    ColumnInfo,
+    EngineError,
+    ForeignKey,
+    QueryTimeout,
+    TableRef,
+    TableSchema,
+)
 from ml.data.sources.base import ConnectionFailure, ConnectionSpec, Privileges
 
 DEFAULT_PORT = 5432
@@ -137,20 +144,46 @@ class PostgresSource:
         )
         if not cols:
             raise EngineError(f"Table {table.schema}.{table.name} does not exist")
+        # pg_catalog, not information_schema: the latter hides the constraints of tables on
+        # which the role only has SELECT, which is exactly the role MLPilot connects with.
         pk = sql_guard.catalog(
             self,
-            "SELECT kcu.column_name FROM information_schema.table_constraints AS tc "
-            "JOIN information_schema.key_column_usage AS kcu "
-            "ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema "
-            "WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = :s "
-            "AND tc.table_name = :t ORDER BY kcu.ordinal_position",
+            "SELECT a.attname FROM pg_catalog.pg_constraint AS c "
+            "JOIN pg_catalog.pg_class AS t ON t.oid = c.conrelid "
+            "JOIN pg_catalog.pg_namespace AS n ON n.oid = t.relnamespace "
+            "CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(col, ord) "
+            "JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.conrelid AND a.attnum = k.col "
+            "WHERE c.contype = 'p' AND n.nspname = :s AND t.relname = :t ORDER BY k.ord",
             {"s": table.schema, "t": table.name},
         )
-        # Foreign keys come with schema introspection (#45).
+        fk_rows = sql_guard.catalog(
+            self,
+            "SELECT c.conname, a.attname, fn.nspname, fc.relname, fa.attname "
+            "FROM pg_catalog.pg_constraint AS c "
+            "JOIN pg_catalog.pg_class AS t ON t.oid = c.conrelid "
+            "JOIN pg_catalog.pg_namespace AS n ON n.oid = t.relnamespace "
+            "JOIN pg_catalog.pg_class AS fc ON fc.oid = c.confrelid "
+            "JOIN pg_catalog.pg_namespace AS fn ON fn.oid = fc.relnamespace "
+            "CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS k(col, fcol, ord) "
+            "JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.conrelid AND a.attnum = k.col "
+            "JOIN pg_catalog.pg_attribute AS fa ON fa.attrelid = c.confrelid "
+            "AND fa.attnum = k.fcol "
+            "WHERE c.contype = 'f' AND n.nspname = :s AND t.relname = :t "
+            "ORDER BY c.conname, k.ord",
+            {"s": table.schema, "t": table.name},
+        )
+        by_constraint: dict[str, tuple[TableRef, list[str], list[str]]] = {}
+        for name, col, ref_schema, ref_table, ref_col in fk_rows:
+            _, cols_, ref_cols = by_constraint.setdefault(
+                name, (TableRef(ref_table, ref_schema), [], [])
+            )
+            cols_.append(col)
+            ref_cols.append(ref_col)
         return TableSchema(
             table=table,
             columns=[ColumnInfo(n, t, nullable == "YES") for n, t, nullable in cols],
             primary_key=[r[0] for r in pk],
+            foreign_keys=[ForeignKey(c, ref, rc) for ref, c, rc in by_constraint.values()],
         )
 
     def query(

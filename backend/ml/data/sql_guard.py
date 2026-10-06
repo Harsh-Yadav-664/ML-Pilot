@@ -540,7 +540,9 @@ class _PostgresSession(_Session):
 SQLITE_DENIED_FUNCTIONS = frozenset(
     {"load_extension", "readfile", "writefile", "edit", "fts3_tokenizer"}
 )
-SQLITE_READ_PRAGMAS = frozenset({"table_info", "table_xinfo", "index_list", "index_info"})
+SQLITE_READ_PRAGMAS = frozenset(
+    {"table_info", "table_xinfo", "index_list", "index_info", "foreign_key_list"}
+)
 
 
 class _SqliteSession(_Session):
