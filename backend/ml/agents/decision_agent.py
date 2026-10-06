@@ -94,6 +94,10 @@ class DecisionAgent:
 
         experiments_info = []
         winner_features = []
+        # The champion is the best measured model so far: baseline, then each accepted
+        # candidate. Every candidate = champion's features + one new feature.
+        champion_id = baseline_id
+        champion_features: list[dict] = []
         best_f1 = baseline_f1
         
         # History for the sequential loop
@@ -120,7 +124,7 @@ class DecisionAgent:
             # Create experiment
             eid = await create_experiment(ExperimentCreate(
                 project_id="demo-project-id",
-                parent_id=baseline_id,
+                parent_id=champion_id,
                 dataset_version=dataset_path,
                 hypothesis=hypothesis.get("reason", "Generated hypothesis"),
                 change_description=f"Added feature: {hypothesis.get('name')} via formula {hypothesis.get('formula')}",
@@ -128,6 +132,7 @@ class DecisionAgent:
                 feature_set=[hypothesis.get("name")] if hypothesis.get("name") else [],
                 parameters={
                     "target_column": target_column,
+                    "features": champion_features,
                     "feature_name": hypothesis.get("name"),
                     "formula": hypothesis.get("formula")
                 }
@@ -200,16 +205,19 @@ class DecisionAgent:
 
             if result_info["decision"] == "keep":
                 winner_features.append(result_info["feature_name"])
-            if result_info["f1"] > best_f1:
-                best_f1 = result_info["f1"]
+                champion_id = eid
+                champion_features = champion_features + [{"name": feature_name, "formula": formula}]
+                best_f1 = result_f1
 
         summary = (
-            f"Tested {len(experiments_info)} features. Baseline F1: {baseline_f1:.4f}. "
-            f"Best F1: {best_f1:.4f}. Winners: {', '.join(winner_features) if winner_features else 'None'}."
+            f"Tested {len(experiments_info)} features. Baseline validation F1: {baseline_f1:.4f}. "
+            f"Champion validation F1: {best_f1:.4f}. Accepted: {', '.join(winner_features) if winner_features else 'None'}."
         )
 
         return {
             "winner_features": winner_features,
+            "champion_id": champion_id,
+            "champion_features": champion_features,
             "experiments": experiments_info,
             "best_f1": best_f1,
             "summary": summary

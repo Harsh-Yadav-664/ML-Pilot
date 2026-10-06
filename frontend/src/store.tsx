@@ -138,6 +138,9 @@ function bestOf(list: Experiment[], metric: MetricKey) {
   );
 }
 function pickChampion(list: Experiment[], id: string | null, metric: MetricKey) {
+  // Live mode: the backend decides the champion (accepted by rule, not by best test score).
+  const decided = list.find((e) => e.champion);
+  if (decided) return decided;
   return list.find((e) => e.id === id && e.status === 'completed' && e.decision !== 'reject') ?? bestOf(list, metric);
 }
 
@@ -549,15 +552,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (mv === undefined) return;
-        if (cm !== undefined && mv > cm) {
+        const newChampion = f.champion !== undefined ? f.champion : cm !== undefined && mv > cm;
+        if (newChampion) {
           championRef.current = f.id;
           setChampionId(f.id);
           pushFeed({
             kind: 'text',
             from: 'agent',
-            text: `${f.id} done — new champion. ${mk} ${mv.toFixed(3)}, up from ${cm.toFixed(3)} on ${ch?.id}. Keeping ${f.feature ? `${f.feature} ` : ''}in the working set.`,
+            text: `${f.id} done — new champion. ${mk} ${mv.toFixed(3)}${cm !== undefined ? `, previous champion ${ch?.id} had ${cm.toFixed(3)}` : ''}. Keeping ${f.feature ? `${f.feature} ` : ''}in the working set.`,
           });
-        } else if (f.feature && pm !== undefined && mv < pm) {
+        } else if (f.champion === undefined && f.feature && pm !== undefined && mv < pm) {
           commit(expRef.current.map((e) => (e.id === f.id ? { ...e, decision: 'reject' as Decision } : e)));
           pushFeed({
             kind: 'text',

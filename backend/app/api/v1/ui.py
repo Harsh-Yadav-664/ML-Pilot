@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 from app.api.deps import DBSession, Gateway
 from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate, ExperimentRead
-from app.services.experiment_service import ExperimentService
+from app.services.experiment_service import ExperimentService, champion_path
 from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.ingestion.sql_loader import SqlLoader, redact
 from ml.data.profiling.profiler import DataProfiler
@@ -344,6 +344,7 @@ async def get_experiment_tree(db: DBSession, dataset_path: Optional[str] = None)
         wanted = safe_dataset_path(dataset_path)
         exps = [e for e in exps if e.dataset_version == wanted]
     
+    path_ids = [e.id for e in champion_path(exps)]
     result = []
     for e in exps:
         params = e.parameters or {}
@@ -359,6 +360,8 @@ async def get_experiment_tree(db: DBSession, dataset_path: Optional[str] = None)
             "feature": params.get("feature_name"),
             "decision": e.decision if e.decision in ("keep", "reject") else ("baseline" if not e.parent_id else "none"),
             "error": e.decision_reason if e.status == "failed" else None,
+            "on_champion_path": e.id in path_ids,
+            "champion": bool(path_ids) and e.id == path_ids[-1],
         })
     return result
 
@@ -450,9 +453,18 @@ async def auto_clean_dataset(
     return ExperimentRead.model_validate(exp)
 
 @router.get("/experiments/{experiment_id}/export")
-async def export_experiment_script(experiment_id: str, db: DBSession):
-    """Export a python training script for the given experiment."""
+async def export_experiment_script(experiment_id: str, db: DBSession, dataset_path: Optional[str] = None):
+    """Export a python training script for an experiment, or for "champion" of a dataset."""
     svc = ExperimentService(db)
+    if experiment_id == "champion":
+        if not dataset_path:
+            raise HTTPException(status_code=400, detail="dataset_path is required to export the champion")
+        wanted = safe_dataset_path(dataset_path)
+        exps, _ = await svc.list_by_project(DEMO_PROJECT_ID, page=1, page_size=500)
+        path = champion_path([e for e in exps if e.dataset_version == wanted])
+        if not path:
+            raise HTTPException(status_code=404, detail="No completed baseline for this dataset yet")
+        experiment_id = path[-1].id
     exp = await svc.get(experiment_id)
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
@@ -464,6 +476,10 @@ async def export_experiment_script(experiment_id: str, db: DBSession):
             detail="Experiment has no recorded target encoding; run it to completion before exporting.",
         )
     classes_literal = json.dumps(target_encoding["classes"])
+    engineered = list(exp.parameters.get("features") or [])
+    if exp.parameters.get("feature_name") and exp.parameters.get("formula"):
+        engineered.append({"name": exp.parameters["feature_name"], "formula": exp.parameters["formula"]})
+    features_literal = json.dumps(engineered)
     excluded_literal = json.dumps(sorted(exp.parameters.get("excluded_features", {})))
     numeric_text_literal = json.dumps(sorted(exp.parameters.get("numeric_coercion", {})))
 
@@ -483,6 +499,9 @@ from sklearn.compose import ColumnTransformer
 import ast
 import json
 
+# Engineered features used by this experiment, in the order they were added
+FEATURES = json.loads({features_literal!r})
+
 # ID columns excluded from features, and text columns converted to numbers, when the experiment ran
 EXCLUDED_FEATURES = json.loads({excluded_literal!r})
 NUMERIC_TEXT_COLUMNS = json.loads({numeric_text_literal!r})
@@ -496,9 +515,7 @@ def load_and_prepare_data():
         df[col] = pd.to_numeric(df[col].astype("string").str.strip(), errors="coerce").astype("float64")
 
     # Feature Engineering
-    feature_name = "{exp.parameters.get('feature_name', '')}"
-    formula = "{exp.parameters.get('formula', '')}"
-    if feature_name and formula:
+    if FEATURES:
         def _safe_eval(node):
             if isinstance(node, ast.Expression):
                 return _safe_eval(node.body)
@@ -524,11 +541,11 @@ def load_and_prepare_data():
                 raise ValueError(f"Unsupported unary: {{type(node.op)}}")
             raise ValueError(f"Unsupported node: {{type(node)}}")
             
-        try:
-            tree = ast.parse(formula, mode='eval')
-            df[feature_name] = _safe_eval(tree)
-        except Exception:
-            df[feature_name] = 0
+        for feat in FEATURES:
+            try:
+                df[feat["name"]] = _safe_eval(ast.parse(feat["formula"], mode='eval'))
+            except Exception:
+                df[feat["name"]] = 0
         
     y = df["{exp.parameters.get('target_column', 'target')}"]
     X = df.drop(columns=["{exp.parameters.get('target_column', 'target')}"])

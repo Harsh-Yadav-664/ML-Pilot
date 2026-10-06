@@ -170,3 +170,23 @@ class ExperimentService:
             raise RuntimeError(f"Failed to generate hypotheses: {e}") from e
         return hypotheses
 
+
+
+def champion_path(experiments: list) -> list:
+    """Return the champion lineage: the latest completed baseline, then each kept child.
+
+    The last element is the champion, i.e. the best model that was actually measured
+    with all accepted features. Empty when there is no completed baseline.
+    """
+    roots = [e for e in experiments if e.parent_id is None and e.status == "completed"]
+    if not roots:
+        return []
+    path = [max(roots, key=lambda e: e.created_at)]
+    while True:
+        kept = [
+            e for e in experiments
+            if e.parent_id == path[-1].id and e.decision == "keep" and e.status == "completed"
+        ]
+        if not kept:
+            return path
+        path.append(max(kept, key=lambda e: e.created_at))
