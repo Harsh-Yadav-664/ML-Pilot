@@ -6,7 +6,7 @@ anyone: `generate.py` is seeded and uses numpy only, so the same seed always giv
 data (a test compares SHA-256 checksums of every table).
 
 ```bash
-docker compose -f docker/docker-compose.yml up demo-db     # PostgreSQL on 127.0.0.1:5433
+docker compose -f docker/demo-db/docker-compose.yml up demo-db     # PostgreSQL on 127.0.0.1:5433
 psql "postgresql://mlpilot_ro:mlpilot_demo_ro@127.0.0.1:5433/demo" -c '\dt'
 ```
 

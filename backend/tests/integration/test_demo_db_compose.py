@@ -1,4 +1,4 @@
-"""The Docker image of the demo database (`docker compose up demo-db`, #47).
+"""The Docker image of the demo database (`docker compose -f docker/demo-db/docker-compose.yml up demo-db`, #47).
 
 The CI job `demo-db` starts the compose service and sets MLPILOT_DEMO_PG_*; everywhere else
 this skips. In that job MLPILOT_DEMO_PG_REQUIRED=1 makes a missing database a failure.
@@ -30,7 +30,9 @@ def test_the_compose_demo_database_has_the_tables_the_roles_and_the_signal() -> 
     if not os.environ.get("MLPILOT_DEMO_PG_HOST"):
         if os.environ.get("MLPILOT_DEMO_PG_REQUIRED"):
             pytest.fail("MLPILOT_DEMO_PG_REQUIRED is set but the demo database is not configured")
-        pytest.skip("no demo database: run `docker compose up demo-db` and set MLPILOT_DEMO_PG_*")
+        pytest.skip(
+            "no demo database: start docker/demo-db/docker-compose.yml and set MLPILOT_DEMO_PG_*"
+        )
     ro = _spec("MLPILOT_DEMO_PG_RO_USER", "MLPILOT_DEMO_PG_RO_PASSWORD")
     rw = _spec("MLPILOT_DEMO_PG_RW_USER", "MLPILOT_DEMO_PG_RW_PASSWORD")
     counts = assert_demo_database(ro, rw, min_customers=10_000)

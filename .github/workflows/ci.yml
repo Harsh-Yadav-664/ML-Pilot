@@ -74,11 +74,11 @@ jobs:
   demo-db:
     runs-on: ubuntu-latest
     env:
-      COMPOSE: docker compose -f docker/docker-compose.yml
+      COMPOSE: docker compose -f docker/demo-db/docker-compose.yml
       MLPILOT_DEMO_PG_HOST: 127.0.0.1
       MLPILOT_DEMO_PG_PORT: "5433"
       MLPILOT_DEMO_PG_DB: demo
-      # The documented demo defaults of docker/docker-compose.yml (fake data, localhost only).
+      # The documented demo defaults of docker/demo-db/docker-compose.yml (fake data, localhost only).
       MLPILOT_DEMO_PG_RO_USER: mlpilot_ro
       MLPILOT_DEMO_PG_RO_PASSWORD: mlpilot_demo_ro
       MLPILOT_DEMO_PG_RW_USER: mlpilot_rw
