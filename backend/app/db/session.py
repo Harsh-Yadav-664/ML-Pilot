@@ -30,12 +30,3 @@ async def get_db() -> AsyncGenerator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
-
-
-async def create_all_tables() -> None:
-    """Create all tables (dev only — use Alembic in production)."""
-    import app.db.models  # noqa: F401
-    from app.db.base import Base
-
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)

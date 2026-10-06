@@ -40,6 +40,17 @@ class Experiment(Base):
     decision: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
     decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     agent_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True)
+    data_version_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("data_versions.id"), nullable=True
+    )
+    val_metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    test_metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # The full accept/reject record (rule, gains, evidence); `decision` stays the short label.
+    decision_detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    decision_mode: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # rule, llm, fallback
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

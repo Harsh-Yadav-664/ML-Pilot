@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -12,7 +13,7 @@ from fastapi.responses import JSONResponse
 from app.api.v1 import chat, datasets, experiments, hypotheses, models, projects, reports, ui
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
-from app.db.session import create_all_tables
+from app.db.migrations import upgrade_to_head
 
 setup_logging(settings.LOG_LEVEL)
 logger = get_logger(__name__)
@@ -22,8 +23,8 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan: startup and shutdown."""
     logger.info("Starting up MLPilot backend...")
-    await create_all_tables()
-    logger.info("Database tables ready.")
+    await asyncio.to_thread(upgrade_to_head)
+    logger.info("Database schema is at the latest migration.")
     yield
     logger.info("Shutting down MLPilot backend.")
 
