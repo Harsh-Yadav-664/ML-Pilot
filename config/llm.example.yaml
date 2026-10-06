@@ -1,0 +1,19 @@
+# MLPilot LLM routing. Copy to config/llm.yaml and point MLPILOT_LLM_CONFIG at it.
+# Each tier is tried in order; providers without a key (or Ollama URL) are skipped,
+# and the offline stub is always the last resort (recorded as decision_mode: fallback).
+# Keys stay in environment variables (backend/.env), never in this file.
+#
+# Providers: groq, gemini, nvidia_nim, openrouter, cerebras, mistral, openai, anthropic, ollama
+tiers:
+  # summaries, explanations, formatting
+  cheap:
+    - groq:llama-3.1-8b-instant
+    - ollama:llama3.1
+  # feature hypotheses, analysis, decisions explained to users
+  reasoning:
+    - anthropic:claude-3-5-sonnet-20241022
+    - openai:gpt-4o
+    - ollama:llama3.1
+  # SQL features for relational tasks
+  sql:
+    - ollama:qwen2.5-coder

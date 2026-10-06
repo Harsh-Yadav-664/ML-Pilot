@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     MISTRAL_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
+    # Local models via Ollama (no key; nothing leaves the machine), e.g. http://localhost:11434
+    OLLAMA_BASE_URL: str | None = None
 
     # ── AI defaults ───────────────────────────────────────────────────
     DEFAULT_AI_PROVIDER: str = "stub"

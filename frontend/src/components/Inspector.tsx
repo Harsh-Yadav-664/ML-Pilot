@@ -123,6 +123,12 @@ export function Inspector() {
                 ))}
               </div>
 
+              {exp.hypothesis_mode === 'fallback' && (
+                <div className="mt-3 border-l-[3px] border-copper bg-copper/5 p-3 font-mono text-[11.5px] leading-relaxed text-copper">
+                  LLM fallback: this idea came from the offline stub provider, not a real model.
+                </div>
+              )}
+
               {(exp.status === 'failed' || exp.status === 'rejected_invalid') && exp.error && (
                 <div className="mt-3 border-l-[3px] border-clay bg-clay/5 p-3 font-mono text-[11.5px] leading-relaxed text-clay">{exp.error}</div>
               )}
