@@ -3,22 +3,20 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-import httpx
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 import ml.experiments.executor as executor_module
+from app.core import datasets
 from app.db.models.experiment import Experiment
-from app.db.session import get_db
-from app.main import app
 from ml.agents.decision_agent import DecisionAgent
 from ml.experiments.acceptance import GainResult
 from ml.experiments.planner import ExperimentPlanner
+from tests.fixtures.api import API, load_sample
 from tests.fixtures.gateway import stub_gateway
-from tests.integration.test_agent_loop_telecom import session_factory  # noqa: F401  (fixture)
 
-SAMPLE = Path(__file__).resolve().parents[2] / "datasets" / "telecom_churn.csv"
 FEATURES = [
     {"name": "charge_x_tenure", "formula": "MonthlyCharges * tenure"},
     {"name": "avg_charge", "formula": "TotalCharges / (tenure + 1)"},
@@ -32,7 +30,9 @@ def _always_accept(X_base, X_candidate, y, make_pipeline, rule=None, random_stat
     )
 
 
-async def test_three_accepted_features_accumulate_in_the_champion(session_factory, monkeypatch):  # noqa: F811
+async def test_three_accepted_features_accumulate_in_the_champion(
+    client, project_id, metadata_db_url, monkeypatch, tmp_path
+):
     monkeypatch.setitem(sys.modules, "optuna", None)
     # This test is about the champion mechanics, so acceptance is forced; the rule itself
     # is tested in tests/unit/test_acceptance.py.
@@ -45,13 +45,17 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
 
     monkeypatch.setattr(ExperimentPlanner, "generate_next_hypothesis", propose)
 
+    version = (await load_sample(client, project_id))["data_version_id"]
+    path = datasets.VERSIONS_DIR / f"{version}.csv"
     result = await DecisionAgent(stub_gateway(), settings=None).run_optimization_loop(
-        str(SAMPLE), "Churn", n_hypotheses=3
+        str(path), "Churn", n_hypotheses=3, project_id=project_id
     )
 
     assert [f["name"] for f in result["champion_features"]] == [f["name"] for f in FEATURES]
-    async with session_factory() as session:
-        exps = {e.id: e for e in (await session.execute(select(Experiment))).scalars().all()}
+    factory = async_sessionmaker(create_async_engine(metadata_db_url, poolclass=NullPool))
+    async with factory() as session:
+        rows = await session.execute(select(Experiment).where(Experiment.project_id == project_id))
+        exps = {e.id: e for e in rows.scalars().all()}
     champion = exps[result["champion_id"]]
     # The champion run itself contained all three features...
     used = [f["name"] for f in champion.parameters["features"]] + [
@@ -69,24 +73,9 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
         cur = exps.get(cur.parent_id) if cur.parent_id else None
     assert len(chain) == 4 and chain[-1].parent_id is None
 
-    async def override_db():
-        async with session_factory() as session:
-            yield session
-
-    app.dependency_overrides[get_db] = override_db
-    try:
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            tree = (
-                await client.get(
-                    "/api/v1/ui/experiments/tree", params={"dataset_path": str(SAMPLE)}
-                )
-            ).json()
-            exported = await client.get(
-                "/api/v1/ui/experiments/champion/export", params={"dataset_path": str(SAMPLE)}
-            )
-    finally:
-        app.dependency_overrides.clear()
+    base = f"{API}/projects/{project_id}/experiments"
+    tree = (await client.get(base, params={"data_version_id": version})).json()
+    exported = await client.get(f"{base}/champion/export", params={"data_version_id": version})
     flagged = [e["id"] for e in tree if e["champion"]]
     assert flagged == [champion.id]
     assert sum(e["on_champion_path"] for e in tree) == 4
@@ -98,7 +87,7 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
     # The exported champion script rebuilds all three features and trains.
     import subprocess
 
-    path = Path(session_factory.kw["bind"].url.database).parent / "champion.py"
+    path = tmp_path / "champion.py"
     path.write_text(script)
     # Blocking is fine here: the test waits for the exported script on purpose.
     run = subprocess.run(  # noqa: ASYNC221

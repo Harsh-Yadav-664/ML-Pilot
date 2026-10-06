@@ -1,82 +1,88 @@
-"""API refuses files outside MLPilot's data dirs and never echoes DB passwords."""
+"""The API takes no file paths, stays inside projects and never echoes DB passwords."""
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
-from app.main import app
+from tests.fixtures.api import API, create_project, load_sample
 
-
-@pytest.fixture
-async def client():
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-
-BAD_PATHS = [
+BAD_IDS = [
     "../../etc/passwd",
-    "/etc/passwd",
-    "datasets/../../../etc/passwd",
-    "datasets/telecom_churn.py",
+    "..%2F..%2Fetc%2Fpasswd",
+    "a" * 64,  # well-formed, but no such version
+    "A" * 64,
+    "telecom_churn",
+]
+
+DATA_GETS = ["metrics", "columns", "leakage", "suggestions"]
+VERSION_POSTS = [
+    "experiments",
+    "experiments/baseline",
+    "experiments/auto-clean",
+    "agent/auto-optimize",
 ]
 
 
-@pytest.mark.parametrize("bad", BAD_PATHS)
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        "/api/v1/ui/data/metrics",
-        "/api/v1/ui/data/columns",
-        "/api/v1/ui/data/leakage-warnings",
-        "/api/v1/ui/agent/suggestions",
-    ],
-)
-async def test_get_endpoints_reject_paths_outside_data_dirs(client, endpoint, bad):
-    resp = await client.get(endpoint, params={"dataset_path": bad, "target_column": "Churn"})
-    assert resp.status_code == 400
+@pytest.mark.parametrize("bad", BAD_IDS)
+@pytest.mark.parametrize("endpoint", DATA_GETS)
+async def test_get_endpoints_404_on_unknown_versions(client, project_id, endpoint, bad):
+    resp = await client.get(
+        f"{API}/projects/{project_id}/datasets/{bad}/{endpoint}", params={"target_column": "Churn"}
+    )
+    assert resp.status_code == 404
     assert "root:" not in resp.text
 
 
-@pytest.mark.parametrize("bad", BAD_PATHS)
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        "/api/v1/ui/experiments/baseline",
-        "/api/v1/ui/experiments/run",
-        "/api/v1/ui/agent/auto-clean",
-        "/api/v1/ui/agent/auto-optimize",
-    ],
-)
-async def test_post_endpoints_reject_paths_outside_data_dirs(client, endpoint, bad):
-    resp = await client.post(endpoint, json={"dataset_path": bad, "target_column": "Churn"})
-    assert resp.status_code == 400
-
-
-async def test_create_experiment_rejects_bad_dataset_version(client):
+@pytest.mark.parametrize("bad", BAD_IDS)
+@pytest.mark.parametrize("endpoint", VERSION_POSTS)
+async def test_post_endpoints_404_on_unknown_versions(client, project_id, endpoint, bad):
     resp = await client.post(
-        "/api/v1/experiments/",
-        json={
-            "project_id": "p",
-            "dataset_version": "../../etc/passwd",
-            "hypothesis": "h",
-            "change_description": "c",
-            "model_name": "RandomForestClassifier",
-            "parameters": {"target_column": "x"},
-        },
+        f"{API}/projects/{project_id}/{endpoint}",
+        json={"data_version_id": bad, "target_column": "Churn"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 404
 
 
-async def test_sample_dataset_is_allowed(client):
-    resp = await client.post("/api/v1/ui/data/sample", json={})
-    assert resp.status_code == 200
-    path = resp.json()["dataset_path"]
-    resp = await client.get(
-        "/api/v1/ui/data/metrics", params={"dataset_path": path, "target_column": "Churn"}
+@pytest.mark.parametrize("endpoint", VERSION_POSTS)
+async def test_post_endpoints_require_a_data_version(client, project_id, endpoint):
+    resp = await client.post(
+        f"{API}/projects/{project_id}/{endpoint}", json={"target_column": "Churn"}
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["experiments", "datasets/sample", "chat/ask", "agent/auto-optimize/x"],
+)
+async def test_unknown_project_is_404(client, path):
+    method = client.post if path in ("datasets/sample", "chat/ask") else client.get
+    kwargs = {"json": {"query": "q"}} if path == "chat/ask" else {}
+    resp = await method(f"{API}/projects/no-such-project/{path}", **kwargs)
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Project not found"
+
+
+async def test_sample_name_cannot_escape_the_samples_dir(client, project_id):
+    resp = await client.post(
+        f"{API}/projects/{project_id}/datasets/sample", json={"dataset_name": "../app/main"}
+    )
+    assert resp.status_code == 404
+
+
+async def test_experiments_of_another_project_are_not_visible(client, project_id):
+    version = (await load_sample(client, project_id))["data_version_id"]
+    base = (
+        await client.post(
+            f"{API}/projects/{project_id}/experiments/baseline",
+            json={"data_version_id": version, "target_column": "Churn"},
+        )
+    ).json()
+    other = await create_project(client, "Other")
+    assert (await client.get(f"{API}/projects/{other}/experiments")).json() == []
+    for suffix in ("", "/export", "/debrief"):
+        resp = await client.get(f"{API}/projects/{other}/experiments/{base['id']}{suffix}")
+        assert resp.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -87,17 +93,18 @@ async def test_sample_dataset_is_allowed(client):
         "sqlite:////nonexistent/dir/s3cretpw.db",
     ],
 )
-async def test_connect_sql_error_does_not_leak_password(client, conn):
+async def test_sql_snapshot_error_does_not_leak_password(client, project_id, conn):
     resp = await client.post(
-        "/api/v1/ui/data/connect-sql", json={"connection_string": conn, "query": "SELECT 1"}
+        f"{API}/projects/{project_id}/datasets/sql",
+        json={"connection_string": conn, "query": "SELECT 1"},
     )
     assert resp.status_code == 400
     assert "s3cretpw" not in resp.text
 
 
-async def test_connect_sql_refuses_writes(client, tmp_path):
+async def test_sql_snapshot_refuses_writes(client, project_id, tmp_path):
     resp = await client.post(
-        "/api/v1/ui/data/connect-sql",
+        f"{API}/projects/{project_id}/datasets/sql",
         json={
             "connection_string": f"sqlite:///{tmp_path / 'x.db'}",
             "query": "SELECT 1; DROP TABLE t",
@@ -105,27 +112,3 @@ async def test_connect_sql_refuses_writes(client, tmp_path):
     )
     assert resp.status_code == 400
     assert "Exactly one statement" in resp.json()["detail"]
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        "/api/v1/ui/experiments/baseline",
-        "/api/v1/ui/experiments/run",
-        "/api/v1/ui/agent/auto-clean",
-        "/api/v1/ui/agent/auto-optimize",
-    ],
-)
-async def test_post_endpoints_require_dataset_path(client, endpoint):
-    resp = await client.post(endpoint, json={"target_column": "Churn"})
-    assert resp.status_code == 400
-    assert "dataset_path is required" in resp.text
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    ["/api/v1/ui/data/metrics", "/api/v1/ui/data/leakage-warnings", "/api/v1/ui/agent/suggestions"],
-)
-async def test_get_endpoints_require_dataset_path(client, endpoint):
-    resp = await client.get(endpoint, params={"target_column": "Churn"})
-    assert resp.status_code == 422

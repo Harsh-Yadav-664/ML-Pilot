@@ -1,169 +1,38 @@
-"""Chat Panel API endpoints."""
+"""Chat panel: grounded Q&A over a project's recorded experiments."""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException
 
 from ai.router import TaskType
-from app.api.deps import DBSession, Gateway
+from app.api.deps import DBSession, Gateway, ProjectID
+from app.schemas.api import AskRequest, AskResponse
 from app.services.experiment_service import ExperimentService
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/chat", tags=["chat"])
-
-# Global event bus for live narration (5.3) and HITL (5.4)
-# In production, use Redis pub/sub. For MVP, in-memory queues per run_id.
-import asyncio
-from collections import defaultdict
-
-LIVE_CHANNELS: dict[str, set[asyncio.Queue]] = defaultdict(set)
-CHECKPOINT_FUTURES: dict[str, asyncio.Future] = {}
+router = APIRouter(prefix="/projects/{project_id}/chat", tags=["chat"])
 
 
-def publish_live_event(run_id: str, message: str, event_type: str = "narration"):
-    """Publish a live event to all connected websocket clients for a run."""
-    payload = {"type": event_type, "message": message}
-    for q in list(LIVE_CHANNELS[run_id]):
-        q.put_nowait(payload)
-
-
-async def wait_for_checkpoint(run_id: str, prompt: str) -> str:
-    """Pause execution and wait for human input via chat."""
-    publish_live_event(run_id, prompt, event_type="checkpoint_request")
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-    CHECKPOINT_FUTURES[run_id] = future
-    return await future
-
-
-from pydantic import BaseModel
-
-
-class AskRequest(BaseModel):
-    query: str
-    project_id: str = "demo-project-id"
-
-
-class SettingsRequest(BaseModel):
-    query: str
-
-
-class CheckpointReplyRequest(BaseModel):
-    reply: str
-
-
-@router.post("/ask")
-async def ask_history(request: AskRequest, db: DBSession, gateway: Gateway) -> dict[str, Any]:
-    """
-    5.2 Grounded Q&A over experiment history.
-    Retrieves history and answers based strictly on recorded reasoning.
-    """
-    svc = ExperimentService(db)
-    exps, _ = await svc.list_by_project(request.project_id, 1, 50)
-
-    # Format context
-    context_lines = []
-    for e in exps:
-        context_lines.append(
-            f"Exp {e.id}: Model {e.model_name}, Status {e.status}, Metrics: {e.metrics}, Reason: {e.decision_reason}"
-        )
-    context = "\n".join(context_lines)
-
-    prompt = f"User asked: {request.query}\n\nExperiment History:\n{context}\n\nAnswer strictly based on the history above. Cite experiment IDs."
-
+@router.post("/ask", response_model=AskResponse)
+async def ask_history(
+    request: AskRequest, project_id: ProjectID, db: DBSession, gateway: Gateway
+) -> AskResponse:
+    """Answer a question strictly from the project's recorded experiment history."""
+    exps, _ = await ExperimentService(db).list_by_project(project_id, 1, 50)
+    context = "\n".join(
+        f"Exp {e.id}: Model {e.model_name}, Status {e.status}, Metrics: {e.metrics},"
+        f" Reason: {e.decision_reason}"
+        for e in exps
+    )
+    prompt = (
+        f"User asked: {request.query}\n\nExperiment History:\n{context}\n\n"
+        "Answer strictly based on the history above. Cite experiment IDs."
+    )
     try:
-        response = await gateway.complete(TaskType.ANALYZE, prompt)
-        return {"answer": response, "grounding_context": context}
+        answer = await gateway.complete(TaskType.ANALYZE, prompt)
     except RuntimeError as e:
         logger.error(f"Failed to answer Q&A: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/settings")
-async def update_settings_nl(request: SettingsRequest, gateway: Gateway) -> dict[str, Any]:
-    """
-    5.5 Natural-language settings control.
-    Parses NL into structured configuration changes.
-    """
-    prompt = f"Extract settings from: '{request.query}'"
-    schema = {
-        "type": "object",
-        "properties": {
-            "model_family_restriction": {"type": "string"},
-            "optimization_metric": {"type": "string"},
-            "max_runtime_minutes": {"type": "integer"},
-        },
-    }
-
-    try:
-        parsed = await gateway.complete_structured(TaskType.FORMAT, prompt, schema)
-        return {"action": "update_settings", "parsed_settings": parsed}
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/debrief/{experiment_id}")
-async def get_debrief(experiment_id: str, db: DBSession, gateway: Gateway) -> dict[str, Any]:
-    """
-    5.6 Post-run plain-language debrief.
-
-    Grounded only in the recorded metrics and the model's built-in feature
-    importances for the dataset's real columns. SHAP is not implemented yet.
-    """
-    svc = ExperimentService(db)
-    exp = await svc.get(experiment_id)
-    if not exp:
-        raise HTTPException(status_code=404, detail="Experiment not found")
-
-    params = exp.parameters or {}
-    importances = params.get("feature_importances") or {}
-    method = params.get("importance_method", "not available: the run recorded no importances")
-    if importances:
-        drivers = f"Feature importances ({method}): {importances}."
-    else:
-        drivers = f"Feature importances are {method}. Do not name any feature as a driver."
-
-    prompt = (
-        f"Experiment {exp.id} used {exp.model_name}. Metrics: {exp.metrics}. {drivers} "
-        "Write a 3-sentence plain-language debrief. Only mention columns listed above, "
-        "and say that the importances are the model's built-in ones, not SHAP."
-    )
-
-    try:
-        debrief = await gateway.complete(TaskType.REPORT, prompt)
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    return {"debrief": debrief, "feature_importances": importances, "importance_method": method}
-
-
-@router.post("/checkpoint/{run_id}/reply")
-async def reply_checkpoint(run_id: str, request: CheckpointReplyRequest) -> dict[str, str]:
-    """
-    5.4 HITL checkpoints surfaced in chat.
-    Endpoint to receive user reply for a paused run.
-    """
-    if run_id in CHECKPOINT_FUTURES and not CHECKPOINT_FUTURES[run_id].done():
-        CHECKPOINT_FUTURES[run_id].set_result(request.reply)
-        return {"status": "resumed"}
-    raise HTTPException(status_code=400, detail="No active checkpoint for this run")
-
-
-@router.websocket("/stream/{run_id}")
-async def stream_live_narration(websocket: WebSocket, run_id: str):
-    """
-    5.3 Live narration during a run.
-    WebSocket for streaming events to the UI.
-    """
-    await websocket.accept()
-    q: asyncio.Queue[Any] = asyncio.Queue()
-    LIVE_CHANNELS[run_id].add(q)
-
-    try:
-        while True:
-            event = await q.get()
-            await websocket.send_json(event)
-    except WebSocketDisconnect:
-        LIVE_CHANNELS[run_id].remove(q)
+        raise HTTPException(status_code=502, detail=f"Q&A failed: {e}") from e
+    return AskResponse(answer=answer, grounding_context=context)

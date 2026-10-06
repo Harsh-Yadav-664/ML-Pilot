@@ -5,14 +5,18 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+import app.db.session as db_session
+import ml.agents.decision_agent as decision_agent_module
 from app.core import datasets
 from app.db.migrations import upgrade_to_head
 from app.db.session import get_db
 from app.main import app
+from tests.fixtures.api import create_project
 
 
 @pytest.fixture(scope="session")
@@ -27,9 +31,9 @@ def metadata_db_url(tmp_path_factory: pytest.TempPathFactory) -> str:
 def isolated_storage(
     metadata_db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[Path]:
-    """Point data versions at a temp dir and API sessions at the temporary DB.
+    """Point data versions at a temp dir, and API and background sessions at the temp DB.
 
-    Tests that need their own DB still override get_db themselves; that wins.
+    Tests that need their own DB still override these themselves; that wins.
     """
     versions = tmp_path / "versions"
     monkeypatch.setattr(datasets, "VERSIONS_DIR", versions)
@@ -47,6 +51,22 @@ def isolated_storage(
                 raise
 
     app.dependency_overrides[get_db] = test_db
+    # Background runs and the agent open their own sessions.
+    monkeypatch.setattr(db_session, "AsyncSessionLocal", factory)
+    monkeypatch.setattr(decision_agent_module, "AsyncSessionLocal", factory)
     yield versions
     if app.dependency_overrides.get(get_db) is test_db:
         del app.dependency_overrides[get_db]
+
+
+@pytest.fixture
+async def client() -> AsyncGenerator[httpx.AsyncClient]:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+@pytest.fixture
+async def project_id(client: httpx.AsyncClient) -> str:
+    """A fresh project, created through the API like the UI does."""
+    return await create_project(client)

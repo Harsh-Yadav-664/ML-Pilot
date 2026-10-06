@@ -49,25 +49,3 @@ class ExperimentUpdate(BaseModel):
     decision: ExperimentDecision | None = None
     decision_reason: str | None = None
     metrics: dict[str, float | None] | None = None
-
-
-class ExperimentSuggestRequest(BaseModel):
-    dataset_version: str
-    target_column: str
-    objective: str
-    max_hypotheses: int = 3
-
-
-class ExperimentSuggestion(BaseModel):
-    name: str
-    formula: str
-    reason: str
-    risk: str
-    required_columns: list[str]
-    availability_assumption: str
-
-
-class ExperimentSuggestResponse(BaseModel):
-    dataset_version: str
-    objective: str
-    hypotheses: list[ExperimentSuggestion]

@@ -15,10 +15,10 @@ SAMPLE = str(Path(__file__).resolve().parents[2] / "datasets" / "telecom_churn.c
 async def test_telecom_baseline_under_60s_and_records_changes():
     loader = CsvLoader()
     executor = LocalExperimentExecutor(data_loader_func=lambda p: loader.load(p))
-    # Same spec as POST /ui/experiments/baseline.
+    # Same spec as POST /projects/{p}/experiments/baseline.
     spec = ExperimentSpec(
         id="speed",
-        project_id="demo-project-id",
+        project_id="p",
         dataset_version=SAMPLE,
         hypothesis="Deterministic baseline without new features",
         change_description="Baseline run using RandomForestClassifier",

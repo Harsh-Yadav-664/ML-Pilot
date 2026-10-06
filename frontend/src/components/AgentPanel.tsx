@@ -8,7 +8,12 @@ import { Btn, Eyebrow, Led, STATUS, Tag } from '../ui';
 function Stream({ text, on }: { text: string; on: boolean }) {
   const [n, setN] = useState(on ? 0 : text.length);
   useEffect(() => {
-    if (!on) return;
+    // Once this is no longer the live message, show all of it: a frozen half-typed
+    // line used to stay truncated on screen.
+    if (!on) {
+      setN(text.length);
+      return;
+    }
     const t = setInterval(() => setN((v) => (v >= text.length ? (clearInterval(t), v) : v + 2)), 16);
     return () => clearInterval(t);
   }, [text, on]);

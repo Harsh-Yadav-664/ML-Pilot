@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import chat, datasets, experiments, hypotheses, models, projects, reports, ui
+from app.api.v1 import agent, chat, datasets, experiments, projects
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.migrations import upgrade_to_head
@@ -50,10 +50,7 @@ API_PREFIX = "/api/v1"
 app.include_router(projects.router, prefix=API_PREFIX)
 app.include_router(datasets.router, prefix=API_PREFIX)
 app.include_router(experiments.router, prefix=API_PREFIX)
-app.include_router(hypotheses.router, prefix=API_PREFIX)
-app.include_router(models.router, prefix=API_PREFIX)
-app.include_router(reports.router, prefix=API_PREFIX)
-app.include_router(ui.router, prefix=API_PREFIX)
+app.include_router(agent.router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)
 
 
