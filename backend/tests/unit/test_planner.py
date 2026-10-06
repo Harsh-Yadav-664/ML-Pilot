@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ai.context_builder import ContextBuilder
 from ml.core.interfaces import ProfileResult
 from ml.experiments.planner import ExperimentPlanner
 from tests.fixtures.gateway import stub_gateway
@@ -20,7 +21,7 @@ def make_profile() -> ProfileResult:
 
 
 async def test_generate_next_hypothesis_returns_schema_fields():
-    planner = ExperimentPlanner(stub_gateway())
+    planner = ExperimentPlanner(stub_gateway(), ContextBuilder())
 
     hyp = await planner.generate_next_hypothesis(
         profile=make_profile(),

@@ -15,6 +15,7 @@ import {
   testConnection,
   updateConnection,
 } from '../api/connections';
+import { PrivacyRead, getPrivacy, putPrivacy } from '../api/privacy';
 import { SchemaGraph, compact, describeEdge } from '../components/SchemaGraph';
 import { Btn, CardHeader, Eyebrow, Leader, Panel, Tag } from '../ui';
 import { cn } from '../utils/cn';
@@ -110,11 +111,15 @@ function TablePanel({
   graph,
   tableKey,
   onGraph,
+  privacy,
+  onNeverSend,
 }: {
   connectionId: string;
   graph: SchemaGraphData;
   tableKey: string;
   onGraph: (g: SchemaGraphData) => void;
+  privacy: PrivacyRead | null;
+  onNeverSend: (table: string, column: string, on: boolean) => void;
 }) {
   const table = graph.tables.find((t) => t.key === tableKey);
   const [stats, setStats] = useState<TableStatsData | null>(null);
@@ -149,6 +154,8 @@ function TablePanel({
     }
   };
 
+  const excluded = new Set((privacy?.never_send ?? []).map((x) => x.toLowerCase()));
+  const everywhere = new Set([...excluded].filter((x) => !x.includes('.')));
   const edges = graph.edges.filter((e) => e.from_table === tableKey || e.to_table === tableKey);
 
   return (
@@ -225,7 +232,10 @@ function TablePanel({
                 <th className="py-1 pr-2 font-medium">column</th>
                 <th className="pr-2 font-medium">null</th>
                 <th className="pr-2 font-medium">distinct</th>
-                <th className="font-medium">range</th>
+                <th className="pr-2 font-medium">range</th>
+                <th className="font-medium" title="Never include this column in a prompt to the LLM">
+                  never send
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -243,7 +253,17 @@ function TablePanel({
                     </td>
                     <td className="pr-2 text-bone-dim">{s ? pct1(s.null_fraction) : ''}</td>
                     <td className="pr-2 text-bone-dim">{s ? num(s.distinct) : ''}</td>
-                    <td className="text-bone-dim">{range}</td>
+                    <td className="pr-2 text-bone-dim">{range}</td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Never send ${c.name} to the LLM`}
+                        disabled={!privacy || everywhere.has(c.name.toLowerCase())}
+                        title={everywhere.has(c.name.toLowerCase()) ? 'Excluded for every table (Settings)' : undefined}
+                        checked={!!privacy && (excluded.has(`${table.key}.${c.name}`.toLowerCase()) || everywhere.has(c.name.toLowerCase()))}
+                        onChange={(e) => onNeverSend(table.key, c.name, e.target.checked)}
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -277,6 +297,24 @@ export function ConnectView() {
   const [graph, setGraph] = useState<SchemaGraphData | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [privacy, setPrivacy] = useState<PrivacyRead | null>(null);
+
+  useEffect(() => {
+    getPrivacy()
+      .then(setPrivacy)
+      .catch(() => setPrivacy(null));
+  }, []);
+
+  const setNeverSend = async (table: string, column: string, on: boolean) => {
+    if (!privacy) return;
+    const key = `${table}.${column}`;
+    const rest = (privacy.never_send ?? []).filter((x) => x.toLowerCase() !== key.toLowerCase());
+    try {
+      setPrivacy(await putPrivacy({ level: privacy.level, never_send: on ? [...rest, key] : rest }));
+    } catch (e) {
+      setError(describeError(e));
+    }
+  };
 
   const refreshExisting = useCallback(() => {
     listConnections()
@@ -550,7 +588,7 @@ export function ConnectView() {
                   </ul>
                 )}
                 {selected ? (
-                  <TablePanel connectionId={saved.id} graph={graph} tableKey={selected} onGraph={setGraph} />
+                  <TablePanel connectionId={saved.id} graph={graph} tableKey={selected} onGraph={setGraph} privacy={privacy} onNeverSend={(t, c, on) => void setNeverSend(t, c, on)} />
                 ) : (
                   <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-mute">Click a table to see its columns, statistics and event-time column.</p>
                 )}

@@ -3,6 +3,8 @@ import { useStore } from '../store';
 import { Provider } from '../types';
 import { cn } from '../utils/cn';
 import { Btn, Eyebrow, Panel, SectionHead } from '../ui';
+import { PrivacyPanel } from '../components/PrivacyPanel';
+import { PromptLog } from './PromptLog';
 
 const PROVIDERS: { id: Provider; name: string; hint: string; models: string[] }[] = [
   { id: 'anthropic', name: 'Anthropic', hint: 'Claude · long reasoning traces', models: ['claude-sonnet-4-5', 'claude-opus-4-6'] },
@@ -96,6 +98,16 @@ export function Settings() {
             </Btn>
           </div>
         </Panel>
+      </div>
+
+      <div>
+        <SectionHead n="03" title="What the LLM sees" />
+        <PrivacyPanel />
+      </div>
+
+      <div>
+        <SectionHead n="04" title="Prompt log" />
+        <PromptLog />
       </div>
     </div>
   );

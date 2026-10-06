@@ -1,5 +1,7 @@
 import logging
 
+from ai.context_builder import ContextBuilder
+from ai.context_inputs import dataset_from_profile
 from ai.gateway import AIGateway
 from ai.router import TaskType
 from ml.core.interfaces import ProfileResult
@@ -42,7 +44,9 @@ class DataCleaningAgent:
     def __init__(self, gateway: AIGateway):
         self.gateway = gateway
 
-    async def generate_cleaning_strategy(self, profile: ProfileResult, target_column: str) -> dict:
+    async def generate_cleaning_strategy(
+        self, profile: ProfileResult, target_column: str, builder: ContextBuilder
+    ) -> dict:
         """
         Takes a ProfileResult and asks the LLM to generate an optimal preprocessing JSON strategy.
 
@@ -75,27 +79,20 @@ class DataCleaningAgent:
             "}"
         )
 
-        user_prompt = f"""
-Dataset Profile:
-Total Rows: {profile.rows}
-Total Columns: {profile.columns}
-Target Column: {target_column}
-
-Column Details:
-"""
-        for col, stats in profile.column_stats.items():
-            if col == target_column:
-                continue
-            user_prompt += f"- {col}: dtype={stats.get('dtype')}, missing={stats.get('missing_count')} ({stats.get('missing_rate', 0):.1%}), unique={stats.get('unique_count')}, skew={stats.get('skew', 'N/A')}\n"
-
-        user_prompt += "\nPlease provide the JSON configuration."
+        prompt = (
+            builder.prompt("cleaning.strategy", system_prompt)
+            .dataset(
+                dataset_from_profile(profile, target_column, skip_target=True),
+                title="Dataset profile (the target column is left out)",
+            )
+            .text("Target column", target_column)
+            .text("", "Please provide the JSON configuration.")
+            .build()
+        )
 
         try:
             config = await self.gateway.complete_structured(
-                TaskType.ANALYZE,
-                user_prompt,
-                schema=STRATEGY_SCHEMA,
-                system=system_prompt,
+                TaskType.ANALYZE, prompt, schema=STRATEGY_SCHEMA
             )
         except Exception as e:
             logger.error(f"Failed to generate cleaning strategy: {e}")

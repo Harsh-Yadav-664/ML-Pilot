@@ -20,7 +20,17 @@ export default defineConfig({
     trace: 'retain-on-failure',
     launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // The smoke test expects a fresh database (it watches the first project being created), so it
+  // runs first; the other specs share the server and its data and run after it.
+  projects: [
+    { name: 'smoke', testMatch: /smoke\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'features',
+      testMatch: /(connect|privacy)\.spec\.ts/,
+      dependencies: ['smoke'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
   // The one command a user runs: it creates the access token on first start and hands
   // it to the UI, so the test proves there is no manual token step.
   webServer: {

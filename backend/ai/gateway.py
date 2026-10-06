@@ -14,8 +14,9 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
+from ai.context_builder import BuiltPrompt
 from ai.cost_tracker import CostTracker
 from ai.providers.stub_provider import StubProvider
 from ai.router import TaskRouter, TaskType
@@ -83,8 +84,32 @@ class PromptRecord:
     model: str
 
 
+@dataclass
+class SentPrompt:
+    """One attempt to answer a prompt with one provider, as the recorder sees it."""
+
+    prompt_id: str
+    task_type: str
+    provider: str
+    model: str
+    built: BuiltPrompt
+
+
+class CallRecorder(Protocol):
+    """Stores every prompt before it is sent and the outcome after (the prompt log, #48).
+
+    `started` runs before the provider is contacted and may raise: a prompt that cannot be
+    logged is not sent."""
+
+    async def started(self, sent: SentPrompt) -> None: ...
+
+    async def finished(
+        self, sent: SentPrompt, result: LLMResult | None, response: Any, error: str | None
+    ) -> None: ...
+
+
 def _log_prompt(record: PromptRecord) -> None:
-    # Content is not logged here (it can hold schema details); #48 stores prompts properly.
+    # Content is not logged here (it can hold schema details); the prompt log (#48) stores it.
     logger.info(
         "LLM prompt %s task=%s provider=%s model=%s chars=%d",
         record.prompt_id,
@@ -102,8 +127,14 @@ class AIGateway:
     StubProvider is always registered as the last-resort fallback.
     """
 
-    def __init__(self, config: Any, router: TaskRouter | None = None) -> None:
+    def __init__(
+        self,
+        config: Any,
+        router: TaskRouter | None = None,
+        recorder: CallRecorder | None = None,
+    ) -> None:
         self.providers: dict[str, AIProvider] = {}
+        self.recorder = recorder
         self.router = router or TaskRouter()
         self.cost_tracker = CostTracker()
         self.calls: list[LLMResult] = []
@@ -134,14 +165,18 @@ class AIGateway:
     async def _dispatch(
         self,
         task_type: TaskType,
-        prompt: str,
-        system: str,
+        prompt: BuiltPrompt,
         model: str | None,
         call: Callable[[AIProvider, str], Any],
         structured: bool,
         experiment_id: str | None = None,
-        project_id: str | None = None,
     ) -> LLMResult:
+        if not isinstance(prompt, BuiltPrompt):
+            raise TypeError(
+                "AIGateway only sends prompts built by ai.context_builder.ContextBuilder, got "
+                f"{type(prompt).__name__}"
+            )
+        system, text_in = prompt.system, prompt.text
         ordered = self.router.get_ordered_providers(task_type, list(self.providers.keys()))
         prompt_id = uuid.uuid4().hex[:12]
         errors: list[str] = []
@@ -151,9 +186,12 @@ class AIGateway:
             for hook in self.prompt_hooks:
                 hook(
                     PromptRecord(
-                        prompt_id, task_type.value, system, prompt, provider_name, selected_model
+                        prompt_id, task_type.value, system, text_in, provider_name, selected_model
                     )
                 )
+            sent = SentPrompt(prompt_id, task_type.value, provider_name, selected_model, prompt)
+            if self.recorder is not None:
+                await self.recorder.started(sent)
             start = time.perf_counter()
             try:
                 answer = await call(provider, selected_model)
@@ -165,10 +203,12 @@ class AIGateway:
                     task_type.value,
                     e,
                 )
+                if self.recorder is not None:
+                    await self.recorder.finished(sent, None, None, f"{provider_name}: {e}")
                 continue
             latency_ms = (time.perf_counter() - start) * 1000
             text = answer if isinstance(answer, str) else str(answer)
-            tokens_in, tokens_out = len((system + " " + prompt).split()), len(text.split())
+            tokens_in, tokens_out = len((system + " " + text_in).split()), len(text.split())
             cost = provider.estimate_cost(
                 prompt_tokens=tokens_in, completion_tokens=tokens_out, model=selected_model
             )
@@ -180,7 +220,7 @@ class AIGateway:
                 cost_usd=cost,
                 task_type=task_type.value,
                 experiment_id=experiment_id,
-                project_id=project_id,
+                project_id=prompt.project_id,
             )
             result = LLMResult(
                 task_type=task_type.value,
@@ -197,6 +237,8 @@ class AIGateway:
                 errors=errors,
             )
             self.calls.append(result)
+            if self.recorder is not None:
+                await self.recorder.finished(sent, result, answer, None)
             return result
         raise RuntimeError(
             f"All providers failed for task {task_type.value!r}: {'; '.join(errors)}"
@@ -205,35 +247,30 @@ class AIGateway:
     async def complete_result(
         self,
         task_type: TaskType,
-        prompt: str,
-        system: str = "",
+        prompt: BuiltPrompt,
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
         experiment_id: str | None = None,
-        project_id: str | None = None,
     ) -> LLMResult:
         """Text completion with fallback through the routing order; returns the full record."""
 
         async def call(provider: AIProvider, selected_model: str):
             return await provider.complete(
-                prompt=prompt,
-                system=system,
+                prompt=prompt.text,
+                system=prompt.system,
                 model=selected_model,
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
 
-        return await self._dispatch(
-            task_type, prompt, system, model, call, False, experiment_id, project_id
-        )
+        return await self._dispatch(task_type, prompt, model, call, False, experiment_id)
 
     async def complete_structured_result(
         self,
         task_type: TaskType,
-        prompt: str,
+        prompt: BuiltPrompt,
         schema: dict[str, Any],
-        system: str = "",
         model: str | None = None,
         max_tokens: int = 2048,
     ) -> LLMResult:
@@ -241,9 +278,9 @@ class AIGateway:
 
         async def call(provider: AIProvider, selected_model: str):
             data = await provider.complete_structured(
-                prompt=prompt,
+                prompt=prompt.text,
                 schema=schema,
-                system=system,
+                system=prompt.system,
                 model=selected_model,
                 max_tokens=max_tokens,
             )
@@ -251,40 +288,35 @@ class AIGateway:
                 raise TypeError(f"structured output is {type(data).__name__}, not an object")
             return data
 
-        return await self._dispatch(task_type, prompt, system, model, call, True)
+        return await self._dispatch(task_type, prompt, model, call, True)
 
     async def complete(
         self,
         task_type: TaskType,
-        prompt: str,
-        system: str = "",
+        prompt: BuiltPrompt,
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
         experiment_id: str | None = None,
-        project_id: str | None = None,
     ) -> str:
         """Text only; see complete_result for provider, cost and decision_mode."""
         return (
             await self.complete_result(
-                task_type, prompt, system, model, max_tokens, temperature, experiment_id, project_id
+                task_type, prompt, model, max_tokens, temperature, experiment_id
             )
         ).text
 
     async def complete_structured(
         self,
         task_type: TaskType,
-        prompt: str,
+        prompt: BuiltPrompt,
         schema: dict[str, Any],
-        system: str = "",
         model: str | None = None,
         max_tokens: int = 2048,
     ) -> dict[str, Any]:
         """Data only; see complete_structured_result for provider, cost and decision_mode."""
         return (
-            await self.complete_structured_result(
-                task_type, prompt, schema, system, model, max_tokens
-            )
+            await self.complete_structured_result(task_type, prompt, schema, model, max_tokens)
         ).structured
 
     def list_providers(self) -> list[str]:

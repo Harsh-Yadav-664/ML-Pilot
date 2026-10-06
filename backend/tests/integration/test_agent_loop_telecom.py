@@ -8,12 +8,16 @@ import sys
 from pathlib import Path
 
 import httpx
+import pandas as pd
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.db.session as db_session
 import ml.agents.decision_agent as decision_agent_module
+from app.api.deps import DEFAULT_OWNER_ID
 from app.db.base import Base
+from app.schemas.project import ProjectCreate, TaskType
+from app.services.project_service import ProjectService
 from ml.agents.decision_agent import DecisionAgent
 from ml.experiments.planner import ExperimentPlanner
 from tests.fixtures.api import API, load_sample
@@ -118,6 +122,22 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
         assert exp["decision_reason"].startswith(("Accepted by rule", "Rejected by rule"))
         assert len(acceptance["base_scores"]) == 15
 
+    # Every prompt of this run is in the prompt log, and none holds a text value of the file (#48).
+    calls = (await client.get(f"{base}/llm-calls")).json()
+    assert [c["purpose"] for c in calls].count("agent.explain_decision") == 2
+    frame = pd.read_csv(SAMPLE)
+    values = {
+        str(v)
+        for col in frame.select_dtypes(exclude="number")
+        for v in frame[col].dropna().unique()
+    }
+    values = {v for v in values if len(v) >= 5 and not v.replace(".", "").isdigit()}
+    assert {"Month-to-month", "Fiber optic", "7590-VHVEG"} <= values
+    for call in calls:
+        detail = (await client.get(f"{base}/llm-calls/{call['id']}")).json()
+        sent = detail["system"] + detail["prompt"]
+        assert [v for v in values if v in sent] == [], call["purpose"]
+
     resp = await client.get(f"{base}/experiments/{baseline['id']}/export")
     assert resp.status_code == 200, resp.text
 
@@ -169,8 +189,13 @@ async def test_explanation_failure_does_not_change_the_decision(
         raise RuntimeError("LLM down")
 
     monkeypatch.setattr(gateway, "complete", broken_complete)
+    async with session_factory() as db:
+        project = await ProjectService(db).create(
+            ProjectCreate(name="p", task_type=TaskType.BINARY_CLASSIFICATION), DEFAULT_OWNER_ID
+        )
+        await db.commit()
     result = await DecisionAgent(gateway, settings=None).run_optimization_loop(
-        str(SAMPLE), "Churn", n_hypotheses=1, project_id="p"
+        str(SAMPLE), "Churn", n_hypotheses=1, project_id=project.id
     )
     info = result["experiments"][0]
     assert info["decision_mode"] == "rule"

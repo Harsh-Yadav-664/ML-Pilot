@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from ai.context_builder import ContextBuilder
 from ai.gateway import AIGateway
 from ml.agents.cleaning_agent import CleaningStrategyError, DataCleaningAgent
 from ml.core.interfaces import ProfileResult
@@ -45,7 +46,7 @@ def agent_returning(result):
 
 async def test_stub_provider_returns_valid_strategy(profile):
     agent = DataCleaningAgent(AIGateway(config=StubOnlySettings()))
-    strategy = await agent.generate_cleaning_strategy(profile, "target")
+    strategy = await agent.generate_cleaning_strategy(profile, "target", ContextBuilder())
     assert strategy == {"columns": {}}
 
 
@@ -55,14 +56,16 @@ async def test_valid_llm_strategy_is_returned(profile):
         "city": ["impute_constant", "onehot_encode"],
     }
     strategy = await agent_returning({"columns": columns}).generate_cleaning_strategy(
-        profile, "target"
+        profile, "target", ContextBuilder()
     )
     assert strategy == {"columns": columns}
 
 
 async def test_provider_failure_raises(profile):
     with pytest.raises(CleaningStrategyError, match="LLM call failed"):
-        await agent_returning(RuntimeError("down")).generate_cleaning_strategy(profile, "target")
+        await agent_returning(RuntimeError("down")).generate_cleaning_strategy(
+            profile, "target", ContextBuilder()
+        )
 
 
 @pytest.mark.parametrize(
@@ -78,4 +81,4 @@ async def test_provider_failure_raises(profile):
 )
 async def test_invalid_llm_strategy_raises(profile, bad):
     with pytest.raises(CleaningStrategyError):
-        await agent_returning(bad).generate_cleaning_strategy(profile, "target")
+        await agent_returning(bad).generate_cleaning_strategy(profile, "target", ContextBuilder())

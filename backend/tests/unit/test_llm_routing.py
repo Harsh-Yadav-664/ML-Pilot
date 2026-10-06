@@ -12,6 +12,7 @@ from ai.gateway import PROVIDER_FACTORIES, AIGateway, PromptRecord
 from ai.llm_config import DEFAULT_TIERS, load_routing, validate_tiers
 from ai.providers.ollama_provider import OllamaProvider
 from ai.router import TaskRouter, TaskType
+from tests.fixtures.gateway import prompt
 
 
 def _settings(**values):
@@ -38,7 +39,7 @@ async def test_each_registered_provider_can_be_routed_to(provider, monkeypatch):
         return "answer from " + provider
 
     monkeypatch.setattr(gateway.providers[provider], "complete", fake_complete)
-    result = await gateway.complete_result(TaskType.SUMMARIZE, "hello")
+    result = await gateway.complete_result(TaskType.SUMMARIZE, prompt("hello"))
     assert (result.provider, result.model, result.decision_mode) == (provider, "model-x", "llm")
     assert seen["model"] == "model-x" and result.text == "answer from " + provider
     assert result.tokens_in > 0 and result.tokens_out > 0 and result.latency_ms >= 0
@@ -57,8 +58,10 @@ async def test_ollama_provider_over_mocked_http():
     gateway = AIGateway(_settings(), router=_only("ollama", "llama3.1"))
     gateway.providers = {"ollama": provider, **gateway.providers}
 
-    text = await gateway.complete_result(TaskType.HYPOTHESIZE, "hi", system="be brief")
-    data = await gateway.complete_structured_result(TaskType.SQL, "hi", schema={"type": "object"})
+    text = await gateway.complete_result(TaskType.HYPOTHESIZE, prompt("hi", system="be brief"))
+    data = await gateway.complete_structured_result(
+        TaskType.SQL, prompt("hi"), schema={"type": "object"}
+    )
     assert text.text == "local answer" and text.provider == "ollama" and text.cost_usd == 0.0
     assert data.data == {"name": "x"} and data.decision_mode == "llm"
     assert requests[0]["model"] == "llama3.1" and requests[0]["messages"][0] == {
@@ -78,7 +81,7 @@ async def test_parse_failure_falls_back_to_stub_and_is_recorded(monkeypatch):
 
     monkeypatch.setattr(gateway.providers["openai"], "complete_structured", bad_json)
     result = await gateway.complete_structured_result(
-        TaskType.HYPOTHESIZE, "idea?", schema={"properties": {}}
+        TaskType.HYPOTHESIZE, prompt("idea?"), schema={"properties": {}}
     )
     assert result.provider == "stub" and result.decision_mode == "fallback"
     assert result.errors and result.errors[0].startswith("openai: Expecting value")
@@ -90,7 +93,7 @@ async def test_every_prompt_goes_through_the_hooks():
     gateway = AIGateway(_settings())
     records: list[PromptRecord] = []
     gateway.add_prompt_hook(records.append)
-    result = await gateway.complete_result(TaskType.REPORT, "the prompt", system="sys")
+    result = await gateway.complete_result(TaskType.REPORT, prompt("the prompt", system="sys"))
     assert [(r.prompt_id, r.prompt, r.system, r.provider) for r in records] == [
         (result.prompt_id, "the prompt", "sys", "stub")
     ]

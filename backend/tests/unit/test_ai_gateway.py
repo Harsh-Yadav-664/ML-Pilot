@@ -8,6 +8,7 @@ import pytest
 
 from ai.gateway import AIGateway
 from ai.router import TaskType
+from tests.fixtures.gateway import prompt
 
 
 class MockSettings:
@@ -46,8 +47,7 @@ def test_gateway_no_real_providers_when_no_keys(gateway):
 async def test_gateway_complete_uses_stub_fallback(gateway):
     result = await gateway.complete(
         task_type=TaskType.FORMAT,
-        prompt="Format this output",
-        system="format",
+        prompt=prompt("Format this output", system="format"),
     )
     assert isinstance(result, str)
     assert "STUB" in result
@@ -57,7 +57,7 @@ async def test_gateway_complete_uses_stub_fallback(gateway):
 async def test_gateway_complete_summarize(gateway):
     result = await gateway.complete(
         task_type=TaskType.SUMMARIZE,
-        prompt="Summarize the experiment results.",
+        prompt=prompt("Summarize the experiment results."),
     )
     assert isinstance(result, str)
     assert len(result) > 0
@@ -67,8 +67,9 @@ async def test_gateway_complete_summarize(gateway):
 async def test_gateway_complete_decide(gateway):
     result = await gateway.complete(
         task_type=TaskType.DECIDE,
-        prompt="Should we keep this experiment? F1 improved from 0.80 to 0.85.",
-        system="decide",
+        prompt=prompt(
+            "Should we keep this experiment? F1 improved from 0.80 to 0.85.", system="decide"
+        ),
     )
     assert isinstance(result, str)
 
@@ -89,7 +90,7 @@ async def test_gateway_fallback_on_provider_error(gateway):
         return_value=[("failing", "some-model"), ("stub", "stub-default")]
     )
 
-    result = await gateway.complete(TaskType.FORMAT, "test")
+    result = await gateway.complete(TaskType.FORMAT, prompt("test"))
     assert isinstance(result, str)
 
 
@@ -102,7 +103,7 @@ def test_gateway_cost_summary(gateway):
 
 @pytest.mark.asyncio
 async def test_gateway_complete_tracks_cost(gateway):
-    await gateway.complete(TaskType.FORMAT, "test prompt")
+    await gateway.complete(TaskType.FORMAT, prompt("test prompt"))
     summary = gateway.get_cost_summary()
     assert summary["total_requests"] == 1
 
@@ -110,5 +111,14 @@ async def test_gateway_complete_tracks_cost(gateway):
 @pytest.mark.asyncio
 async def test_gateway_all_task_types(gateway):
     for task_type in TaskType:
-        result = await gateway.complete(task_type, f"Task: {task_type.value}")
+        result = await gateway.complete(task_type, prompt(f"Task: {task_type.value}"))
         assert isinstance(result, str)
+
+
+async def test_gateway_refuses_a_plain_string(gateway):
+    """Only prompts built by the context builder are sent (AGENTS.md rule 6)."""
+    with pytest.raises(TypeError, match="ContextBuilder"):
+        await gateway.complete(TaskType.FORMAT, "a raw string")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="ContextBuilder"):
+        await gateway.complete_structured(TaskType.FORMAT, "raw", schema={})  # type: ignore[arg-type]
+    assert gateway.calls == []

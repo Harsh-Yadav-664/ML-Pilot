@@ -11,13 +11,14 @@ from ai.gateway import AIGateway
 from app.core.config import settings
 from app.db.models import Experiment
 from app.jobs.runner import JobContext, handler, sessions
+from app.services import llm_gateway
 from app.services.experiment_service import ExperimentService
 from ml.agents.decision_agent import DecisionAgent
 
 
 def make_gateway() -> AIGateway:
     """The LLM gateway jobs use (tests replace it with the offline stub)."""
-    return AIGateway(settings)
+    return llm_gateway.make_gateway()
 
 
 @handler("experiment")

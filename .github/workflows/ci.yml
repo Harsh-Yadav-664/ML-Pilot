@@ -143,7 +143,7 @@ jobs:
           MLPILOT_E2E_SCREENSHOT_DIR: ${{ github.workspace }}/screenshots
         run: |
           mkdir -p "$MLPILOT_E2E_SCREENSHOT_DIR"
-          npx playwright test connect.spec.ts
+          npx playwright test --project=features --no-deps connect.spec.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
