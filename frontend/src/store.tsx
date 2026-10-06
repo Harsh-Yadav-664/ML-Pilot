@@ -345,7 +345,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           id: 'intro',
           kind: 'text',
           from: 'agent',
-          text: `Loaded ${d.filename}: ${m.total_rows.toLocaleString('en-US')} rows, ${m.total_columns} columns, target ${d.target_column}. ${w.length} leakage findings (${w.filter((x) => x.severity === 'high').length} high-risk). ${e.length ? `${e.length} recorded runs on this dataset.` : 'Queuing a baseline run now.'} Asking the planner for feature ideas…`,
+          text: `Loaded ${d.filename}${d.short_hash ? ` (data version ${d.short_hash})` : ''}: ${m.total_rows.toLocaleString('en-US')} rows, ${m.total_columns} columns, target ${d.target_column}. ${w.length} leakage findings (${w.filter((x) => x.severity === 'high').length} high-risk). ${e.length ? `${e.length} recorded runs on this dataset.` : 'Queuing a baseline run now.'} Asking the planner for feature ideas…`,
         },
       ]);
       setLoading(false);
@@ -630,7 +630,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       backend
         .loadSampleDataset()
         .then((info) => {
-          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns, info.default_target) };
+          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns, info.default_target), short_hash: info.short_hash };
           setDataset(d);
           return loadDataset(d);
         })
@@ -705,7 +705,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!demo) {
         try {
           const info = await backend.uploadDataset(file);
-          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns) };
+          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns), short_hash: info.short_hash };
           setDataset(d);
           setUploadOpen(false);
           toast(`Uploaded ${info.filename}`, 'ok');

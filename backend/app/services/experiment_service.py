@@ -9,9 +9,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import datasets
 from app.db.models.experiment import Experiment
 from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
 from ml.data.ingestion.csv_loader import CsvLoader
+from ml.data.versions import version_id_of
 from ml.experiments.executor import LocalExperimentExecutor
 from ml.experiments.schema import ExperimentSpec, ExperimentStatus
 
@@ -33,7 +35,10 @@ class ExperimentService:
         return self._db
 
     async def create(self, data: ExperimentCreate) -> Experiment:
-        experiment = Experiment(id=str(uuid.uuid4()), **data.model_dump())
+        fields = data.model_dump()
+        if fields.get("data_version_id") is None:
+            fields["data_version_id"] = version_id_of(data.dataset_version, datasets.VERSIONS_DIR)
+        experiment = Experiment(id=str(uuid.uuid4()), **fields)
         self.db.add(experiment)
         await self.db.flush()
         return experiment

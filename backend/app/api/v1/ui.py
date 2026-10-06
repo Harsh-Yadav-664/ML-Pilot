@@ -20,6 +20,7 @@ from app.api.deps import DBSession, Gateway
 from app.core.config import settings
 from app.core.datasets import DATASETS_DIR, UPLOAD_DIR, safe_dataset_path
 from app.schemas.experiment import ExperimentCreate, ExperimentRead
+from app.services.data_version_service import register_file_version, version_fields
 from app.services.experiment_service import ExperimentService, champion_path
 from ml.agents.decision_agent import DecisionAgent
 from ml.data.ingestion.csv_loader import CsvLoader
@@ -55,8 +56,8 @@ class SqlConnectRequest(BaseModel):
 
 
 @router.post("/data/upload")
-async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Upload a CSV dataset and return its columns."""
+async def upload_dataset(db: DBSession, file: UploadFile = File(...)) -> dict[str, Any]:
+    """Upload a CSV dataset, store it as an immutable version and return its columns."""
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
@@ -72,18 +73,30 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
     await asyncio.to_thread(save_upload)
 
     try:
-        loader = CsvLoader()
-        df = loader.load(file_path)
-        columns = df.columns.tolist()
-        return {
-            "dataset_path": safe_dataset_path(file_path),
-            "filename": safe_name,
-            "columns": columns,
-            "total_rows": len(df),
-        }
-    except Exception as e:  # noqa: BLE001 - any parse error becomes an HTTP 400
+        df = CsvLoader().load(file_path)
+    except Exception as e:
         logger.error(f"Failed to parse uploaded CSV: {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {e}")
+        Path(file_path).unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {e}") from e
+    try:
+        stored = await register_file_version(
+            db,
+            Path(file_path),
+            DEMO_PROJECT_ID,
+            kind="file",
+            origin={"type": "upload", "filename": safe_name},
+            n_rows=len(df),
+            n_columns=df.shape[1],
+        )
+    finally:
+        # The versioned copy is what experiments use; the upload itself isn't kept.
+        Path(file_path).unlink(missing_ok=True)
+    return {
+        **version_fields(stored),
+        "filename": safe_name,
+        "columns": df.columns.tolist(),
+        "total_rows": len(df),
+    }
 
 
 class SampleDataRequest(BaseModel):
@@ -91,8 +104,8 @@ class SampleDataRequest(BaseModel):
 
 
 @router.post("/data/sample")
-async def load_sample_dataset(request: SampleDataRequest) -> dict[str, Any]:
-    """Load a pre-bundled sample dataset."""
+async def load_sample_dataset(request: SampleDataRequest, db: DBSession) -> dict[str, Any]:
+    """Load a pre-bundled sample dataset as an immutable version."""
     filename = f"{request.dataset_name}.csv"
     source_path = os.path.join(DATASETS_DIR, filename)
 
@@ -107,21 +120,30 @@ async def load_sample_dataset(request: SampleDataRequest) -> dict[str, Any]:
         # Pre-select a likely target for the UI to be helpful
         default_target = "Churn" if "Churn" in columns else (columns[-1] if columns else "")
 
-        return {
-            "dataset_path": safe_dataset_path(source_path),
-            "filename": filename,
-            "columns": columns,
-            "total_rows": len(df),
-            "default_target": default_target,
-        }
-    except Exception as e:  # noqa: BLE001 - any load error becomes an HTTP 500
+    except Exception as e:
         logger.error(f"Failed to load sample data: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to load sample data: {e!s}")
+        raise HTTPException(status_code=500, detail=f"Failed to load sample data: {e!s}") from e
+    stored = await register_file_version(
+        db,
+        Path(source_path),
+        DEMO_PROJECT_ID,
+        kind="file",
+        origin={"type": "sample", "name": request.dataset_name},
+        n_rows=len(df),
+        n_columns=df.shape[1],
+    )
+    return {
+        **version_fields(stored),
+        "filename": filename,
+        "columns": columns,
+        "total_rows": len(df),
+        "default_target": default_target,
+    }
 
 
 @router.post("/data/connect-sql")
-async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
-    """Connect to a SQL database and extract a dataset."""
+async def connect_sql(request: SqlConnectRequest, db: DBSession) -> dict[str, Any]:
+    """Run a read-only query and store the result as an immutable version."""
     try:
         loader = SqlLoader()
         df = loader.load(request.connection_string, request.query)
@@ -131,13 +153,6 @@ async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
         file_id = loader.hash_connection(request.connection_string, request.query)
         file_path = os.path.join(UPLOAD_DIR, f"sql_{file_id}.csv")
         df.to_csv(file_path, index=False)
-
-        return {
-            "dataset_path": file_path,
-            "filename": f"SQL Query Snapshot ({file_id})",
-            "columns": columns,
-            "total_rows": len(df),
-        }
     except Exception as e:  # noqa: BLE001 - any driver error becomes a redacted HTTP 400
         # Never echo the connection string or password back or into logs.
         message = redact(str(e), request.connection_string)
@@ -145,6 +160,25 @@ async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=400, detail=f"Failed to connect and query SQL: {message}"
         ) from None
+    try:
+        stored = await register_file_version(
+            db,
+            Path(file_path),
+            DEMO_PROJECT_ID,
+            kind="db_snapshot",
+            # The connection is identified by its hash only: no host, user or password.
+            origin={"type": "sql", "connection": file_id, "query": request.query},
+            n_rows=len(df),
+            n_columns=df.shape[1],
+        )
+    finally:
+        Path(file_path).unlink(missing_ok=True)
+    return {
+        **version_fields(stored),
+        "filename": f"SQL Query Snapshot ({file_id})",
+        "columns": columns,
+        "total_rows": len(df),
+    }
 
 
 @router.get("/data/metrics")
@@ -388,6 +422,7 @@ async def get_experiment_tree(
             {
                 "id": e.id,
                 "parent_id": e.parent_id,
+                "data_version_id": e.data_version_id,
                 "model_name": e.model_name,
                 "status": e.status,
                 "metrics": e.metrics or {},

@@ -54,3 +54,4 @@ alembic/versions/__pycache__/
 
 # Uploads
 backend/uploads/
+backend/data/versions/
