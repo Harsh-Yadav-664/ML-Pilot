@@ -100,5 +100,8 @@ async def test_three_accepted_features_accumulate_in_the_champion(session_factor
 
     path = Path(session_factory.kw["bind"].url.database).parent / "champion.py"
     path.write_text(script)
-    run = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, timeout=300)
+    # Blocking is fine here: the test waits for the exported script on purpose.
+    run = subprocess.run(  # noqa: ASYNC221
+        [sys.executable, str(path)], capture_output=True, text=True, timeout=300, check=False
+    )
     assert run.returncode == 0, run.stderr[-2000:]

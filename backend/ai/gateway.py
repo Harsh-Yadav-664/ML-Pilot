@@ -56,6 +56,13 @@ class LLMResult:
     data: dict[str, Any] | None = None
     errors: list[str] = field(default_factory=list)  # providers tried before this one
 
+    @property
+    def structured(self) -> dict[str, Any]:
+        """The parsed object of a structured call; an error if this result has none."""
+        if self.data is None:
+            raise ValueError(f"LLM result {self.prompt_id} has no structured data")
+        return self.data
+
     def meta(self) -> dict[str, Any]:
         """Everything but the content, for recording on runs and API responses."""
         out = asdict(self)
@@ -241,7 +248,7 @@ class AIGateway:
                 max_tokens=max_tokens,
             )
             if not isinstance(data, dict):
-                raise ValueError(f"structured output is {type(data).__name__}, not an object")
+                raise TypeError(f"structured output is {type(data).__name__}, not an object")
             return data
 
         return await self._dispatch(task_type, prompt, system, model, call, True)
@@ -278,7 +285,7 @@ class AIGateway:
             await self.complete_structured_result(
                 task_type, prompt, schema, system, model, max_tokens
             )
-        ).data
+        ).structured
 
     def list_providers(self) -> list[str]:
         """Return the names of all registered providers."""

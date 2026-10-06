@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 from ml.core.interfaces import AIProvider, ModelInfo
 
@@ -70,7 +71,7 @@ class OpenRouterProvider(AIProvider):
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ) -> str:
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})

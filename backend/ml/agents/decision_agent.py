@@ -69,10 +69,12 @@ class DecisionAgent:
 
         async def save_decision(exp_id: str, decision: str, reason: str) -> None:
             from app.schemas.experiment import ExperimentUpdate
+            from ml.experiments.schema import ExperimentDecision
 
             async with AsyncSessionLocal() as db:
                 await ExperimentService(db).update(
-                    exp_id, ExperimentUpdate(decision=decision, decision_reason=reason)
+                    exp_id,
+                    ExperimentUpdate(decision=ExperimentDecision(decision), decision_reason=reason),
                 )
                 await db.commit()
 
@@ -144,7 +146,7 @@ class DecisionAgent:
                     hypothesis=hypothesis.get("reason", "Generated hypothesis"),
                     change_description=f"Added feature: {hypothesis.get('name')} via formula {hypothesis.get('formula')}",
                     model_name=DEFAULT_ENGINE,
-                    feature_set=[hypothesis.get("name")] if hypothesis.get("name") else [],
+                    feature_set=[str(hypothesis["name"])] if hypothesis.get("name") else [],
                     parameters={
                         "target_column": target_column,
                         "features": champion_features,

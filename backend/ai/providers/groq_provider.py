@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 from ml.core.interfaces import AIProvider, ModelInfo
 
@@ -72,7 +73,7 @@ class GroqProvider(AIProvider):
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ) -> str:
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
@@ -119,7 +120,7 @@ class GroqProvider(AIProvider):
 
     async def health_check(self) -> bool:
         try:
-            models = await self._client.models.list()
+            await self._client.models.list()
             return True
         except Exception:  # health check: any client error means unhealthy
             logger.warning("%s health check failed", type(self).__name__, exc_info=True)

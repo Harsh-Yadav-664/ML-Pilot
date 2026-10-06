@@ -1,0 +1,4 @@
+# Lint and type-check tools, pinned so CI and local runs agree (rule set changes between ruff releases).
+-r requirements.txt
+ruff==0.16.10
+mypy==2.4.0

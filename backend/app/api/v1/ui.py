@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -56,7 +57,7 @@ class SqlConnectRequest(BaseModel):
 @router.post("/data/upload")
 async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
     """Upload a CSV dataset and return its columns."""
-    if not file.filename.endswith(".csv"):
+    if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
     file_id = str(uuid.uuid4())
@@ -64,8 +65,11 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
     safe_name = os.path.basename(file.filename)
     file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{safe_name}")
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    def save_upload() -> None:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+    await asyncio.to_thread(save_upload)
 
     try:
         loader = CsvLoader()
@@ -416,7 +420,7 @@ async def _run_agent_task(job_id: str, dataset_path: str, target_column: str, n_
         JOBS[job_id]["status"] = "completed"
         JOBS[job_id]["result"] = result
     except Exception as e:  # recorded on the job as status 'failed' with the message
-        logger.exception(f"Auto-optimize failed: {e}")
+        logger.exception("Auto-optimize failed")
         JOBS[job_id]["status"] = "failed"
         JOBS[job_id]["error"] = str(e)
 
@@ -612,7 +616,7 @@ def build_model():
         
     # Model
     model_name = "{exp.model_name}"
-    params = {exp.parameters.get("best_params", exp.parameters.get("model_params", dict()))}
+    params = {exp.parameters.get("best_params", exp.parameters.get("model_params", {}))}
     
     if model_name == 'XGBClassifier':
         from xgboost import XGBClassifier

@@ -19,7 +19,7 @@ import numpy and pandas.
 import ast
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard, cast
 
 import numpy as np
 import pandas as pd
@@ -77,7 +77,7 @@ def _column_of(node: ast.AST, columns: frozenset) -> str | None:
     return None
 
 
-def _is_number(value: Any) -> bool:
+def _is_number(value: Any) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
@@ -238,14 +238,14 @@ def _eval(node: ast.AST, df: pd.DataFrame, columns: frozenset) -> Any:
         }
         left = _eval(node.left, df, columns)
         out = None
-        for op, right_node in zip(node.ops, node.comparators):
+        for cmp_op, right_node in zip(node.ops, node.comparators, strict=True):
             right = _eval(right_node, df, columns)
-            step = compare[type(op)](left, right)
+            step = compare[type(cmp_op)](left, right)
             out = step if out is None else np.logical_and(out, step)
             left = right
         return out
     if isinstance(node, ast.Call):
-        func, _ = FUNCTIONS[node.func.id]
+        func, _ = FUNCTIONS[cast(ast.Name, node.func).id]  # _check allows only named calls
         with np.errstate(divide="ignore", invalid="ignore"):
             return func(*(_eval(a, df, columns) for a in node.args))
     raise InvalidFormula(

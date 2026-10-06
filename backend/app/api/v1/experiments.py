@@ -13,6 +13,7 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.experiment import (
     ExperimentCreate,
     ExperimentRead,
+    ExperimentSuggestion,
     ExperimentSuggestRequest,
     ExperimentSuggestResponse,
     ExperimentUpdate,
@@ -38,7 +39,9 @@ async def suggest_experiments(
             gateway=gateway,
         )
         return ExperimentSuggestResponse(
-            dataset_version=data.dataset_version, objective=data.objective, hypotheses=hypotheses
+            dataset_version=data.dataset_version,
+            objective=data.objective,
+            hypotheses=[ExperimentSuggestion.model_validate(h) for h in hypotheses],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

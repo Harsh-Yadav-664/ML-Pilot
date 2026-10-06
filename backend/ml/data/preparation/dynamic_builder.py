@@ -16,7 +16,7 @@ class DynamicPipelineBuilder:
     """Builds a scikit-learn ColumnTransformer dynamically from a JSON configuration."""
 
     @staticmethod
-    def build(config: dict, target_column: str = None) -> ColumnTransformer:
+    def build(config: dict, target_column: str | None = None) -> ColumnTransformer:
         """
         Builds a preprocessing pipeline.
         config format:

@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -36,7 +37,7 @@ MODEL_REGISTRY = ENGINES
 build_preprocessor = one_hot_preprocessor
 
 
-ACCEPTANCE_MODEL = {
+ACCEPTANCE_MODEL: dict[str, Any] = {
     "model": "LGBMClassifier",
     "n_estimators": 100,
     "num_leaves": 15,

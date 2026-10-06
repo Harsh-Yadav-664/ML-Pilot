@@ -41,7 +41,7 @@ def _dialect(connection_string: str) -> str | None:
     )
 
 
-def validate_read_only_query(query: str, dialect: str | None = None) -> exp.Expression:
+def validate_read_only_query(query: str, dialect: str | None = None) -> exp.Query:
     """Parse the query and allow exactly one SELECT with no data-modifying parts."""
     try:
         statements = [s for s in sqlglot.parse(query, read=dialect) if s is not None]

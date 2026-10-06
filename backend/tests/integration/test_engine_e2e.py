@@ -25,13 +25,13 @@ async def test_engine_runs_baseline_and_candidate_on_telecom(monkeypatch):
     monkeypatch.setitem(sys.modules, "optuna", None)  # tuning is covered elsewhere
     df = pd.read_csv(SAMPLE)
     run = LocalExperimentExecutor(data_loader_func=lambda _: df.copy()).run
-    common = dict(
-        project_id="p",
-        dataset_version=str(SAMPLE),
-        hypothesis="h",
-        change_description="c",
-        model_name=ENGINE,
-    )
+    common = {
+        "project_id": "p",
+        "dataset_version": str(SAMPLE),
+        "hypothesis": "h",
+        "change_description": "c",
+        "model_name": ENGINE,
+    }
     base = await run(
         ExperimentSpec(
             id="base",

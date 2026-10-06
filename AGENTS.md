@@ -66,10 +66,12 @@ New modules planned by the roadmap (create them where the issues say): `backend/
 # Backend (Python version from backend/pyproject.toml)
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt  # app deps + pinned ruff and mypy
 uvicorn app.main:app --reload        # API on http://localhost:8000
 pytest                               # all backend tests
-ruff check .                         # lint
+ruff check .                         # lint (CI fails on any error)
+ruff format --check .                # formatting (run `ruff format .` to fix)
+mypy                                 # type check of ai/, ml/, app/
 
 # Frontend
 cd frontend

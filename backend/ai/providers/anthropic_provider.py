@@ -120,7 +120,7 @@ class AnthropicProvider(AIProvider):
     async def health_check(self) -> bool:
         try:
             client = self._get_client()
-            response = await client.messages.create(
+            await client.messages.create(
                 model=self.DEFAULT_MODEL,
                 max_tokens=10,
                 messages=[{"role": "user", "content": "ping"}],

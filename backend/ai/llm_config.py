@@ -101,7 +101,7 @@ def validate_tiers(tiers: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
     for tier in TIERS:
         entries = tiers.get(tier, DEFAULT_TIERS[tier])
         if not isinstance(entries, list):
-            raise ValueError(f"LLM tier {tier!r} must be a list of 'provider:model' entries")
+            raise ValueError(f"LLM tier {tier!r} must be a list of 'provider:model' entries")  # noqa: TRY004 - bad config content
         out[tier] = [parse_entry(e) for e in entries]
     return out
 
@@ -118,5 +118,5 @@ def load_routing(path: str | os.PathLike | None = None) -> dict[str, list[tuple[
         raise FileNotFoundError(f"MLPILOT_LLM_CONFIG points to {file}, which does not exist")
     data = yaml.safe_load(file.read_text()) or {}
     if not isinstance(data, dict) or not isinstance(data.get("tiers"), dict):
-        raise ValueError(f"{file}: expected a top-level 'tiers:' mapping")
+        raise ValueError(f"{file}: expected a top-level 'tiers:' mapping")  # noqa: TRY004 - bad config content
     return validate_tiers(data["tiers"])

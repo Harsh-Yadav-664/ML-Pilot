@@ -126,4 +126,4 @@ Explain what new feature to create, the logic/formula, why it helps, potential l
             system=system_prompt,
         )
         # Which provider answered, and whether it was the offline fallback, travels with the idea.
-        return {**result.data, "llm": result.meta()}
+        return {**result.structured, "llm": result.meta()}

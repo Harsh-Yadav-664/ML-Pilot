@@ -22,8 +22,15 @@ logger = logging.getLogger(__name__)
 
 
 class ExperimentService:
-    def __init__(self, db: AsyncSession) -> None:
-        self.db = db
+    def __init__(self, db: AsyncSession | None) -> None:
+        # None for callers that only use the methods which open their own session.
+        self._db = db
+
+    @property
+    def db(self) -> AsyncSession:
+        if self._db is None:
+            raise RuntimeError("ExperimentService was created without a database session")
+        return self._db
 
     async def create(self, data: ExperimentCreate) -> Experiment:
         experiment = Experiment(id=str(uuid.uuid4()), **data.model_dump())
@@ -113,7 +120,7 @@ class ExperimentService:
                 logger.info(f"Experiment {experiment_id} completed. F1: {result.metrics.get('f1')}")
 
             except Exception as e:
-                logger.error(f"Experiment {experiment_id} failed: {e}", exc_info=True)
+                logger.exception(f"Experiment {experiment_id} failed")
                 exp.status = ExperimentStatus.FAILED.value
                 exp.decision_reason = str(e)
 

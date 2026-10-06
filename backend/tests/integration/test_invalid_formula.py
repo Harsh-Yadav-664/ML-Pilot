@@ -49,8 +49,9 @@ async def test_executor_rejects_invalid_formula_without_training(monkeypatch):
 
 
 async def test_agent_records_invalid_formula_and_keeps_baseline_champion(
-    session_factory, monkeypatch
-):  # noqa: F811
+    session_factory,  # noqa: F811 - pytest fixture imported above
+    monkeypatch,
+):
     monkeypatch.setitem(sys.modules, "optuna", None)
 
     async def propose(self, **kwargs):

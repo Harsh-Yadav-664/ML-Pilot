@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.util
 import tempfile
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import joblib
 import numpy as np
@@ -144,7 +144,7 @@ class SklearnEngine:
     name = "base"
     package = "scikit-learn"
     module = "sklearn"
-    defaults: dict[str, Any] = {}
+    defaults: ClassVar[dict[str, Any]] = {}
 
     def __init__(self) -> None:
         self.pipeline: Pipeline | None = None
@@ -194,11 +194,16 @@ class SklearnEngine:
         self.pipeline = self.make_pipeline(X, params, seed)
         self.pipeline.fit(X, y)
 
+    def _fitted(self) -> Pipeline:
+        if self.pipeline is None:
+            raise RuntimeError(f"{self.name} engine is not fitted; call fit() first")
+        return self.pipeline
+
     def predict_proba(self, X) -> np.ndarray:
-        return self.pipeline.predict_proba(X)
+        return self._fitted().predict_proba(X)
 
     def predict(self, X) -> np.ndarray:
-        return self.pipeline.predict(X)
+        return self._fitted().predict(X)
 
     def feature_importances(self) -> dict[str, float]:
         from ml.metrics.importance import builtin_importances
@@ -220,7 +225,7 @@ class SklearnEngine:
 
 class LightGBMEngine(SklearnEngine):
     name, package, module = "LGBMClassifier", "lightgbm", "lightgbm"
-    defaults = {"verbose": -1}
+    defaults: ClassVar[dict[str, Any]] = {"verbose": -1}
 
     def estimator(self, params):
         from lightgbm import LGBMClassifier
@@ -266,7 +271,7 @@ class GradientBoostingEngine(SklearnEngine):
 
 class LogisticRegressionEngine(SklearnEngine):
     name, module = "LogisticRegression", "sklearn"
-    defaults = {"max_iter": 1000}
+    defaults: ClassVar[dict[str, Any]] = {"max_iter": 1000}
 
     def estimator(self, params):
         from sklearn.linear_model import LogisticRegression
@@ -310,7 +315,7 @@ class AutoGluonClassifier(BaseEstimator, ClassifierMixin):
 
 class AutoGluonEngine(SklearnEngine):
     name, package, module = "AutoGluon", "autogluon.tabular", "autogluon.tabular"
-    defaults = {"presets": "medium_quality", "time_limit": 60}
+    defaults: ClassVar[dict[str, Any]] = {"presets": "medium_quality", "time_limit": 60}
 
     def estimator(self, params):
         return AutoGluonClassifier(**params)

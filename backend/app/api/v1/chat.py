@@ -158,7 +158,7 @@ async def stream_live_narration(websocket: WebSocket, run_id: str):
     WebSocket for streaming events to the UI.
     """
     await websocket.accept()
-    q = asyncio.Queue()
+    q: asyncio.Queue[Any] = asyncio.Queue()
     LIVE_CHANNELS[run_id].add(q)
 
     try:

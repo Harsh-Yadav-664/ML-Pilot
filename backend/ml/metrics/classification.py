@@ -29,7 +29,7 @@ def compute_classification_metrics(
     # 1 is the positive class, so precision/recall/F1 are reported for it.
     binary = set(np.unique(y_true)) | set(np.unique(y_pred)) <= {0, 1}
     average = "binary" if binary else "weighted"
-    metrics = {
+    metrics: dict[str, float | None] = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "precision": float(precision_score(y_true, y_pred, average=average, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, average=average, zero_division=0)),

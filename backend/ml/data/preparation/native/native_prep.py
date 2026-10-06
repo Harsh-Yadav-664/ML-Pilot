@@ -66,8 +66,7 @@ class NativeDataPreparationProvider(DataPreparationProvider):
             recommendations.append("Dataset is small (<1000 rows). Use stratified k-fold CV.")
         if feature_risk != "none":
             recommendations.append(f"Columns with high missingness: {high_missing_cols}")
-        for w in profile.warnings:
-            recommendations.append(w)
+        recommendations.extend(profile.warnings)
 
         return ReadinessReport(
             data_quality_score=dq_score,

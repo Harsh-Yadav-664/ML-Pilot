@@ -68,9 +68,9 @@ class StubProvider(AIProvider):
         """Return a deterministic stub response."""
         # Detect task type from system or prompt
         text = (system + " " + prompt).lower()
-        for key in _STUB_RESPONSES:
+        for key, response in _STUB_RESPONSES.items():
             if key in text:
-                return _STUB_RESPONSES[key]
+                return response
         return _STUB_RESPONSES["default"]
 
     async def complete_structured(
@@ -98,7 +98,7 @@ class StubProvider(AIProvider):
                 items_schema = prop.get("items", {})
                 item_type = items_schema.get("type", "string")
                 if item_type == "object":
-                    item_res = {}
+                    item_res: dict[str, Any] = {}
                     for ik, ip in items_schema.get("properties", {}).items():
                         if ip.get("type") == "string":
                             item_res[ik] = f"[STUB] Mock {ik} data"
