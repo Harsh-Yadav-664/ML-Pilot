@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ---- Datasets (immutable data versions) -------------------------------------------------
 
@@ -131,11 +131,33 @@ class AutoOptimizeRequest(BaseModel):
     n_hypotheses: int = Field(5, ge=1, le=20)
 
 
-class JobStatus(BaseModel):
-    job_id: str
-    status: Literal["running", "completed", "failed"]
-    error: str | None = None
-    result: dict[str, Any] | None = None
+class JobRead(BaseModel):
+    """A background job (app/jobs/runner.py)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    kind: str
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
+    progress: float
+    current_step: str | None
+    cancel_requested: bool
+    error: str | None
+    result: dict[str, Any] | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class JobEventRead(BaseModel):
+    """One entry of a job's ordered event log."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    seq: int
+    ts: datetime
+    type: Literal["step", "proposal", "guard", "cv_result", "decision", "checkpoint", "log"]
+    payload: dict[str, Any]
 
 
 # ---- Chat -------------------------------------------------------------------------------

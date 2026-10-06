@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────────────────────────
     DATABASE_URL: str = "sqlite+aiosqlite:///./mlpilot.db"
 
+    # ── Background jobs (app/jobs/runner.py) ─────────────────────────
+    JOB_WORKERS: int = 2  # jobs run at the same time in this process
+    JOB_HEARTBEAT_SECONDS: float = 5.0
+    # A running job whose heartbeat is older than this was interrupted (restart, crash).
+    JOB_STALE_SECONDS: float = 30.0
+
     # ── CORS ─────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 

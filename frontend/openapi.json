@@ -680,8 +680,69 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
-      "JobStatus": {
+      "JobEventRead": {
+        "description": "One entry of a job's ordered event log.",
         "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "step",
+              "proposal",
+              "guard",
+              "cv_result",
+              "decision",
+              "checkpoint",
+              "log"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "JobEventRead",
+        "type": "object"
+      },
+      "JobRead": {
+        "description": "A background job (app/jobs/runner.py).",
+        "properties": {
+          "cancel_requested": {
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Step"
+          },
           "error": {
             "anyOf": [
               {
@@ -693,9 +754,29 @@
             ],
             "title": "Error"
           },
-          "job_id": {
-            "title": "Job Id",
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
             "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "progress": {
+            "title": "Progress",
+            "type": "number"
           },
           "result": {
             "anyOf": [
@@ -709,21 +790,44 @@
             ],
             "title": "Result"
           },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
           "status": {
             "enum": [
+              "queued",
               "running",
-              "completed",
-              "failed"
+              "succeeded",
+              "failed",
+              "cancelled"
             ],
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
-          "job_id",
-          "status"
+          "id",
+          "kind",
+          "status",
+          "progress",
+          "current_step",
+          "cancel_requested",
+          "error",
+          "result",
+          "created_at",
+          "started_at",
+          "finished_at"
         ],
-        "title": "JobStatus",
+        "title": "JobRead",
         "type": "object"
       },
       "LeakageFinding": {
@@ -1359,7 +1463,7 @@
     },
     "/api/v1/projects/{project_id}/agent/auto-optimize": {
       "post": {
-        "description": "Start the autonomous optimization loop on one data version.",
+        "description": "Queue the optimization loop on one data version. Follow it at /jobs/{id}.",
         "operationId": "start_auto_optimize_api_v1_projects__project_id__agent_auto_optimize_post",
         "parameters": [
           {
@@ -1387,7 +1491,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobStatus"
+                  "$ref": "#/components/schemas/JobRead"
                 }
               }
             },
@@ -1405,58 +1509,6 @@
           }
         },
         "summary": "Start Auto Optimize",
-        "tags": [
-          "agent"
-        ]
-      }
-    },
-    "/api/v1/projects/{project_id}/agent/auto-optimize/{job_id}": {
-      "get": {
-        "description": "Poll an auto-optimize job.",
-        "operationId": "get_auto_optimize_api_v1_projects__project_id__agent_auto_optimize__job_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Auto Optimize",
         "tags": [
           "agent"
         ]
@@ -2367,6 +2419,251 @@
         "summary": "Export Experiment",
         "tags": [
           "experiments"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_api_v1_projects__project_id__jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/jobs/{job_id}/cancel": {
+      "post": {
+        "description": "Cancel a queued job now, or stop a running one at its next step.",
+        "operationId": "cancel_job_api_v1_projects__project_id__jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/jobs/{job_id}/events": {
+      "get": {
+        "description": "Events in order of ``seq``. Poll with ``after`` = the last ``seq`` you saw.",
+        "operationId": "get_job_events_api_v1_projects__project_id__jobs__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Return events with seq greater than this",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Return events with seq greater than this",
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JobEventRead"
+                  },
+                  "title": "Response Get Job Events Api V1 Projects  Project Id  Jobs  Job Id  Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Events",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/jobs/{job_id}/events/stream": {
+      "get": {
+        "description": "The same events as Server-Sent Events, until the job has finished.",
+        "operationId": "stream_job_events_api_v1_projects__project_id__jobs__job_id__events_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Job Events",
+        "tags": [
+          "jobs"
         ]
       }
     },

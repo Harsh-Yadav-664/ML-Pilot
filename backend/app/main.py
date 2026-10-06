@@ -10,10 +10,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import agent, chat, datasets, experiments, projects
+from app.api.v1 import agent, chat, datasets, experiments, jobs, projects
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.db.migrations import upgrade_to_head
+from app.jobs import handlers  # noqa: F401  (registers the job kinds)
+from app.jobs.runner import JobWorker
 
 setup_logging(settings.LOG_LEVEL)
 logger = get_logger(__name__)
@@ -25,8 +27,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Starting up MLPilot backend...")
     await asyncio.to_thread(upgrade_to_head)
     logger.info("Database schema is at the latest migration.")
+    worker = JobWorker()
+    await worker.start()  # also marks jobs interrupted by the last shutdown as failed
     yield
     logger.info("Shutting down MLPilot backend.")
+    await worker.stop()
 
 
 app = FastAPI(
@@ -51,6 +56,7 @@ app.include_router(projects.router, prefix=API_PREFIX)
 app.include_router(datasets.router, prefix=API_PREFIX)
 app.include_router(experiments.router, prefix=API_PREFIX)
 app.include_router(agent.router, prefix=API_PREFIX)
+app.include_router(jobs.router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)
 
 
