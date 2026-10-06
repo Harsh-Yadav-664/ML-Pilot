@@ -9,10 +9,7 @@ Given a dataset, it will:
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import re
 from typing import Any
 
 from ai.gateway import AIGateway
@@ -56,13 +53,26 @@ class DecisionAgent:
                 await db.commit()
                 return exp.id
 
-        async def get_experiment_metrics(exp_id: str) -> dict:
+        async def get_experiment_record(exp_id: str) -> tuple[dict, dict]:
             async with AsyncSessionLocal() as db:
                 from sqlalchemy import select
                 from app.db.models.experiment import Experiment as ExpModel
                 result = await db.execute(select(ExpModel).where(ExpModel.id == exp_id))
                 exp = result.scalar_one_or_none()
-                return exp.metrics or {} if exp else {}
+                if not exp:
+                    return {}, {}
+                return exp.metrics or {}, exp.parameters or {}
+
+        async def get_experiment_metrics(exp_id: str) -> dict:
+            return (await get_experiment_record(exp_id))[0]
+
+        async def save_decision(exp_id: str, decision: str, reason: str) -> None:
+            from app.schemas.experiment import ExperimentUpdate
+            async with AsyncSessionLocal() as db:
+                await ExperimentService(db).update(
+                    exp_id, ExperimentUpdate(decision=decision, decision_reason=reason)
+                )
+                await db.commit()
 
         # Baseline
         baseline_id = await create_experiment(ExperimentCreate(
@@ -126,40 +136,63 @@ class DecisionAgent:
             # Run experiment
             runner = ExperimentService(None)
             await runner.run_experiment_background(eid)
-            result_metrics = await get_experiment_metrics(eid)
+            result_metrics, result_params = await get_experiment_record(eid)
             result_f1 = result_metrics.get("val_f1", 0.0)
 
             feature_name = hypothesis.get("name", "unknown")
             formula = hypothesis.get("formula", "unknown")
 
-            prompt = (
-                f"Given baseline validation F1 of {baseline_f1} and this experiment got validation F1 of {result_f1}, "
-                f"feature: {feature_name}, formula: {formula}, should we keep this feature? "
-                'Reply with JSON: {"decision": "keep"|"reject", "reason": "str"}'
-            )
-
-            try:
-                decision_str = await self.gateway.complete(
-                    task_type=TaskType.DECIDE,
-                    prompt=prompt,
-                    system="You are an expert ML evaluator. Provide only raw valid JSON output."
+            # The keep/reject decision is made by code (see ml/experiments/acceptance.py).
+            # The LLM only explains it.
+            acceptance = result_params.get("acceptance")
+            if acceptance is None:
+                decision = "reject"
+                rule_summary = "Rejected: the experiment did not complete, so there is no measured gain."
+            else:
+                decision = "keep" if acceptance["accepted"] else "reject"
+                lo, hi = acceptance["ci95"]
+                rule_summary = (
+                    f"{'Accepted' if acceptance['accepted'] else 'Rejected'} by rule: mean "
+                    f"{acceptance['metric']} gain {acceptance['mean_gain']:+.4f} "
+                    f"(95% CI {lo:+.4f} to {hi:+.4f}) vs required margin {acceptance['margin']:.4f} "
+                    f"over {len(acceptance['base_scores'])} paired folds."
                 )
-                decision_str_clean = re.sub(r'```json|```', '', decision_str).strip()
-                decision_data = json.loads(decision_str_clean)
+
+            explanation_mode = "llm"
+            try:
+                explanation = await self.gateway.complete(
+                    task_type=TaskType.SUMMARIZE,
+                    prompt=(
+                        f"A candidate feature '{feature_name}' = {formula} was {decision}ed by a fixed "
+                        f"statistical rule. Facts: {rule_summary} In two sentences, explain this "
+                        "decision to a data analyst. Do not change or second-guess the decision."
+                    ),
+                    system="You explain ML experiment decisions plainly. Use only the facts given.",
+                )
             except Exception as e:
-                logger.error(f"Decision AI failed: {e}")
-                decision_data = {
-                    "decision": "keep" if result_f1 > baseline_f1 else "reject",
-                    "reason": f"Fallback decision (AI failed): {e}"
-                }
+                logger.error(f"Decision explanation failed: {e}")
+                explanation, explanation_mode = "", "fallback"
+
+            reason = rule_summary + (f" {explanation.strip()}" if explanation.strip() else "")
+            await save_decision(eid, decision, reason)
+            decision_data = {
+                "decision": decision,
+                "reason": reason,
+                "decision_mode": "rule",
+                "explanation_mode": explanation_mode,
+                "acceptance": acceptance,
+            }
 
             result_info = {
                 "id": eid,
                 "feature_name": feature_name,
                 "formula": formula,
                 "f1": result_f1,
-                "decision": decision_data.get("decision", "reject"),
-                "reason": decision_data.get("reason", "")
+                "decision": decision_data["decision"],
+                "reason": decision_data["reason"],
+                "decision_mode": decision_data["decision_mode"],
+                "explanation_mode": decision_data["explanation_mode"],
+                "acceptance": decision_data["acceptance"],
             }
             
             experiments_info.append(result_info)
