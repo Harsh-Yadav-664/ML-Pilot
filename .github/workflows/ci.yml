@@ -35,6 +35,8 @@ jobs:
       # iterations on telecom_churn.csv with the offline stub provider.
       - name: Tests (stub LLM provider, no network keys)
         run: pytest -q
+      - name: 1M-row CSV load and profile (prints the timing, must stay under 10 s)
+        run: pytest -q -s tests/unit/test_duckdb_engine.py::test_a_million_row_csv_loads_and_profiles_in_under_ten_seconds
       - name: Planted-leak suite (prints leakage precision/recall)
         run: python -m tests.fixtures.leakage.suite
       # The OpenAPI schema is the frontend's contract (frontend/openapi.json).
