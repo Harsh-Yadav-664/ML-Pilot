@@ -6,53 +6,28 @@ import asyncio
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
-from sklearn.base import clone
 from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
 
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 
 from ml.core.interfaces import ExperimentRunner
 from ml.core.targets import TargetEncoder
-from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES, prepare_feature_frame
+from ml.data.preparation.feature_frame import prepare_feature_frame
 from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
 from ml.experiments.acceptance import compare_feature_sets
 from ml.features.safe_eval import InvalidFormula, evaluate, parse
 from ml.validation.splits import SplitPlan, make_splits
+from ml.models.engines import DEFAULT_ENGINE, ENGINES, get_engine, one_hot_preprocessor
 from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
 
-# Registry for models supported in Phase 1
-MODEL_REGISTRY = {
-    "LogisticRegression": LogisticRegression,
-    "RandomForestClassifier": RandomForestClassifier,
-    "GradientBoostingClassifier": GradientBoostingClassifier,
-    "XGBClassifier": XGBClassifier,
-    "LGBMClassifier": LGBMClassifier,
-}
+# Model engines (ml/models/engines): every model family behind one interface.
+MODEL_REGISTRY = ENGINES
 
-def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
-    """Impute and scale numeric columns; impute and one-hot encode the rest (capped)."""
-    numeric_features = X.select_dtypes(include=['number']).columns
-    categorical_features = X.columns.difference(numeric_features, sort=False)
-    return ColumnTransformer(
-        transformers=[
-            ('num', Pipeline(steps=[
-                ('imputer', SimpleImputer(strategy='median')),
-                ('scaler', StandardScaler())
-            ]), numeric_features),
-            ('cat', Pipeline(steps=[
-                ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-                ('onehot', OneHotEncoder(handle_unknown='infrequent_if_exist', max_categories=ONEHOT_MAX_CATEGORIES, sparse_output=False))
-            ]), categorical_features)
-        ])
+# One-hot preprocessing for engines that need numeric input (and the acceptance model).
+build_preprocessor = one_hot_preprocessor
 
 
 ACCEPTANCE_MODEL = {"model": "LGBMClassifier", "n_estimators": 100, "num_leaves": 15, "learning_rate": 0.1}
@@ -97,6 +72,9 @@ class LocalExperimentExecutor(ExperimentRunner):
         start_time = time.time()
 
         try:
+            # Fails loudly (EngineNotAvailable) for an unknown or uninstalled engine.
+            engine = get_engine(spec.model_name or DEFAULT_ENGINE)
+            spec.parameters["engine"] = engine.describe()
             # 1. Load Data
             if not self.data_loader_func:
                 raise ValueError("No data loader configured for executor.")
@@ -182,30 +160,30 @@ class LocalExperimentExecutor(ExperimentRunner):
                 )
                 spec.parameters["acceptance"] = {**gain.to_dict(), "model": ACCEPTANCE_MODEL}
 
-            # Robust preprocessor to handle real-world messy data
+            # Each engine brings its own preprocessing (LightGBM: native categories;
+            # linear models: one-hot + scaling) unless a preprocessing config overrides it.
             prep_config = spec.preprocessing_config
+            custom_preprocessor = None
             if prep_config:
                 from ml.data.preparation.dynamic_builder import DynamicPipelineBuilder
-                preprocessor = DynamicPipelineBuilder.build(prep_config, target_col)
-            else:
-                preprocessor = build_preprocessor(X_train)
+                custom_preprocessor = DynamicPipelineBuilder.build(prep_config, target_col)
 
-            def make_pipeline(estimator) -> Pipeline:
-                # Each pipeline gets its own preprocessor so fits never share state.
-                return Pipeline(steps=[('preprocessor', clone(preprocessor)), ('classifier', estimator)])
+            def make_pipeline(member, params: dict) -> Pipeline:
+                # A fresh preprocessor per pipeline so fits never share state.
+                return member.make_pipeline(X_train, params, random_state, custom_preprocessor)
 
-            def validation_predictions(estimator, with_proba: bool = False):
+            def validation_predictions(member, params: dict, with_proba: bool = False):
                 """Predictions for the validation rows: the holdout split, or out-of-fold
                 predictions over the inner folds. Never touches the test rows."""
                 if not inner_folds:
-                    pipe = make_pipeline(estimator)
+                    pipe = make_pipeline(member, params)
                     pipe.fit(X_train, y_train)
                     prob = pipe.predict_proba(X_val) if with_proba and hasattr(pipe, "predict_proba") else None
                     return y_val, pipe.predict(X_val), prob
                 y_pred = np.empty(len(y_train), dtype=y_train.dtype)
                 prob = None
                 for fit_idx, val_idx in inner_folds:
-                    pipe = make_pipeline(clone(estimator))
+                    pipe = make_pipeline(member, params)
                     pipe.fit(X_train.iloc[fit_idx], y_train[fit_idx])
                     y_pred[val_idx] = pipe.predict(X_train.iloc[val_idx])
                     if with_proba and hasattr(pipe, "predict_proba"):
@@ -215,14 +193,10 @@ class LocalExperimentExecutor(ExperimentRunner):
                         prob[val_idx] = fold_prob
                 return y_train, y_pred, prob
 
-            # 3. Initialize Model and Optuna Tuning
-            model_cls = MODEL_REGISTRY.get(spec.model_name)
-            if not model_cls:
-                raise ValueError(f"Unsupported model: {spec.model_name}. Supported: {list(MODEL_REGISTRY.keys())}")
-            
+            # 3. Tuning, only over the engine's own search space
             model_params = spec.parameters.get("model_params", {}).copy()
             best_params = model_params.copy()
-            
+
             try:
                 import optuna
                 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -230,14 +204,13 @@ class LocalExperimentExecutor(ExperimentRunner):
             except ImportError:
                 has_optuna = False
 
-            # Only XGBoost and LightGBM have a search space; tuning anything else would
-            # repeat the same fit n_trials times.
-            tunable = spec.model_name in ('XGBClassifier', 'LGBMClassifier')
-            if not tunable:
+            # Engines without a search space are not tuned; that would repeat the same fit n_trials times.
+            space = engine.search_space()
+            if not space:
                 spec.parameters['tuning'] = 'none: no search space for this model'
             elif not has_optuna:
                 spec.parameters['tuning'] = 'none: optuna not installed'
-            if has_optuna and tunable:
+            if has_optuna and space:
                 n_trials = spec.parameters.get('n_trials', 20)
                 spec.parameters['tuning'] = (
                     f'optuna, {n_trials} trials, scored on the validation split'
@@ -246,17 +219,10 @@ class LocalExperimentExecutor(ExperimentRunner):
 
                 def objective(trial):
                     params = model_params.copy()
-                    params.update({
-                        'n_estimators': trial.suggest_int('n_estimators', 50, 300),
-                        'max_depth': trial.suggest_int('max_depth', 3, 8),
-                        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
-                        'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-                        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-                    })
-                    if 'random_state' in model_cls().get_params():
-                        params['random_state'] = random_state
+                    for key, (kind, low, high) in space.items():
+                        params[key] = trial.suggest_int(key, low, high) if kind == "int" else trial.suggest_float(key, low, high)
                     # Tuning never sees the test split: score on validation rows only.
-                    y_true_tune, y_pred_tune, _ = validation_predictions(model_cls(**params))
+                    y_true_tune, y_pred_tune, _ = validation_predictions(engine, params)
                     return compute_classification_metrics(y_true_tune, y_pred_tune, None)['f1']
 
                 def run_study():
@@ -272,30 +238,24 @@ class LocalExperimentExecutor(ExperimentRunner):
                 except Exception as e:
                     spec.parameters['tuning'] = f'failed, using the given parameters: {e}'
 
-            if 'random_state' in model_cls().get_params():
-                best_params['random_state'] = random_state
-
             # 4. Validation metrics (holdout, or out-of-fold for small data).
             def fit_and_score_val():
                 return compute_classification_metrics(
-                    *validation_predictions(model_cls(**best_params), with_proba=True)
+                    *validation_predictions(engine, best_params, with_proba=True)
                 )
 
             val_metrics = await asyncio.to_thread(fit_and_score_val)
 
-            # Majority-vote ensemble, reported on the validation split only.
+            # Majority-vote ensemble of three built-in engines, reported on the validation split only.
             if spec.parameters.get('ensemble', True):
                 try:
                     def ensemble_val_metrics():
-                        members = [
-                            XGBClassifier(**(best_params if spec.model_name == 'XGBClassifier' else {'random_state': random_state})),
-                            LGBMClassifier(**(best_params if spec.model_name == 'LGBMClassifier' else {'random_state': random_state, 'verbose': -1})),
-                            LogisticRegression(**(best_params if spec.model_name == 'LogisticRegression' else {'random_state': random_state, 'max_iter': 1000})),
-                        ]
                         preds = {}
                         y_true_val = None
-                        for i, member in enumerate(members):
-                            y_true_val, preds[f'p{i}'], _ = validation_predictions(member)
+                        for name in ("XGBClassifier", "LGBMClassifier", "LogisticRegression"):
+                            member = get_engine(name)
+                            params = best_params if name == spec.model_name else {}
+                            y_true_val, preds[name], _ = validation_predictions(member, params)
                         vote = pd.DataFrame(preds).mode(axis=1)[0].values
                         return compute_classification_metrics(y_true_val, vote, None)
 
@@ -307,7 +267,7 @@ class LocalExperimentExecutor(ExperimentRunner):
             # 5. Final model: refit on train + validation, then touch the test split once.
             X_fit = pd.concat([X_train, X_val])
             y_fit = np.concatenate([y_train, y_val])
-            pipeline = make_pipeline(model_cls(**best_params))
+            pipeline = make_pipeline(engine, best_params)
             await asyncio.to_thread(pipeline.fit, X_fit, y_fit)
             y_pred, y_prob = await asyncio.to_thread(predict_once, pipeline, X_test)
             test_metrics = compute_classification_metrics(y_test, y_pred, y_prob)
