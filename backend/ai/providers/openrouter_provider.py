@@ -110,6 +110,6 @@ class OpenRouterProvider(AIProvider):
         try:
             await self._client.models.list()
             return True
-        except Exception:  # noqa: BLE001 - health check: any client error means unhealthy
+        except Exception:  # health check: any client error means unhealthy
             logger.warning("%s health check failed", type(self).__name__, exc_info=True)
             return False

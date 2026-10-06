@@ -97,6 +97,6 @@ class GeminiProvider(AIProvider):
             import asyncio
             response = await asyncio.to_thread(m.generate_content, "ping")
             return bool(response.text)
-        except Exception:  # noqa: BLE001 - health check: any client error means unhealthy
+        except Exception:  # health check: any client error means unhealthy
             logger.warning("%s health check failed", type(self).__name__, exc_info=True)
             return False

@@ -46,7 +46,7 @@ async def background_runner(experiment_id: str):
         try:
             svc = ExperimentService(session)
             await svc.run_experiment_background(experiment_id)
-        except Exception:  # noqa: BLE001 - last-resort guard; the service already marks the experiment failed
+        except Exception:  # last-resort guard; the service already marks the experiment failed
             logger.exception(f"Background task failed for exp {experiment_id}")
 
 

@@ -279,7 +279,7 @@ async def background_runner(experiment_id: str):
     try:
         svc = ExperimentService(None)  # session unused — service opens its own
         await svc.run_experiment_background(experiment_id)
-    except Exception:  # noqa: BLE001 - last-resort guard; the service already marks the experiment failed
+    except Exception:  # last-resort guard; the service already marks the experiment failed
         logger.exception(f"Background task failed for experiment {experiment_id}")
 
 @router.post("/experiments/run")
@@ -385,7 +385,7 @@ async def _run_agent_task(job_id: str, dataset_path: str, target_column: str, n_
         result = await agent.run_optimization_loop(dataset_path, target_column, n_hypotheses)
         JOBS[job_id]["status"] = "completed"
         JOBS[job_id]["result"] = result
-    except Exception as e:  # noqa: BLE001 - recorded on the job as status 'failed' with the message
+    except Exception as e:  # recorded on the job as status 'failed' with the message
         logger.exception(f"Auto-optimize failed: {e}")
         JOBS[job_id]["status"] = "failed"
         JOBS[job_id]["error"] = str(e)
