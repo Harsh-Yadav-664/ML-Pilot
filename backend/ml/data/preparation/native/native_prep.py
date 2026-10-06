@@ -124,14 +124,10 @@ class NativeDataPreparationProvider(DataPreparationProvider):
         # Reconstruct DataFrame (for downstream previewing/debugging)
         num_cols = list(numeric_features)
         
-        # Safely handle one-hot encoder feature names
+        # One-hot column names; a failure here is a bug and is raised, not papered over with made-up names.
         cat_cols = []
         if len(categorical_features) > 0:
-            try:
-                # get_feature_names_out might fail if the OneHotEncoder has issues, fallback safely
-                cat_cols = list(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_features))
-            except Exception:
-                cat_cols = [f"cat_{i}" for i in range(transformed_X.shape[1] - len(num_cols))]
+            cat_cols = list(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_features))
 
         all_cols = num_cols + cat_cols
         

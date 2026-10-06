@@ -26,6 +26,10 @@ jobs:
       # still reports ~280 pre-existing style errors; those need their own cleanup issue.
       - name: Lint (ruff, critical rules)
         run: ruff check . --select E9,F63,F7,F82
+      # Failures are loud (AGENTS.md rule 8): no try-except-pass, no blind `except Exception`
+      # unless it carries `# noqa: BLE001` with the reason the failure is still recorded.
+      - name: Lint (ruff, no silent failures)
+        run: ruff check . --select S110,BLE001,SIM105
       # Includes tests/integration/test_agent_loop_telecom.py: baseline + 2 agent
       # iterations on telecom_churn.csv with the offline stub provider.
       - name: Tests (stub LLM provider, no network keys)

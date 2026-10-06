@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Optional
 
 from ml.core.interfaces import AIProvider, ModelInfo
+
+logger = logging.getLogger(__name__)
+
 
 _GEMINI_MODELS = [
     ModelInfo(
@@ -93,5 +97,6 @@ class GeminiProvider(AIProvider):
             import asyncio
             response = await asyncio.to_thread(m.generate_content, "ping")
             return bool(response.text)
-        except Exception:
+        except Exception:  # health check: any client error means unhealthy
+            logger.warning("%s health check failed", type(self).__name__, exc_info=True)
             return False

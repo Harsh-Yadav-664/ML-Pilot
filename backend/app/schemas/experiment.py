@@ -27,7 +27,7 @@ class ExperimentCreate(BaseModel):
 
 class ExperimentRead(ExperimentCreate):
     id: str
-    metrics: Optional[dict[str, float]] = None
+    metrics: Optional[dict[str, Optional[float]]] = None
     artifacts: list[str] = []
     runtime_seconds: Optional[float] = None
     cost_usd: Optional[float] = None
@@ -45,7 +45,7 @@ class ExperimentUpdate(BaseModel):
     status: Optional[ExperimentStatus] = None
     decision: Optional[ExperimentDecision] = None
     decision_reason: Optional[str] = None
-    metrics: Optional[dict[str, float]] = None
+    metrics: Optional[dict[str, Optional[float]]] = None
 
 
 class ExperimentSuggestRequest(BaseModel):

@@ -20,6 +20,7 @@ from ml.experiments.acceptance import compare_feature_sets
 from ml.features.safe_eval import InvalidFormula, evaluate, parse
 from ml.validation.splits import SplitPlan, make_splits
 from ml.models.engines import DEFAULT_ENGINE, ENGINES, get_engine, one_hot_preprocessor
+from app.core.errors import step_failed
 from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
 
@@ -235,13 +236,16 @@ class LocalExperimentExecutor(ExperimentRunner):
                     best_tuned = await asyncio.to_thread(run_study)
                     best_params.update(best_tuned)
                     spec.parameters.setdefault('best_params', {}).update(best_tuned)
-                except Exception as e:
-                    spec.parameters['tuning'] = f'failed, using the given parameters: {e}'
+                except Exception as e:  # noqa: BLE001 - Optuna or any engine can raise; recorded on the run
+                    step_failed(spec.parameters, 'tuning', e, skipped='used the given parameters')
 
             # 4. Validation metrics (holdout, or out-of-fold for small data).
+            metric_notes: dict[str, str] = {}
+            val_notes: dict[str, str] = {}
+
             def fit_and_score_val():
                 return compute_classification_metrics(
-                    *validation_predictions(engine, best_params, with_proba=True)
+                    *validation_predictions(engine, best_params, with_proba=True), notes=val_notes
                 )
 
             val_metrics = await asyncio.to_thread(fit_and_score_val)
@@ -261,8 +265,8 @@ class LocalExperimentExecutor(ExperimentRunner):
 
                     for k, v in (await asyncio.to_thread(ensemble_val_metrics)).items():
                         val_metrics[f'ensemble_{k}'] = v
-                except Exception as e:
-                    spec.parameters['ensemble_error'] = str(e)
+                except Exception as e:  # noqa: BLE001 - any member engine can raise; recorded on the run
+                    step_failed(spec.parameters, 'ensemble_status', e, skipped='no ensemble metrics')
 
             # 5. Final model: refit on train + validation, then touch the test split once.
             X_fit = pd.concat([X_train, X_val])
@@ -270,19 +274,23 @@ class LocalExperimentExecutor(ExperimentRunner):
             pipeline = make_pipeline(engine, best_params)
             await asyncio.to_thread(pipeline.fit, X_fit, y_fit)
             y_pred, y_prob = await asyncio.to_thread(predict_once, pipeline, X_test)
-            test_metrics = compute_classification_metrics(y_test, y_pred, y_prob)
+            test_metrics = compute_classification_metrics(y_test, y_pred, y_prob, notes=metric_notes)
 
             # Unprefixed keys are the test metrics (what the UI shows); val_* are what
             # tuning and keep/reject decisions may use.
             metrics = dict(test_metrics)
             metrics.update({f"test_{k}": v for k, v in test_metrics.items()})
             metrics.update({f"val_{k}": v for k, v in val_metrics.items()})
+            metric_notes.update({f"test_{k}": v for k, v in metric_notes.items()})
+            metric_notes.update({f"val_{k}": v for k, v in val_notes.items()})
+            if metric_notes:
+                spec.parameters["metric_notes"] = metric_notes
 
             # Record the model's own feature importances for the real columns (not SHAP).
             try:
                 spec.parameters["feature_importances"] = builtin_importances(pipeline, list(X_train.columns))
                 spec.parameters["importance_method"] = IMPORTANCE_METHOD
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - importances are optional; the reason is shown as "not available"
                 spec.parameters["feature_importances"] = {}
                 spec.parameters["importance_method"] = f"not available: {e}"
 

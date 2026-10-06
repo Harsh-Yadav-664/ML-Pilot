@@ -46,8 +46,8 @@ async def background_runner(experiment_id: str):
         try:
             svc = ExperimentService(session)
             await svc.run_experiment_background(experiment_id)
-        except Exception as e:
-            logger.error(f"Background task failed for exp {experiment_id}: {e}")
+        except Exception:  # last-resort guard; the service already marks the experiment failed
+            logger.exception(f"Background task failed for exp {experiment_id}")
 
 
 @router.post("/", response_model=ExperimentRead, status_code=status.HTTP_201_CREATED)

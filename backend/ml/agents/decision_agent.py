@@ -113,7 +113,7 @@ class DecisionAgent:
                     objective="Maximize F1 score while preventing overfitting",
                     history=history
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - recorded as a skipped iteration with decision_mode 'fallback'
                 # No made-up hypothesis: record the failed iteration as a fallback and move on.
                 logger.error(f"Failed to generate hypothesis: {e}")
                 skipped = {
@@ -185,7 +185,7 @@ class DecisionAgent:
                     system="You explain ML experiment decisions plainly. Use only the facts given.",
                 )
                 explanation, explanation_mode = explained.text, explained.decision_mode
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - the rule decision stands; explanation_mode records 'fallback'
                 logger.error(f"Decision explanation failed: {e}")
                 explanation, explanation_mode = "", "fallback"
 

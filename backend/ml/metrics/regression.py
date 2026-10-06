@@ -18,11 +18,7 @@ class SklearnRegressionMetricProvider(MetricProvider):
         mae = float(skm.mean_absolute_error(y_true, y_pred))
         r2 = float(skm.r2_score(y_true, y_pred))
 
-        mape = None
-        try:
-            mape = float(skm.mean_absolute_percentage_error(y_true, y_pred))
-        except Exception:
-            pass
+        mape = float(skm.mean_absolute_percentage_error(y_true, y_pred))
 
         return RegressionMetrics(rmse=rmse, mae=mae, r2=r2, mape=mape)
 
