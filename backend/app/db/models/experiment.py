@@ -48,6 +48,9 @@ class Experiment(Base):
     test_metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # The full accept/reject record (rule, gains, evidence); `decision` stays the short label.
     decision_detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # What is needed to reproduce the run (ml/experiments/manifest.py), written once
+    # when it completes.
+    manifest: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     decision_mode: Mapped[str | None] = mapped_column(
         String(20), nullable=True
     )  # rule, llm, fallback

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ml.experiments.schema import ExperimentDecision, ExperimentStatus
 
@@ -38,6 +38,9 @@ class ExperimentRead(ExperimentCreate):
     decision: ExperimentDecision = ExperimentDecision.PENDING
     decision_reason: str | None = None
     agent_model: str | None = None
+    manifest: dict[str, Any] | None = Field(
+        None, description="What is needed to reproduce the run (RunManifest), once it completed"
+    )
     created_at: datetime
     updated_at: datetime
 

@@ -486,6 +486,19 @@
             "title": "Id",
             "type": "string"
           },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What is needed to reproduce the run (RunManifest), once it completed",
+            "title": "Manifest"
+          },
           "metrics": {
             "anyOf": [
               {
