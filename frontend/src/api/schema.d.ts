@@ -135,6 +135,32 @@ export interface paths {
         patch: operations["update_connection_api_v1_projects__project_id__connections__connection_id__patch"];
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/connections/{connection_id}/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Schema
+         * @description Tables, columns, keys (declared and inferred) and time columns, with the user's
+         *     overrides applied. Read through the SQL guard, so it is read-only.
+         */
+        get: operations["get_schema_api_v1_projects__project_id__connections__connection_id__schema_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Schema
+         * @description Store overrides (time columns, static tables, edges to add or remove). A field that is
+         *     given replaces the stored one; a field left out is unchanged. Unknown names are a 422.
+         */
+        patch: operations["update_schema_api_v1_projects__project_id__connections__connection_id__schema_patch"];
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/connections/{connection_id}/test": {
         parameters: {
             query?: never;
@@ -556,6 +582,26 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Column */
+        Column: {
+            /**
+             * Hint
+             * @description id, time, numeric, boolean, text or other
+             * @enum {string}
+             */
+            hint: "id" | "time" | "numeric" | "boolean" | "text" | "other";
+            /**
+             * Is Primary Key
+             * @default false
+             */
+            is_primary_key: boolean;
+            /** Name */
+            name: string;
+            /** Nullable */
+            nullable: boolean;
+            /** Type */
+            type: string;
+        };
         /** ColumnProfile */
         ColumnProfile: {
             /** Dist */
@@ -769,6 +815,52 @@ export interface components {
             };
             /** Importance Method */
             importance_method: string;
+        };
+        /** Edge */
+        Edge: {
+            /**
+             * Cardinality
+             * @description 1:1 when the child columns are the child's primary key, else 1:N
+             * @enum {string}
+             */
+            cardinality: "1:1" | "1:N";
+            /**
+             * Confidence
+             * @description 1.0 for declared and user edges
+             */
+            confidence: number;
+            /** From Columns */
+            from_columns: string[];
+            /** From Table */
+            from_table: string;
+            /**
+             * Overlap
+             * @description Inferred edges: share of sampled child keys found in the parent
+             */
+            overlap?: number | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "declared" | "inferred" | "user";
+            /** To Columns */
+            to_columns: string[];
+            /** To Table */
+            to_table: string;
+        };
+        /**
+         * EdgeRef
+         * @description Names an edge in overrides.
+         */
+        EdgeRef: {
+            /** From Columns */
+            from_columns: string[];
+            /** From Table */
+            from_table: string;
+            /** To Columns */
+            to_columns: string[];
+            /** To Table */
+            to_table: string;
         };
         /**
          * ExperimentDecision
@@ -1118,6 +1210,45 @@ export interface components {
              */
             dataset_name: string;
         };
+        /** SchemaGraph */
+        SchemaGraph: {
+            /** Dialect */
+            dialect: string;
+            /** Edges */
+            edges: components["schemas"]["Edge"][];
+            overrides?: components["schemas"]["SchemaOverrides"];
+            /** Tables */
+            tables: components["schemas"]["Table"][];
+            /**
+             * Warnings
+             * @description Things that could not be checked or no longer apply; never silent
+             */
+            warnings?: string[];
+        };
+        /**
+         * SchemaOverrides
+         * @description What the user decided. In a PATCH, a field that is given replaces the stored one.
+         */
+        SchemaOverrides: {
+            /** Add Edges */
+            add_edges?: components["schemas"]["EdgeRef"][] | null;
+            /** Remove Edges */
+            remove_edges?: components["schemas"]["EdgeRef"][] | null;
+            /**
+             * Static Tables
+             * @description table -> is_static
+             */
+            static_tables?: {
+                [key: string]: boolean;
+            } | null;
+            /**
+             * Time Columns
+             * @description table -> column; null says the table has no time column
+             */
+            time_columns?: {
+                [key: string]: string | null;
+            } | null;
+        };
         /**
          * SqlSnapshotRequest
          * @description Run one read-only query and store the result as a data version.
@@ -1147,6 +1278,51 @@ export interface components {
             name?: string | null;
             /** Reason */
             reason?: string | null;
+        };
+        /** Table */
+        Table: {
+            /** Columns */
+            columns: components["schemas"]["Column"][];
+            /** Db Schema */
+            db_schema: string;
+            /**
+             * Is Static
+             * @description Confirmed by the user as a table without event times; None = unknown
+             */
+            is_static?: boolean | null;
+            /**
+             * Key
+             * @description Name used in edges and overrides: 'orders', or 'schema.orders'
+             */
+            key: string;
+            /** Name */
+            name: string;
+            /** Primary Key */
+            primary_key: string[];
+            /** Row Count */
+            row_count: number;
+            /**
+             * Row Count Estimated
+             * @default false
+             */
+            row_count_estimated: boolean;
+            /**
+             * Time Candidates
+             * @description Best first
+             */
+            time_candidates?: string[];
+            /**
+             * Time Column
+             * @description The column that says when a row happened
+             */
+            time_column?: string | null;
+            /** Time Column Source */
+            time_column_source?: ("inferred" | "user") | null;
+            /**
+             * Time Leakage Hint
+             * @description Set when the chosen time column is a last-modified time: rows are rewritten after the event, so it can leak the future (see #54)
+             */
+            time_leakage_hint?: string | null;
         };
         /**
          * TaskType
@@ -1576,6 +1752,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_schema_api_v1_projects__project_id__connections__connection_id__schema_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaGraph"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_schema_api_v1_projects__project_id__connections__connection_id__schema_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchemaOverrides"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaGraph"];
                 };
             };
             /** @description Validation Error */

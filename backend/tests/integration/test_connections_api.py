@@ -336,3 +336,95 @@ async def test_a_validation_error_does_not_echo_the_password_or_connection_strin
     )
     assert missing_query.status_code == 422
     assert "echo-me-not-9917" not in missing_query.text
+
+
+async def test_schema_graph_overrides_persist_and_come_back_on_the_next_get(
+    client: httpx.AsyncClient, project_id: str, tmp_path: Path
+) -> None:
+    from tests.fixtures.demo_db import demo_sqlite
+
+    path = demo_sqlite(tmp_path / "demo.sqlite", fks=False)
+    body = {"name": "demo", "dialect": "sqlite", "database": str(path)}
+    conn = (await client.post(_url(project_id), json=body)).json()
+    schema_url = _url(project_id, f"{conn['id']}/schema")
+
+    first = await client.get(schema_url)
+    assert first.status_code == 200, first.text
+    graph = first.json()
+    tables = {t["key"]: t for t in graph["tables"]}
+    assert graph["dialect"] == "sqlite" and len(tables) == 9
+    assert len(graph["edges"]) == 9 and {e["source"] for e in graph["edges"]} == {"inferred"}
+    assert tables["orders"]["time_column"] == "ordered_at"
+    assert tables["customer_status_snapshot"]["time_leakage_hint"]
+    assert graph["overrides"] == {
+        "time_columns": None,
+        "static_tables": None,
+        "add_edges": None,
+        "remove_edges": None,
+    }
+
+    patch = {
+        "time_columns": {"support_tickets": "resolved_at"},
+        "static_tables": {"products": True, "customers": True},
+        "remove_edges": [
+            {
+                "from_table": "refunds",
+                "from_columns": ["customer_id"],
+                "to_table": "customers",
+                "to_columns": ["customer_id"],
+            }
+        ],
+    }
+    patched = await client.patch(schema_url, json=patch)
+    assert patched.status_code == 200, patched.text
+
+    again = (await client.get(schema_url)).json()  # a separate request: read back from storage
+    again_tables = {t["key"]: t for t in again["tables"]}
+    assert again_tables["support_tickets"]["time_column"] == "resolved_at"
+    assert again_tables["support_tickets"]["time_column_source"] == "user"
+    assert again_tables["products"]["is_static"] is True
+    assert again_tables["customers"]["is_static"] is True
+    assert len(again["edges"]) == 8
+    assert again["overrides"]["time_columns"] == {"support_tickets": "resolved_at"}
+
+    # A second PATCH replaces only the fields it gives.
+    await client.patch(schema_url, json={"static_tables": {"products": False}})
+    third = (await client.get(schema_url)).json()
+    third_tables = {t["key"]: t for t in third["tables"]}
+    assert third_tables["products"]["is_static"] is False
+    assert third_tables["customers"]["is_static"] is None
+    assert third_tables["support_tickets"]["time_column"] == "resolved_at"
+    assert len(third["edges"]) == 8
+
+
+async def test_schema_overrides_that_name_missing_things_are_refused_and_not_saved(
+    client: httpx.AsyncClient, project_id: str, tmp_path: Path
+) -> None:
+    from tests.fixtures.demo_db import demo_sqlite
+
+    path = demo_sqlite(tmp_path / "demo.sqlite")
+    conn = (
+        await client.post(
+            _url(project_id), json={"name": "demo", "dialect": "sqlite", "database": str(path)}
+        )
+    ).json()
+    schema_url = _url(project_id, f"{conn['id']}/schema")
+    refused = await client.patch(schema_url, json={"time_columns": {"orders": "no_such_column"}})
+    assert refused.status_code == 422 and "no_such_column" in refused.json()["detail"]
+    refused = await client.patch(schema_url, json={"static_tables": {"no_such_table": True}})
+    assert refused.status_code == 422
+    graph = (await client.get(schema_url)).json()
+    assert {t["key"]: t for t in graph["tables"]}["orders"]["time_column_source"] == "inferred"
+    assert all(v is None for v in graph["overrides"].values())
+    assert (await client.get(_url(project_id, "missing/schema"))).status_code == 404
+
+
+async def test_the_schema_of_a_postgres_connection_lists_its_tables_and_counts_rows(
+    client: httpx.AsyncClient, project_id: str, pg_body: dict[str, object]
+) -> None:
+    conn = (await client.post(_url(project_id), json=pg_body)).json()
+    resp = await client.get(_url(project_id, f"{conn['id']}/schema"))
+    assert resp.status_code == 200, resp.text
+    tables = {t["name"]: t for t in resp.json()["tables"]}
+    assert tables[PG_TABLE]["row_count"] == 30
+    assert str(pg_body["password"]) not in resp.text

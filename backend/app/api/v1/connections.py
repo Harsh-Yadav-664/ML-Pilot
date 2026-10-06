@@ -12,6 +12,7 @@ from app.schemas.connection import (
     ConnectionUpdate,
 )
 from app.services.connection_service import ConnectionService, to_read
+from ml.data.schema_graph import SchemaGraph, SchemaOverrides
 
 router = APIRouter(prefix="/projects/{project_id}/connections", tags=["connections"])
 
@@ -55,3 +56,21 @@ async def test_connection(
     """Connect read-only, report the server version and what the role could write."""
     svc = ConnectionService(db)
     return await svc.test(await svc.get(project_id, connection_id))
+
+
+@router.get("/{connection_id}/schema", response_model=SchemaGraph)
+async def get_schema(connection_id: str, project_id: ProjectID, db: DBSession) -> SchemaGraph:
+    """Tables, columns, keys (declared and inferred) and time columns, with the user's
+    overrides applied. Read through the SQL guard, so it is read-only."""
+    svc = ConnectionService(db)
+    return await svc.schema_graph(await svc.get(project_id, connection_id))
+
+
+@router.patch("/{connection_id}/schema", response_model=SchemaGraph)
+async def update_schema(
+    connection_id: str, data: SchemaOverrides, project_id: ProjectID, db: DBSession
+) -> SchemaGraph:
+    """Store overrides (time columns, static tables, edges to add or remove). A field that is
+    given replaces the stored one; a field left out is unchanged. Unknown names are a 422."""
+    svc = ConnectionService(db)
+    return await svc.update_schema_overrides(await svc.get(project_id, connection_id), data)

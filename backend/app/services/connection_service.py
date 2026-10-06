@@ -21,6 +21,16 @@ from app.schemas.connection import (
     ConnectionTestResult,
     ConnectionUpdate,
 )
+from ml.data.engine import EngineError
+from ml.data.schema_graph import (
+    OverrideError,
+    SchemaGraph,
+    SchemaOverrides,
+    apply_overrides,
+    build_schema_graph,
+    merge_overrides,
+    validate_overrides,
+)
 from ml.data.sources import ConnectionFailure, ConnectionSpec, SourceWithChecks, open_source
 from ml.data.sources.duckdb_file import is_duckdb_file
 from ml.data.sources.sqlite import is_sqlite_file
@@ -195,6 +205,32 @@ class ConnectionService:
 
     def source(self, conn: Connection) -> SourceWithChecks:
         return open_source(self.spec(conn))
+
+    async def schema_graph(self, conn: Connection) -> SchemaGraph:
+        """Tables, keys and time columns of the database, with the saved overrides applied."""
+        overrides = SchemaOverrides.model_validate(conn.schema_overrides or {})
+        return apply_overrides(await self._read_schema(conn), overrides)
+
+    async def update_schema_overrides(
+        self, conn: Connection, patch: SchemaOverrides
+    ) -> SchemaGraph:
+        """Check ``patch`` against the live schema, save it, return the graph it produces."""
+        merged = merge_overrides(conn.schema_overrides, patch)
+        base = await self._read_schema(conn)
+        try:
+            validate_overrides(base, merged)
+        except OverrideError as e:
+            raise HTTPException(422, str(e)) from None
+        conn.schema_overrides = merged.model_dump(mode="json")
+        await self.db.flush()
+        return apply_overrides(base, merged)
+
+    async def _read_schema(self, conn: Connection) -> SchemaGraph:
+        source = self.source(conn)
+        try:
+            return await asyncio.to_thread(build_schema_graph, source)
+        except (ConnectionFailure, EngineError) as e:
+            raise HTTPException(502, f"Could not read the schema: {e}") from None
 
     async def test(self, conn: Connection) -> ConnectionTestResult:
         """Connect, read the server version and the role's privileges. Failures are reported

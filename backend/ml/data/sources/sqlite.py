@@ -11,7 +11,14 @@ from urllib.parse import quote
 import pyarrow as pa
 
 from ml.data import sql_guard
-from ml.data.engine import ColumnInfo, EngineError, QueryTimeout, TableRef, TableSchema
+from ml.data.engine import (
+    ColumnInfo,
+    EngineError,
+    ForeignKey,
+    QueryTimeout,
+    TableRef,
+    TableSchema,
+)
 from ml.data.sources.base import ConnectionFailure, ConnectionSpec, Privileges
 
 HEADER = b"SQLite format 3\x00"
@@ -72,11 +79,37 @@ class SqliteSource:
         if not info:
             raise EngineError(f"Table {table.name} does not exist")
         pk = [r[1] for r in sorted((r for r in info if r[5]), key=lambda r: r[5])]
+        fk_rows = sql_guard.catalog(
+            self,
+            'SELECT id, seq, "table", "from", "to" FROM pragma_foreign_key_list(?) '
+            "ORDER BY id, seq",
+            [table.name],
+        )
+        by_id: dict[int, tuple[str, list[str], list[str | None]]] = {}
+        for fk_id, _, ref_table, col, ref_col in fk_rows:
+            _, cols_, ref_cols = by_id.setdefault(fk_id, (ref_table, [], []))
+            cols_.append(col)
+            ref_cols.append(ref_col)
+        foreign_keys: list[ForeignKey] = []
+        for ref_table, cols_, ref_cols in by_id.values():
+            if any(c is None for c in ref_cols):
+                # "REFERENCES t" without columns means the primary key of t.
+                resolved = self._primary_key(ref_table)[: len(cols_)]
+            else:
+                resolved = [c for c in ref_cols if c is not None]
+            foreign_keys.append(ForeignKey(cols_, TableRef(ref_table, "main"), resolved))
         return TableSchema(
             table=table,
             columns=[ColumnInfo(r[1], r[2] or "", not r[3]) for r in info],
             primary_key=pk,
+            foreign_keys=foreign_keys,
         )
+
+    def _primary_key(self, table_name: str) -> list[str]:
+        info = sql_guard.catalog(
+            self, "SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk", [table_name]
+        )
+        return [r[0] for r in info]
 
     def query(
         self, sql: str, params: list[Any] | None = None, *, limit: int, timeout_s: int
