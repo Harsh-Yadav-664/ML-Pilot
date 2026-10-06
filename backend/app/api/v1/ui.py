@@ -23,7 +23,7 @@ from ml.data.profiling.profiler import DataProfiler
 from ml.data.preparation.native.native_prep import NativeDataPreparationProvider
 from ml.agents.decision_agent import DecisionAgent
 from ai.gateway import AIGateway
-from ml.experiments.executor import MODEL_REGISTRY
+from ml.models.engines import DEFAULT_ENGINE, EngineNotAvailable, get_engine
 from app.core.config import settings
 from app.core.datasets import DATASETS_DIR, UPLOAD_DIR, safe_dataset_path
 from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES
@@ -210,6 +210,10 @@ async def get_data_columns(dataset_path: str, target_column: str) -> list[dict[s
         raise HTTPException(status_code=400, detail=f"Could not load {dataset_path}: {e}") from e
     return [_column_profile(df[c], c, target_column, len(df)) for c in df.columns]
 
+# Engines the generated training script can rebuild.
+EXPORTABLE_ENGINES = {"XGBClassifier", "LGBMClassifier", "RandomForestClassifier", "GradientBoostingClassifier", "LogisticRegression"}
+
+
 @router.get("/data/leakage-warnings")
 async def get_leakage_warnings(
     dataset_path: str,
@@ -286,12 +290,11 @@ async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: 
     dataset_path = safe_dataset_path(_required(data, "dataset_path"))
     target_column = data.get("target_column", "target")
     
-    model_name = data.get("model_name") or "XGBClassifier"
-    if model_name not in MODEL_REGISTRY:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported model {model_name!r}. Supported: {sorted(MODEL_REGISTRY)}",
-        )
+    model_name = data.get("model_name") or DEFAULT_ENGINE
+    try:
+        get_engine(model_name)
+    except EngineNotAvailable as e:
+        raise HTTPException(status_code=400, detail=f"Unsupported model: {e}") from e
 
     exp_create = ExperimentCreate(
         project_id=DEMO_PROJECT_ID,
@@ -474,6 +477,11 @@ async def export_experiment_script(experiment_id: str, db: DBSession, dataset_pa
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
     
+    if exp.model_name not in EXPORTABLE_ENGINES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Export for the {exp.model_name} engine is not available yet; supported: {sorted(EXPORTABLE_ENGINES)}.",
+        )
     target_encoding = exp.parameters.get("target_encoding")
     if not target_encoding:
         raise HTTPException(
@@ -573,6 +581,9 @@ def build_model():
     elif model_name == 'RandomForestClassifier':
         from sklearn.ensemble import RandomForestClassifier
         clf = RandomForestClassifier(**params)
+    elif model_name == 'GradientBoostingClassifier':
+        from sklearn.ensemble import GradientBoostingClassifier
+        clf = GradientBoostingClassifier(**params)
     else:
         from sklearn.linear_model import LogisticRegression
         clf = LogisticRegression(**params)

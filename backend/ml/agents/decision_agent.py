@@ -19,6 +19,7 @@ from app.services.experiment_service import ExperimentService
 from app.schemas.experiment import ExperimentCreate
 from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.profiling.profiler import DataProfiler
+from ml.models.engines import DEFAULT_ENGINE
 from ml.experiments.planner import ExperimentPlanner
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ class DecisionAgent:
             dataset_version=dataset_path,
             hypothesis="Baseline without new features",
             change_description="Baseline run",
-            model_name="XGBClassifier",
+            model_name=DEFAULT_ENGINE,
             feature_set=[],
             parameters={"target_column": target_column}
         ))
@@ -128,7 +129,7 @@ class DecisionAgent:
                 dataset_version=dataset_path,
                 hypothesis=hypothesis.get("reason", "Generated hypothesis"),
                 change_description=f"Added feature: {hypothesis.get('name')} via formula {hypothesis.get('formula')}",
-                model_name="XGBClassifier",
+                model_name=DEFAULT_ENGINE,
                 feature_set=[hypothesis.get("name")] if hypothesis.get("name") else [],
                 parameters={
                     "target_column": target_column,
