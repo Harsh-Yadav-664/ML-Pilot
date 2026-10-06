@@ -24,6 +24,8 @@ class ExperimentCreate(BaseModel):
     preprocessing_config: dict[str, Any] = {}
     budget: dict[str, float] = {}
     parent_id: str | None = None
+    # Set from dataset_version when that is a stored version (ml/data/versions.py).
+    data_version_id: str | None = None
 
 
 class ExperimentRead(ExperimentCreate):

@@ -61,6 +61,8 @@ export interface ActiveDataset {
   dataset_path: string;
   filename: string;
   target_column: string;
+  /** First 12 hex chars of the immutable data version's SHA-256 (absent in Demo mode). */
+  short_hash?: string;
 }
 
 export interface DatasetInfo {
@@ -69,6 +71,8 @@ export interface DatasetInfo {
   columns: string[];
   total_rows: number;
   default_target?: string;
+  data_version_id: string;
+  short_hash: string;
 }
 
 const ds = (d: ActiveDataset) => ({ dataset_path: d.dataset_path, target_column: d.target_column });

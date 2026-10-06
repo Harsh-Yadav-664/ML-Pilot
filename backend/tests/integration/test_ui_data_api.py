@@ -69,7 +69,7 @@ async def test_run_rejects_unknown_model(client):
     assert "Unsupported model" in resp.json()["detail"]
 
 
-async def test_upload_csv_returns_columns_and_rows(client, tmp_path, monkeypatch):
+async def test_upload_csv_returns_columns_and_rows(client, tmp_path, monkeypatch, isolated_storage):
     from app.api.v1 import ui
     from app.core import datasets
 
@@ -84,7 +84,10 @@ async def test_upload_csv_returns_columns_and_rows(client, tmp_path, monkeypatch
     assert body["columns"] == ["a", "b", "label"]
     assert body["total_rows"] == 3
     assert body["filename"] == "evil.csv"
-    assert Path(body["dataset_path"]).parent == tmp_path.resolve()
+    # The crafted name can't escape: the stored copy is named by its content hash.
+    assert Path(body["dataset_path"]).parent == isolated_storage
+    assert Path(body["dataset_path"]).name == f"{body['data_version_id']}.csv"
+    assert not list(tmp_path.glob("*evil*"))  # the raw upload isn't kept
 
 
 async def test_upload_rejects_non_csv(client):
