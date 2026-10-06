@@ -21,6 +21,7 @@ from lightgbm import LGBMClassifier
 
 from ml.core.interfaces import ExperimentRunner
 from ml.core.targets import TargetEncoder
+from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES, prepare_feature_frame
 from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
 from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
@@ -68,6 +69,11 @@ class LocalExperimentExecutor(ExperimentRunner):
                 raise ValueError(f"Target column '{target_col}' not found in dataset.")
 
             # 2. Prepare Data
+            # Drop ID columns and convert numbers stored as text; record both on the run.
+            features, frame_report = prepare_feature_frame(df.drop(columns=[target_col]))
+            spec.parameters.update(frame_report)
+            df = features.assign(**{target_col: df[target_col]})
+
             # Execute feature engineering step safely
             feature_name = spec.parameters.get("feature_name")
             formula = spec.parameters.get("formula")
@@ -147,7 +153,7 @@ class LocalExperimentExecutor(ExperimentRunner):
                         ]), numeric_features),
                         ('cat', Pipeline(steps=[
                             ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-                            ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                            ('onehot', OneHotEncoder(handle_unknown='infrequent_if_exist', max_categories=ONEHOT_MAX_CATEGORIES, sparse_output=False))
                         ]), categorical_features)
                     ])
 
@@ -166,8 +172,16 @@ class LocalExperimentExecutor(ExperimentRunner):
             except ImportError:
                 has_optuna = False
 
-            if has_optuna:
+            # Only XGBoost and LightGBM have a search space; tuning anything else would
+            # repeat the same fit n_trials times.
+            tunable = spec.model_name in ('XGBClassifier', 'LGBMClassifier')
+            if not tunable:
+                spec.parameters['tuning'] = 'none: no search space for this model'
+            elif not has_optuna:
+                spec.parameters['tuning'] = 'none: optuna not installed'
+            if has_optuna and tunable:
                 n_trials = spec.parameters.get('n_trials', 20)
+                spec.parameters['tuning'] = f'optuna, {n_trials} trials'
 
                 def objective(trial):
                     params = model_params.copy()
@@ -187,9 +201,7 @@ class LocalExperimentExecutor(ExperimentRunner):
                             'subsample': trial.suggest_float('subsample', 0.6, 1.0),
                             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
                         })
-                    else:
-                        pass
-                    
+
                     if 'random_state' in model_cls().get_params():
                         params['random_state'] = random_state
                         

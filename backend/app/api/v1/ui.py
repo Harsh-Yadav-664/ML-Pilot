@@ -25,6 +25,7 @@ from ai.gateway import AIGateway
 from ml.experiments.executor import MODEL_REGISTRY
 from app.core.config import settings
 from app.core.datasets import DATASETS_DIR, UPLOAD_DIR, safe_dataset_path
+from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["ui-adapter"])
@@ -463,6 +464,8 @@ async def export_experiment_script(experiment_id: str, db: DBSession):
             detail="Experiment has no recorded target encoding; run it to completion before exporting.",
         )
     classes_literal = json.dumps(target_encoding["classes"])
+    excluded_literal = json.dumps(sorted(exp.parameters.get("excluded_features", {})))
+    numeric_text_literal = json.dumps(sorted(exp.parameters.get("numeric_coercion", {})))
 
     script = f"""# MLPilot Auto-Generated Training Script
 # Experiment ID: {exp.id}
@@ -480,9 +483,18 @@ from sklearn.compose import ColumnTransformer
 import ast
 import json
 
+# ID columns excluded from features, and text columns converted to numbers, when the experiment ran
+EXCLUDED_FEATURES = json.loads({excluded_literal!r})
+NUMERIC_TEXT_COLUMNS = json.loads({numeric_text_literal!r})
+
 def load_and_prepare_data():
     df = pd.read_csv("{exp.dataset_version}")
-    
+
+    # Same clean-up MLPilot applied when the experiment ran
+    df = df.drop(columns=EXCLUDED_FEATURES)
+    for col in NUMERIC_TEXT_COLUMNS:
+        df[col] = pd.to_numeric(df[col].astype("string").str.strip(), errors="coerce").astype("float64")
+
     # Feature Engineering
     feature_name = "{exp.parameters.get('feature_name', '')}"
     formula = "{exp.parameters.get('formula', '')}"
@@ -546,7 +558,7 @@ def build_model():
             ]), numeric_features),
             ('cat', Pipeline(steps=[
                 ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-                ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ('onehot', OneHotEncoder(handle_unknown='infrequent_if_exist', max_categories={ONEHOT_MAX_CATEGORIES}, sparse_output=False))
             ]), categorical_features)
         ])
         
