@@ -98,6 +98,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/connections/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connections */
+        get: operations["list_connections_api_v1_projects__project_id__connections__get"];
+        put?: never;
+        /** Create Connection */
+        post: operations["create_connection_api_v1_projects__project_id__connections__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/connections/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Connection */
+        get: operations["get_connection_api_v1_projects__project_id__connections__connection_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Connection */
+        delete: operations["delete_connection_api_v1_projects__project_id__connections__connection_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Connection */
+        patch: operations["update_connection_api_v1_projects__project_id__connections__connection_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/connections/{connection_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Connection
+         * @description Connect read-only, report the server version and what the role could write.
+         */
+        post: operations["test_connection_api_v1_projects__project_id__connections__connection_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/datasets/sample": {
         parameters: {
             query?: never;
@@ -520,6 +577,152 @@ export interface components {
             /** Unique */
             unique: number;
         };
+        /** ConnectionCreate */
+        ConnectionCreate: {
+            /**
+             * Database
+             * @description Postgres: the database name. SQLite and DuckDB: the path of the file
+             */
+            database: string;
+            /**
+             * Dialect
+             * @enum {string}
+             */
+            dialect: "postgres" | "sqlite" | "duckdb";
+            /**
+             * Host
+             * @description Postgres only
+             */
+            host?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Password
+             * @description Stored encrypted; needs MLPILOT_SECRET_KEY. Never returned
+             */
+            password?: string | null;
+            /**
+             * Password Env
+             * @description Name of an environment variable that holds the password (nothing secret is stored)
+             */
+            password_env?: string | null;
+            /**
+             * Port
+             * @description Postgres only (default 5432)
+             */
+            port?: number | null;
+            /**
+             * Ssl Mode
+             * @description Postgres only; default prefer
+             */
+            ssl_mode?: ("disable" | "prefer" | "require" | "verify-ca" | "verify-full") | null;
+            /**
+             * Ssl Root Cert
+             * @description Postgres only
+             */
+            ssl_root_cert?: string | null;
+            /**
+             * Username
+             * @description Postgres only
+             */
+            username?: string | null;
+        };
+        /** ConnectionRead */
+        ConnectionRead: {
+            /**
+             * Can Write
+             * @description From the last test: could the role write? None until tested
+             */
+            can_write?: boolean | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Database */
+            database: string;
+            /**
+             * Dialect
+             * @enum {string}
+             */
+            dialect: "postgres" | "sqlite" | "duckdb";
+            /** Host */
+            host: string | null;
+            /** Id */
+            id: string;
+            /** Last Tested At */
+            last_tested_at: string | null;
+            /** Name */
+            name: string;
+            /** Port */
+            port: number | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Secret
+             * @description Where the password lives: 'env:NAME' or 'stored (encrypted)'; never its value
+             */
+            secret?: string | null;
+            /** Ssl Mode */
+            ssl_mode: ("disable" | "prefer" | "require" | "verify-ca" | "verify-full") | null;
+            /** Ssl Root Cert */
+            ssl_root_cert: string | null;
+            /** Username */
+            username: string | null;
+        };
+        /** ConnectionTestResult */
+        ConnectionTestResult: {
+            /**
+             * Can Write
+             * @description True when the role could modify data
+             */
+            can_write?: boolean | null;
+            /**
+             * Error Code
+             * @description auth_failed, host_unreachable, timeout, ssl_required, ...
+             */
+            error_code?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /**
+             * Message
+             * @description Short and free of secrets
+             */
+            message?: string | null;
+            /** Ok */
+            ok: boolean;
+            /**
+             * Privilege Notes
+             * @default []
+             */
+            privilege_notes: string[];
+            /** Server Version */
+            server_version?: string | null;
+        };
+        /**
+         * ConnectionUpdate
+         * @description Every field optional; a password given here replaces the saved secret.
+         */
+        ConnectionUpdate: {
+            /** Database */
+            database?: string | null;
+            /** Host */
+            host?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Password */
+            password?: string | null;
+            /** Password Env */
+            password_env?: string | null;
+            /** Port */
+            port?: number | null;
+            /** Ssl Mode */
+            ssl_mode?: ("disable" | "prefer" | "require" | "verify-ca" | "verify-full") | null;
+            /** Ssl Root Cert */
+            ssl_root_cert?: string | null;
+            /** Username */
+            username?: string | null;
+        };
         /** DataMetrics */
         DataMetrics: {
             /** Duplicate Rows */
@@ -915,13 +1118,24 @@ export interface components {
              */
             dataset_name: string;
         };
-        /** SqlSnapshotRequest */
+        /**
+         * SqlSnapshotRequest
+         * @description Run one read-only query and store the result as a data version.
+         *
+         *     Name a saved connection (``connection_id``, see /connections) or, until the UI moves to
+         *     those, pass a ``connection_string`` (never stored or echoed). Exactly one of the two.
+         */
         SqlSnapshotRequest: {
             /**
-             * Connection String
-             * @description Read-only connection; never stored or echoed
+             * Connection Id
+             * @description A saved connection of this project
              */
-            connection_string: string;
+            connection_id?: string | null;
+            /**
+             * Connection String
+             * @description Legacy: read-only connection; never stored or echoed
+             */
+            connection_string?: string | null;
             /** Query */
             query: string;
         };
@@ -1198,6 +1412,202 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_connections_api_v1_projects__project_id__connections__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_connection_api_v1_projects__project_id__connections__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_connection_api_v1_projects__project_id__connections__connection_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_connection_api_v1_projects__project_id__connections__connection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_connection_api_v1_projects__project_id__connections__connection_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_connection_api_v1_projects__project_id__connections__connection_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTestResult"];
                 };
             };
             /** @description Validation Error */

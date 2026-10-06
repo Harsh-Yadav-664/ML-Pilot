@@ -1,6 +1,6 @@
 # 0003. Read-only access to user databases, enforced in three layers
 
-**Status:** Accepted. Layers 1 and 2 are implemented for the SQL import; the full connection manager and privilege check are `planned (#43, #44)`.
+**Status:** Accepted. Layers 1 and 2 are implemented for the SQL import and for saved Postgres, SQLite and DuckDB connections (#43, which also reports whether a role could write). Acting on that report (warn or block) and moving the parser into one shared guard module are `planned (#44)`.
 
 ## Context
 
@@ -11,7 +11,7 @@ MLPilot is connected to a company's data. One bug, one clever prompt injection o
 Every query against a user database passes three independent checks, so any one of them can fail without harm:
 
 1. **Parser allowlist.** `sqlglot` parses the text; it must be a single `SELECT`. Inserts, updates, deletes, DDL, `SELECT ... INTO` and commands are refused anywhere in the tree, including inside a CTE.
-2. **Read-only transaction with limits.** The query is wrapped in a row limit on every database and runs in a read-only transaction (`SET TRANSACTION READ ONLY` on Postgres and MySQL, `PRAGMA query_only` on SQLite) with a statement timeout on Postgres and MySQL. A timeout for SQLite is not set yet.
+2. **Read-only transaction with limits.** The query is wrapped in a row limit on every database and runs in a read-only transaction (`SET TRANSACTION READ ONLY` on Postgres and MySQL, `PRAGMA query_only` on SQLite) with a statement timeout on Postgres and MySQL, and a deadline check on SQLite for saved connections.
 3. **Read-only credentials.** The connection manager checks that the role has no write privileges and warns if it does (`planned (#44)`). The pilot kit gives customers the SQL to create such a role (#103).
 
 Passwords and connection strings are never logged or returned; errors are redacted.

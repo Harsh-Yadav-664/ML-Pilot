@@ -7,11 +7,14 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import agent, chat, datasets, experiments, jobs, projects
+from app.api.v1 import agent, chat, connections, datasets, experiments, jobs, projects
+from app.core import redaction
 from app.core.config import settings
 from app.core.local_token import ENV_TOKEN
 from app.core.logging import get_logger, setup_logging
@@ -21,6 +24,7 @@ from app.jobs import handlers  # noqa: F401  (registers the job kinds)
 from app.jobs.runner import JobWorker
 
 setup_logging(settings.LOG_LEVEL)
+redaction.install()  # saved passwords never reach a log line (app/core/redaction.py)
 logger = get_logger(__name__)
 
 
@@ -52,6 +56,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 as FastAPI sends it, minus each error's ``input``.
+
+    A "field required" error carries the whole request body as its input, which would echo a
+    password or connection string the client sent (AGENTS.md rule 7).
+    """
+    errors = [{k: v for k, v in e.items() if k != "input"} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
+
+
 # CORS: only the configured UI origins (MLPILOT_CORS_ORIGINS). The token is sent as a
 # header, never a cookie, so no credentials mode is needed.
 app.add_middleware(
@@ -71,6 +87,7 @@ app.include_router(experiments.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(agent.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(jobs.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(chat.router, prefix=API_PREFIX, dependencies=AUTH)
+app.include_router(connections.router, prefix=API_PREFIX, dependencies=AUTH)
 
 
 # Health

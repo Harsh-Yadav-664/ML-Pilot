@@ -16,7 +16,7 @@ class Connection(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    dialect: Mapped[str] = mapped_column(String(50), nullable=False)  # postgresql, sqlite, duckdb
+    dialect: Mapped[str] = mapped_column(String(50), nullable=False)  # postgres, sqlite, duckdb
     host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     database: Mapped[str | None] = mapped_column(String(255), nullable=True)

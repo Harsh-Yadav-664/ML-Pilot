@@ -9,6 +9,7 @@ import shutil
 import uuid
 from pathlib import Path
 
+import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.api.deps import DBSession, Gateway, ProjectID
@@ -23,9 +24,17 @@ from app.schemas.api import (
     SqlSnapshotRequest,
 )
 from app.services import data_service
+from app.services.connection_service import ConnectionService
 from app.services.data_version_service import register_file_version
 from app.services.experiment_service import ExperimentService
-from ml.data.ingestion.sql_loader import SqlLoader, redact
+from ml.data.engine import EngineError, arrow_to_pandas
+from ml.data.ingestion.sql_loader import (
+    DEFAULT_ROW_LIMIT,
+    DEFAULT_TIMEOUT_SECONDS,
+    SqlLoader,
+    redact,
+)
+from ml.data.sources import ConnectionFailure
 from ml.data.versions import StoredVersion
 
 logger = logging.getLogger(__name__)
@@ -107,17 +116,18 @@ async def snapshot_sql_query(
     request: SqlSnapshotRequest, project_id: ProjectID, db: DBSession
 ) -> DatasetInfo:
     """Run one read-only query and store the result as an immutable version."""
-    loader = SqlLoader()
-    try:
-        df = loader.load(request.connection_string, request.query)
-    except Exception as e:  # noqa: BLE001 - any driver error becomes a redacted HTTP 400
-        # Never echo the connection string or password back or into logs.
-        message = redact(str(e), request.connection_string)
-        logger.error(f"Failed to connect and query SQL: {message}")
+    if (request.connection_id is None) == (request.connection_string is None):
         raise HTTPException(
-            status_code=400, detail=f"Failed to connect and query SQL: {message}"
-        ) from None
-    file_id = loader.hash_connection(request.connection_string, request.query)
+            status_code=400, detail="Give exactly one of connection_id or connection_string"
+        )
+    if request.connection_id is not None:
+        df, file_id, origin = await _query_saved_connection(
+            db, project_id, request.connection_id, request.query
+        )
+    else:
+        df, file_id, origin = _query_connection_string(
+            request.connection_string or "", request.query
+        )
     os.makedirs(datasets.UPLOAD_DIR, exist_ok=True)
     file_path = Path(datasets.UPLOAD_DIR) / f"sql_{file_id}.csv"
     df.to_csv(file_path, index=False)
@@ -130,19 +140,62 @@ async def snapshot_sql_query(
             file_path,
             project_id,
             kind="db_snapshot",
-            # The connection is identified by its hash only: no host, user or password.
-            origin={
-                "type": "sql",
-                "connection": file_id,
-                "query": request.query,
-                "table": loaded.table,
-            },
+            origin={**origin, "query": request.query, "table": loaded.table},
             n_rows=loaded.rows,
             n_columns=len(loaded.columns),
         )
     finally:
         file_path.unlink(missing_ok=True)
     return _info(stored, f"SQL Query Snapshot ({file_id})", df.columns.tolist(), len(df))
+
+
+def _query_connection_string(
+    connection_string: str, query: str
+) -> tuple[pd.DataFrame, str, dict[str, str]]:
+    """Legacy flow: a connection string in the request (until the UI uses saved connections)."""
+    loader = SqlLoader()
+    try:
+        df = loader.load(connection_string, query)
+    except Exception as e:  # noqa: BLE001 - any driver error becomes a redacted HTTP 400
+        # Never echo the connection string or password back or into logs.
+        message = redact(str(e), connection_string)
+        logger.error(f"Failed to connect and query SQL: {message}")
+        raise HTTPException(
+            status_code=400, detail=f"Failed to connect and query SQL: {message}"
+        ) from None
+    file_id = loader.hash_connection(connection_string, query)
+    # The connection is identified by its hash only: no host, user or password.
+    return df, file_id, {"type": "sql", "connection": file_id}
+
+
+async def _query_saved_connection(
+    db: DBSession, project_id: str, connection_id: str, query: str
+) -> tuple[pd.DataFrame, str, dict[str, str]]:
+    """A saved connection: read-only, with a row limit and a timeout, short error messages."""
+    svc = ConnectionService(db)
+    conn = await svc.get(project_id, connection_id)
+    source = svc.source(conn)
+    try:
+        table = await asyncio.to_thread(
+            source.query, query, limit=DEFAULT_ROW_LIMIT, timeout_s=DEFAULT_TIMEOUT_SECONDS
+        )
+    except (ConnectionFailure, EngineError) as e:
+        message = e.message if isinstance(e, ConnectionFailure) else str(e)
+        logger.warning("Snapshot from connection %s failed: %s", conn.id, type(e).__name__)
+        raise HTTPException(
+            status_code=400, detail=f"Failed to query the connection: {message}"
+        ) from None
+    file_id = SqlLoader().hash_connection(conn.id, query)
+    return (
+        arrow_to_pandas(table),
+        file_id,
+        {
+            "type": "sql",
+            "connection": file_id,
+            "connection_id": conn.id,
+            "connection_name": conn.name,
+        },
+    )
 
 
 @router.get("/{data_version_id}/metrics", response_model=DataMetrics)

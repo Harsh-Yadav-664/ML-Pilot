@@ -15,7 +15,9 @@ flowchart LR
     Agent --> GW["LLM gateway<br/>backend/ai/"]
     GW --> LLM["Providers<br/>offline stub, hosted, Ollama"]
     Exec --> Data["Data versions<br/>content-hashed CSV copies"]
+    API --> Conn["Connection manager<br/>saved Postgres, SQLite, DuckDB<br/>backend/ml/data/sources/"]
     API --> SQLImport["SQL import<br/>single read-only SELECT"]
+    Conn --> UserDB
     SQLImport --> UserDB[("Your database<br/>read-only")]
     SQLImport --> Data
 
@@ -40,6 +42,7 @@ Solid boxes are built and covered by tests in CI. Dashed boxes are planned.
 | Executor | `backend/ml/experiments/` | Split, train, tune on validation, score test once, compute metrics, store a run manifest. |
 | Safe evaluator | `backend/ml/features/safe_eval.py` | Parses and evaluates feature formulas against a whitelist. |
 | Leakage scanner | `backend/ml/validation/leakage.py` | Flags columns that look like leaks (single-table). |
+| Connection manager | `backend/ml/data/sources/`, `backend/app/services/connection_service.py` | Named connections to Postgres, SQLite and DuckDB. Passwords are an environment reference or Fernet-encrypted, never returned or logged; every query is one `SELECT` in a read-only session with a row limit and a timeout; a test endpoint reports the server version and whether the role could write ([ADR 0011](adr/0011-connection-secrets-and-drivers.md)). |
 | SQL import | `backend/ml/data/ingestion/sql_loader.py` | Takes one read-only `SELECT` from a user database into a CSV data version ([ADR 0003](adr/0003-read-only-in-three-layers.md)). |
 
 ## Data flow today (single CSV)
@@ -92,9 +95,9 @@ flowchart TD
 | Layer | Protects against | Status |
 |---|---|---|
 | Local token, CORS allowlist, localhost bind | Other sites or machines using the API | Implemented (#92) |
-| SQL parser allowlist (single `SELECT`) | Writes or DDL from a query | Implemented for the SQL import (#30); full connection manager `planned (#43, #44)` |
-| Read-only transaction, row limit, timeout | A query that changes data or runs away | Implemented for the SQL import (timeout on Postgres and MySQL only) |
-| Read-only database role check | A role that could write | `planned (#44)` |
+| SQL parser allowlist (single `SELECT`) | Writes or DDL from a query | Implemented for the SQL import (#30) and saved connections (#43); one shared guard module `planned (#44)` |
+| Read-only transaction, row limit, timeout | A query that changes data or runs away | Implemented for the SQL import (timeout on Postgres and MySQL only) and for saved Postgres, SQLite and DuckDB connections (#43) |
+| Read-only database role check | A role that could write | Reported by the connection test (#43); warning or blocking on it is `planned (#44)` |
 | Project DuckDB without external file access, `SELECT`-only `DataSource.query` | A query reading or writing files outside the project's own tables | Implemented (#42) |
 | Safe formula evaluator | Executing model output | Implemented (#37) |
 | Acceptance rule in code | Keeping noise, or the LLM judging itself | Implemented (#35) |
