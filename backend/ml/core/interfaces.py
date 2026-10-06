@@ -7,6 +7,8 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from ml.validation.leakage import Finding
+
 
 # ─────────────────────────────────────────────────────────────────
 # Shared dataclasses
@@ -24,21 +26,15 @@ class ProfileResult:
     warnings: list[str] = field(default_factory=list)
 
 
-@dataclass
-class LeakageWarning:
-    """A single data leakage warning."""
-    column: str
-    leakage_type: str   # 'target', 'temporal', 'entity', 'preprocessing'
-    severity: str       # 'high', 'medium', 'low'
-    reason: str
-    suggested_action: str
+# Leakage findings share one type with the evidence report (see ml/validation/leakage.py).
+LeakageWarning = Finding
 
 
 @dataclass
 class ReadinessReport:
     """Overall data readiness assessment."""
     data_quality_score: float       # 0.0 – 1.0
-    leakage_risk: str               # 'high', 'medium', 'low', 'none'
+    leakage_risk: str               # 'high' (a block finding), 'medium' (a warn finding), 'none'
     validation_risk: str            # 'high', 'medium', 'low', 'none'
     feature_risk: str               # 'high', 'medium', 'low', 'none'
     warnings: list[LeakageWarning] = field(default_factory=list)
@@ -126,7 +122,7 @@ class DataPreparationProvider(ABC):
 
     @abstractmethod
     def detect_leakage(self, df: pd.DataFrame, target_column: str) -> list[LeakageWarning]:
-        """Detect data leakage and return a list of LeakageWarnings."""
+        """Detect data leakage and return a list of findings."""
         ...
 
     @abstractmethod

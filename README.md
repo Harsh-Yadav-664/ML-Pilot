@@ -20,7 +20,7 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 |---|---|
 | Load the bundled telecom churn sample, or upload your own CSV | `test_api_security.py::test_sample_dataset_is_allowed`, `test_ui_data_api.py::test_upload_csv_returns_columns_and_rows` |
 | Per-column profile (type, role, missing %, distribution) | `test_ui_data_api.py::test_columns_profile_sample` |
-| Leakage scan with a category and reason for each warning | `test_leakage.py` (5 of the 7 checks), `test_ui_data_api.py::test_leakage_warnings_carry_category` |
+| Leakage scan: each finding has a taxonomy category (L1–L4, ID), a severity and its evidence. On the telecom sample only `customerID` is flagged; on a 13-dataset planted-leak suite (10 planted leaks, 3 clean controls) it finds 10/10 with 0 false flags. The suite was built alongside the checks, so treat these numbers as a regression test, not an independent benchmark | `test_leakage.py`, CI step `Planted-leak suite`, `test_ui_data_api.py::test_leakage_warnings_carry_category` |
 | Baseline model runs to `completed`, or is recorded as `failed` with a message | `test_baseline_lifecycle.py` |
 | String labels such as `Yes`/`No` are encoded for training and decoded back in the exported script | `test_targets.py`, `test_agent_loop_telecom.py` |
 | Agent loop: baseline plus 2 LLM-proposed experiments on the telecom sample, all reaching `completed` with numeric metrics | `test_agent_loop_telecom.py` |
@@ -37,11 +37,8 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 
 - **Direct database connection in the UI: planned (Phase 2).** The backend can import one read-only SQL query into a CSV (`POST /api/v1/ui/data/connect-sql`), but the UI does not offer it, and there is no multi-table support yet.
 - **Prediction task spec, point-in-time training tables, LLM-written SQL features, evidence report, SQL/dbt export:** planned (Phases 1–5).
-- **Honest tuning:** hyperparameter search currently scores candidates on the test split. That breaks our own rule, and the fix is issue [1.1] (#34). Treat today's tuned metrics as optimistic.
-- **Speed:** a single run on the telecom sample can take several minutes (#79).
 - **Real LLM providers:** the gateway registers a real provider when you set its key (see `backend/.env.example`), but CI never calls a real provider, so that path is untested.
 - **Demo mode** in the UI shows sample charts and numbers. It is switched on explicitly and labelled on screen. Everything outside Demo mode comes from the backend or says "not available".
-- **Leakage checks without a test:** two of the seven checks in `backend/ml/validation/leakage.py` (contamination and aggregate) have no unit test yet.
 
 ## Quick start
 
