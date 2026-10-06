@@ -79,7 +79,8 @@ class DecisionAgent:
         await svc_for_run.run_experiment_background(baseline_id)
 
         baseline_metrics = await get_experiment_metrics(baseline_id)
-        baseline_f1 = baseline_metrics.get("f1", 0.0)
+        # Decisions use validation F1; the test split is only for reporting.
+        baseline_f1 = baseline_metrics.get("val_f1", 0.0)
 
         experiments_info = []
         winner_features = []
@@ -126,13 +127,13 @@ class DecisionAgent:
             runner = ExperimentService(None)
             await runner.run_experiment_background(eid)
             result_metrics = await get_experiment_metrics(eid)
-            result_f1 = result_metrics.get("f1", 0.0)
+            result_f1 = result_metrics.get("val_f1", 0.0)
 
             feature_name = hypothesis.get("name", "unknown")
             formula = hypothesis.get("formula", "unknown")
 
             prompt = (
-                f"Given baseline F1 of {baseline_f1} and this experiment got F1 of {result_f1}, "
+                f"Given baseline validation F1 of {baseline_f1} and this experiment got validation F1 of {result_f1}, "
                 f"feature: {feature_name}, formula: {formula}, should we keep this feature? "
                 'Reply with JSON: {"decision": "keep"|"reject", "reason": "str"}'
             )

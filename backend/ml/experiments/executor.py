@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import time
 import asyncio
+import numpy as np
 import pandas as pd
 import ast
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from sklearn.base import clone
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
@@ -34,6 +36,46 @@ MODEL_REGISTRY = {
     "XGBClassifier": XGBClassifier,
     "LGBMClassifier": LGBMClassifier,
 }
+
+def split_train_val_test(
+    X: pd.DataFrame, y: pd.Series, config: dict[str, Any]
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series, dict[str, Any]]:
+    """Split rows into train / validation / test with a recorded, seeded definition.
+
+    Tuning and keep/reject decisions use validation; the test split is scored once.
+    Stratified by the target when every class has enough rows.
+    """
+    test_size = config.get("test_size", 0.2)
+    val_size = config.get("val_size", 0.2)
+    random_state = config.get("random_state", 42)
+    stratified = bool(y.value_counts().min() >= 5)
+    X_rest, X_test, y_rest, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=y if stratified else None
+    )
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_rest, y_rest, test_size=val_size / (1 - test_size), random_state=random_state,
+        stratify=y_rest if stratified else None,
+    )
+    info = {
+        "method": "random holdout",
+        "test_size": test_size,
+        "val_size": val_size,
+        "random_state": random_state,
+        "stratified": stratified,
+        "n_train": len(X_train),
+        "n_val": len(X_val),
+        "n_test": len(X_test),
+    }
+    return X_train, X_val, X_test, y_train, y_val, y_test, info
+
+
+def predict_once(pipeline: Pipeline, X: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None]:
+    """Predict labels (and probabilities when available) with a single model call."""
+    if hasattr(pipeline, "predict_proba"):
+        prob = pipeline.predict_proba(X)
+        return pipeline.classes_[np.argmax(prob, axis=1)], prob
+    return pipeline.predict(X), None
+
 
 class LocalExperimentExecutor(ExperimentRunner):
     """Executes experiments locally (single-process)."""
@@ -121,11 +163,11 @@ class LocalExperimentExecutor(ExperimentRunner):
                     for f in missing_feats:
                         X[f] = 0  # Fallback to prevent crash
 
-            test_size = spec.validation_config.get("test_size", 0.2)
             random_state = spec.validation_config.get("random_state", 42)
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=test_size, random_state=random_state
+            X_train, X_val, X_test, y_train, y_val, y_test, split_info = split_train_val_test(
+                X, y, spec.validation_config
             )
+            spec.parameters["split"] = split_info
 
             # Encode class labels (fit on training labels only) and record the
             # mapping so predictions and exports can be decoded.
@@ -133,6 +175,7 @@ class LocalExperimentExecutor(ExperimentRunner):
                 y_train, positive_class=spec.parameters.get("positive_class")
             )
             y_train = target_encoder.transform(y_train)
+            y_val = target_encoder.transform(y_val)
             y_test = target_encoder.transform(y_test)
             spec.parameters["target_encoding"] = target_encoder.to_dict()
 
@@ -156,6 +199,10 @@ class LocalExperimentExecutor(ExperimentRunner):
                             ('onehot', OneHotEncoder(handle_unknown='infrequent_if_exist', max_categories=ONEHOT_MAX_CATEGORIES, sparse_output=False))
                         ]), categorical_features)
                     ])
+
+            def make_pipeline(estimator) -> Pipeline:
+                # Each pipeline gets its own preprocessor so fits never share state.
+                return Pipeline(steps=[('preprocessor', clone(preprocessor)), ('classifier', estimator)])
 
             # 3. Initialize Model and Optuna Tuning
             model_cls = MODEL_REGISTRY.get(spec.model_name)
@@ -181,68 +228,85 @@ class LocalExperimentExecutor(ExperimentRunner):
                 spec.parameters['tuning'] = 'none: optuna not installed'
             if has_optuna and tunable:
                 n_trials = spec.parameters.get('n_trials', 20)
-                spec.parameters['tuning'] = f'optuna, {n_trials} trials'
+                spec.parameters['tuning'] = f'optuna, {n_trials} trials, scored on the validation split'
 
                 def objective(trial):
                     params = model_params.copy()
-                    if spec.model_name == 'XGBClassifier':
-                        params.update({
-                            'n_estimators': trial.suggest_int('n_estimators', 50, 300),
-                            'max_depth': trial.suggest_int('max_depth', 3, 8),
-                            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
-                            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-                            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-                        })
-                    elif spec.model_name == 'LGBMClassifier':
-                        params.update({
-                            'n_estimators': trial.suggest_int('n_estimators', 50, 300),
-                            'max_depth': trial.suggest_int('max_depth', 3, 8),
-                            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
-                            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-                            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-                        })
-
+                    params.update({
+                        'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                        'max_depth': trial.suggest_int('max_depth', 3, 8),
+                        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+                        'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                    })
                     if 'random_state' in model_cls().get_params():
                         params['random_state'] = random_state
-                        
-                    clf_tune = model_cls(**params)
-                    pipe_tune = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', clf_tune)])
+                    # Tuning never sees the test split: fit on train, score on validation.
+                    pipe_tune = make_pipeline(model_cls(**params))
                     pipe_tune.fit(X_train, y_train)
-                    y_pred_tune = pipe_tune.predict(X_test)
-                    metrics_tune = compute_classification_metrics(y_test, y_pred_tune, None)
-                    return metrics_tune.get('f1', 0.0)
+                    y_pred_tune = pipe_tune.predict(X_val)
+                    return compute_classification_metrics(y_val, y_pred_tune, None)['f1']
 
                 def run_study():
-                    study = optuna.create_study(direction='maximize')
+                    sampler = optuna.samplers.TPESampler(seed=random_state)
+                    study = optuna.create_study(direction='maximize', sampler=sampler)
                     study.optimize(objective, n_trials=n_trials)
                     return study.best_params
 
                 try:
                     best_tuned = await asyncio.to_thread(run_study)
                     best_params.update(best_tuned)
-                    if 'best_params' not in spec.parameters:
-                        spec.parameters['best_params'] = {}
-                    spec.parameters['best_params'].update(best_tuned)
+                    spec.parameters.setdefault('best_params', {}).update(best_tuned)
                 except Exception as e:
-                    pass
+                    spec.parameters['tuning'] = f'failed, using the given parameters: {e}'
 
             if 'random_state' in model_cls().get_params():
                 best_params['random_state'] = random_state
-                
-            clf = model_cls(**best_params)
-            pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', clf)])
 
-            # 4. Train Model
-            # Run training in thread pool to prevent blocking the async loop
-            await asyncio.to_thread(pipeline.fit, X_train, y_train)
+            # 4. Validation metrics: fit on train, score on validation.
+            def fit_and_score_val():
+                pipe = make_pipeline(model_cls(**best_params))
+                pipe.fit(X_train, y_train)
+                prob = pipe.predict_proba(X_val) if hasattr(pipe, "predict_proba") else None
+                return compute_classification_metrics(y_val, pipe.predict(X_val), prob)
 
-            # 5. Predict & Calculate Metrics
-            y_pred = await asyncio.to_thread(pipeline.predict, X_test)
-            y_prob = None
-            if hasattr(pipeline, "predict_proba"):
-                y_prob = await asyncio.to_thread(pipeline.predict_proba, X_test)
+            val_metrics = await asyncio.to_thread(fit_and_score_val)
 
-            metrics = compute_classification_metrics(y_test, y_pred, y_prob)
+            # Majority-vote ensemble, reported on the validation split only.
+            if spec.parameters.get('ensemble', True):
+                try:
+                    def ensemble_val_metrics():
+                        members = [
+                            XGBClassifier(**(best_params if spec.model_name == 'XGBClassifier' else {'random_state': random_state})),
+                            LGBMClassifier(**(best_params if spec.model_name == 'LGBMClassifier' else {'random_state': random_state, 'verbose': -1})),
+                            LogisticRegression(**(best_params if spec.model_name == 'LogisticRegression' else {'random_state': random_state, 'max_iter': 1000})),
+                        ]
+                        preds = {}
+                        for i, member in enumerate(members):
+                            pipe = make_pipeline(member)
+                            pipe.fit(X_train, y_train)
+                            preds[f'p{i}'] = pipe.predict(X_val)
+                        vote = pd.DataFrame(preds).mode(axis=1)[0].values
+                        return compute_classification_metrics(y_val, vote, None)
+
+                    for k, v in (await asyncio.to_thread(ensemble_val_metrics)).items():
+                        val_metrics[f'ensemble_{k}'] = v
+                except Exception as e:
+                    spec.parameters['ensemble_error'] = str(e)
+
+            # 5. Final model: refit on train + validation, then touch the test split once.
+            X_fit = pd.concat([X_train, X_val])
+            y_fit = np.concatenate([y_train, y_val])
+            pipeline = make_pipeline(model_cls(**best_params))
+            await asyncio.to_thread(pipeline.fit, X_fit, y_fit)
+            y_pred, y_prob = await asyncio.to_thread(predict_once, pipeline, X_test)
+            test_metrics = compute_classification_metrics(y_test, y_pred, y_prob)
+
+            # Unprefixed keys are the test metrics (what the UI shows); val_* are what
+            # tuning and keep/reject decisions may use.
+            metrics = dict(test_metrics)
+            metrics.update({f"test_{k}": v for k, v in test_metrics.items()})
+            metrics.update({f"val_{k}": v for k, v in val_metrics.items()})
 
             # Record the model's own feature importances for the real columns (not SHAP).
             try:
@@ -251,45 +315,6 @@ class LocalExperimentExecutor(ExperimentRunner):
             except Exception as e:
                 spec.parameters["feature_importances"] = {}
                 spec.parameters["importance_method"] = f"not available: {e}"
-
-            # Auto-Ensembling
-            if spec.parameters.get('ensemble', True):
-                try:
-                    xgb_params = best_params if spec.model_name == 'XGBClassifier' else {}
-                    lgb_params = best_params if spec.model_name == 'LGBMClassifier' else {}
-                    lr_params = best_params if spec.model_name == 'LogisticRegression' else {}
-                    
-                    if 'random_state' in XGBClassifier().get_params(): xgb_params['random_state'] = random_state
-                    if 'random_state' in LGBMClassifier().get_params(): lgb_params['random_state'] = random_state
-                    if 'random_state' in LogisticRegression().get_params(): lr_params['random_state'] = random_state
-
-                    def train_ensemble():
-                        m1 = XGBClassifier(**xgb_params)
-                        m2 = LGBMClassifier(**lgb_params)
-                        m3 = LogisticRegression(**lr_params)
-                        p1 = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', m1)])
-                        p2 = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', m2)])
-                        p3 = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', m3)])
-                        p1.fit(X_train, y_train)
-                        p2.fit(X_train, y_train)
-                        p3.fit(X_train, y_train)
-                        return p1, p2, p3
-
-                    p1, p2, p3 = await asyncio.to_thread(train_ensemble)
-
-                    def predict_ensemble():
-                        pred1 = p1.predict(X_test)
-                        pred2 = p2.predict(X_test)
-                        pred3 = p3.predict(X_test)
-                        stacked = pd.DataFrame({'p1': pred1, 'p2': pred2, 'p3': pred3})
-                        return stacked.mode(axis=1)[0].values
-
-                    y_pred_ens = await asyncio.to_thread(predict_ensemble)
-                    ensemble_metrics = compute_classification_metrics(y_test, y_pred_ens, None)
-                    for k, v in ensemble_metrics.items():
-                        metrics[f'ensemble_{k}'] = v
-                except Exception as e:
-                    pass
 
             runtime_seconds = time.time() - start_time
 
