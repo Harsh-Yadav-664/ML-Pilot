@@ -99,7 +99,9 @@ async def job_worker(isolated_storage: Path, metadata_db_url: str) -> AsyncGener
     yield worker
     await worker.stop()
     # Jobs a test queued but didn't wait for must not run during the next test.
-    engine = create_async_engine(metadata_db_url, poolclass=NullPool)
+    # A training thread the stopped worker left behind may still hold the SQLite write
+    # lock for a moment, so wait for it longer than the default 5 s.
+    engine = create_async_engine(metadata_db_url, poolclass=NullPool, connect_args={"timeout": 60})
     async with engine.begin() as conn:
         await conn.execute(update(Job).where(Job.status == "queued").values(status="cancelled"))
     await engine.dispose()

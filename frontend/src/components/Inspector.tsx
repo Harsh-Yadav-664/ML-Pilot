@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { MODELS, algoLabel, f3, importances, makeCurve, pct, timeAgo, trainingScript } from '../lib';
 import { useStore } from '../store';
 import { connection } from '../api';
-import { Decision } from '../types';
+import { Decision, Experiment } from '../types';
 import { cn } from '../utils/cn';
 import { Btn, Curve, Delta, Eyebrow, Leader, StatusChip, Tag } from '../ui';
 
@@ -46,7 +46,7 @@ export function Inspector() {
   if (!exp) return null;
 
   const vs = compareBaseline ? baseline : parent;
-  const d = (k: 'f1' | 'accuracy' | 'precision' | 'recall') =>
+  const d = (k: keyof Experiment['metrics']) =>
     exp.metrics[k] !== undefined && vs?.metrics[k] !== undefined ? exp.metrics[k]! - vs.metrics[k]! : undefined;
   const isChampion = champion?.id === exp.id;
   const hasKids = experiments.some((e) => e.parent_id === exp.id);
@@ -68,11 +68,18 @@ export function Inspector() {
     { k: 'baseline', label: 'Baseline' },
   ];
 
+  // What a business user acts on first (binary tasks): ranking quality and lift over the
+  // base rate. Label metrics at the 0.5 cut-off stay visible but secondary.
   const metricCells = [
+    ['PR-AUC', f3(exp.metrics.pr_auc), d('pr_auc')],
+    ['Lift @ top 10%', exp.metrics.lift_at_10pct === undefined ? '—' : `${exp.metrics.lift_at_10pct.toFixed(2)}×`, d('lift_at_10pct')],
+    ['Base rate', pct(exp.metrics.base_rate), undefined],
     ['F1', f3(exp.metrics.f1), d('f1')],
-    ['Accuracy', pct(exp.metrics.accuracy), d('accuracy')],
-    ['Precision', f3(exp.metrics.precision), d('precision')],
-    ['Recall', f3(exp.metrics.recall), d('recall')],
+  ] as const;
+  const secondaryCells = [
+    ['Accuracy', pct(exp.metrics.accuracy)],
+    ['Precision', f3(exp.metrics.precision)],
+    ['Recall', f3(exp.metrics.recall)],
   ] as const;
 
   return (
@@ -143,6 +150,14 @@ export function Inspector() {
                 ))}
               </div>
               <p className="mt-2 font-mono text-[10.5px] text-mute">
+                Test split.{' '}
+                {secondaryCells.map(([l, v]) => (
+                  <span key={l} className="mr-3">
+                    {l} {v}
+                  </span>
+                ))}
+              </p>
+              <p className="mt-1 font-mono text-[10.5px] text-mute">
                 Δ vs {compareBaseline ? 'baseline' : 'parent'} {vs?.id ?? '—'} · {timeAgo(exp.created_at)} · {exp.runtime_seconds.toFixed(1)}s
               </p>
 

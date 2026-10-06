@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 from app.core.errors import describe, unavailable
+from ml.metrics.calibration import Calibrator, brier_score, expected_calibration_error
+from ml.metrics.ranking import DEFAULT_ABSOLUTE_K, DEFAULT_FRACTIONS, ranking_metrics
 
 
 def compute_classification_metrics(
@@ -48,4 +52,38 @@ def compute_classification_metrics(
             except ValueError as e:
                 unavailable(metrics, notes, "roc_auc", f"could not be computed: {describe(e)}")
 
+    return metrics
+
+
+def binary_business_metrics(
+    y_true: np.ndarray,
+    score: np.ndarray,
+    calibrator: Calibrator,
+    threshold: float,
+    *,
+    fractions: Sequence[float] = DEFAULT_FRACTIONS,
+    absolute_k: Sequence[int] = DEFAULT_ABSOLUTE_K,
+    notes: dict[str, str] | None = None,
+) -> dict[str, float | None]:
+    """What a business user reads for a binary task: base rate, PR-AUC, precision /
+    recall / lift at the top k, calibration (Brier, ECE) and the results at the chosen
+    threshold. `score` is the raw positive-class probability; the calibrator and the
+    threshold were fitted on validation rows and are applied here unchanged.
+    """
+    y = np.asarray(y_true)
+    s = np.asarray(score, dtype=float)
+    metrics: dict[str, float | None] = {}
+    if len(np.unique(y)) < 2:
+        for name in ("base_rate", "pr_auc"):
+            unavailable(metrics, notes, name, "only one class present")
+    else:
+        # Calibration is monotone, so ranking on the raw score gives the same order.
+        metrics.update(ranking_metrics(y, s, fractions, absolute_k))
+    prob = calibrator.apply(s)
+    metrics["brier"] = brier_score(y, prob)
+    metrics["ece"] = expected_calibration_error(y, prob)
+    pred = (prob >= threshold).astype(int)
+    metrics["precision_at_threshold"] = float(precision_score(y, pred, zero_division=0))
+    metrics["recall_at_threshold"] = float(recall_score(y, pred, zero_division=0))
+    metrics["f1_at_threshold"] = float(f1_score(y, pred, zero_division=0))
     return metrics
