@@ -55,7 +55,7 @@ Branch names: `issue-<number>-<short-slug>` unless your tool assigns one.
 | `backend/ml/agents/` | Decision agent (experiment loop), cleaning agent |
 | `backend/tests/` | `unit/` and `integration/` tests (pytest, asyncio auto mode) |
 | `frontend/` | React + Vite UI started by `start.py`. Sample data only in the explicit Demo mode |
-| `docker/` | docker-compose (demo Postgres DB planned in [2.6]) |
+| `docker/` | docker-compose; `docker/demo-db/` is the synthetic e-commerce demo database (generator, schema, roles, README) |
 | `docs/` | `architecture.md` (components, data flow, guard layers), `docs/adr/` (decision records: read the index before re-deciding something), `ROADMAP.md` |
 
 New modules planned by the roadmap (create them where the issues say): `backend/ml/data/sql_guard.py`, `backend/ml/data/schema_graph.py`, `backend/ml/tasks/` (task spec, labels, point-in-time guard), `backend/ml/features/` (safe eval, DFS, LLM SQL features), `backend/ml/reports/`, `backend/ml/export/`, `benchmarks/`.
