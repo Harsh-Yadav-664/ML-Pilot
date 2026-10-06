@@ -90,7 +90,17 @@ function rememberProject(id: string) {
  * Pick the project to work in: the one used last, else the most recent one, else a new one.
  * Also the first call to the backend, so it doubles as the connection check.
  */
-export async function ensureProject(): Promise<S['ProjectRead']> {
+let pending: Promise<S['ProjectRead']> | null = null;
+
+/** One call at a time: React can mount twice, and two creates would race. */
+export function ensureProject(): Promise<S['ProjectRead']> {
+  pending ??= pickProject().finally(() => {
+    pending = null;
+  });
+  return pending;
+}
+
+async function pickProject(): Promise<S['ProjectRead']> {
   let remembered: string | null = null;
   try {
     remembered = localStorage.getItem(PROJECT_KEY);
