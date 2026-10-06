@@ -13,7 +13,8 @@ from sqlalchemy.pool import NullPool
 
 import app.db.session as db_session
 import ml.agents.decision_agent as decision_agent_module
-from app.core import datasets
+from app.core import datasets, security
+from app.core.local_token import ENV_TOKEN, ENV_TOKEN_FILE
 from app.db.migrations import upgrade_to_head
 from app.db.models import Job
 from app.db.session import get_db
@@ -21,6 +22,19 @@ from app.jobs import handlers  # noqa: F401  (registers the job kinds)
 from app.jobs.runner import JobWorker
 from app.main import app
 from tests.fixtures.api import create_project
+
+# Not a secret: the token every test client sends (app/core/security.py).
+TEST_TOKEN = "test-token-not-a-secret-0123456789"
+
+
+@pytest.fixture(autouse=True)
+def api_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """A fixture token; tests never read or create the real ~/.mlpilot/token."""
+    monkeypatch.setenv(ENV_TOKEN, TEST_TOKEN)
+    monkeypatch.setenv(ENV_TOKEN_FILE, str(tmp_path / "mlpilot-token"))
+    security.api_token.cache_clear()
+    yield TEST_TOKEN
+    security.api_token.cache_clear()
 
 
 @pytest.fixture(scope="session")
@@ -66,7 +80,8 @@ def isolated_storage(
 @pytest.fixture
 async def client() -> AsyncGenerator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+    headers = {"Authorization": f"Bearer {TEST_TOKEN}"}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test", headers=headers) as c:
         yield c
 
 

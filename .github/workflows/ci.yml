@@ -114,9 +114,13 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-      - name: UI smoke test
+      - name: UI smoke test (python start.py on a fresh clone, no token set up)
         working-directory: frontend
-        run: npm run test:smoke
+        run: |
+          test ! -e ~/.mlpilot/token && test ! -e .env.local
+          npm run test:smoke
+      - name: The generated token stays out of git
+        run: test -z "$(git status --porcelain)" || { git status --porcelain; exit 1; }
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

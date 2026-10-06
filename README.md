@@ -35,6 +35,7 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 | In a real browser, the UI loads the sample through the project API and the baseline run completes | CI `ui-smoke` job (`npm run test:smoke`, Playwright) |
 | The frontend's TypeScript API types match the backend's response models | CI: `python -m scripts.export_openapi --check` and `npm run gen:api` + `git diff --exit-code` |
 | Training and the agent loop run as durable jobs: an interrupted job is reported `failed: interrupted by restart`, a cancelled one stops before its next step, and progress is an ordered event log (poll or SSE) | `test_job_runner.py`, `test_agent_loop_telecom.py` |
+| Every API call needs the local access token (401 without it); only the UI origins pass CORS; `python start.py` sets the token up with no manual step | `test_local_token_and_cors.py`, CI `ui-smoke` |
 
 ### Not working yet, or planned
 
@@ -61,7 +62,8 @@ python start.py
 ```
 
 - UI: http://localhost:5173 (click "Start with sample data" to try the telecom churn data)
-- API: http://localhost:8000 (interactive docs at http://localhost:8000/docs)
+- API: http://127.0.0.1:8000 (interactive docs at http://127.0.0.1:8000/docs). The servers listen on this machine only.
+- Every API call needs a local access token. `start.py` creates it on first run in `~/.mlpilot/token` (owner-only) and passes it to the UI through the git-ignored `frontend/.env.local`, so there is nothing to set up. Scripts send `Authorization: Bearer $(cat ~/.mlpilot/token)`. Only the UI's origins may call the API from a browser (`MLPILOT_CORS_ORIGINS`, default `http://localhost:5173`). This is not multi-user auth. To listen on other interfaces, set `MLPILOT_HOST`, and MLPilot logs a warning unless `MLPILOT_TOKEN` is also set.
 - API keys are optional. Without them, MLPilot uses the offline stub provider, whose suggestions are fixed placeholders. To use a real LLM, copy `backend/.env.example` to `backend/.env` and fill in a key. Never commit `.env`.
 
 On Windows PowerShell, set `$env:PYTHONIOENCODING="utf-8"` before `python start.py`.
@@ -71,7 +73,7 @@ On Windows PowerShell, set `$env:PYTHONIOENCODING="utf-8"` before `python start.
 ```bash
 cd backend && pip install -r requirements-dev.txt && pytest && ruff check . && ruff format --check . && mypy
 cd frontend && npm run build && npx tsc --noEmit
-cd frontend && npx playwright install chromium && npm run test:smoke   # starts backend + UI itself
+cd frontend && npx playwright install chromium && npm run test:smoke   # runs python start.py itself
 ```
 
 ## Architecture

@@ -40,10 +40,16 @@ export function setDemoMode(on: boolean) {
 
 export const connection = { live: false, demo: readDemo() };
 
+/** The local access token; `python start.py` writes it to frontend/.env.local. */
+const API_TOKEN: string | undefined = import.meta.env.VITE_MLPILOT_TOKEN;
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+  },
 });
 
 const delay = <T,>(value: T, ms = 280) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
@@ -253,6 +259,8 @@ export const isHttpError = (e: unknown) => axios.isAxiosError(e) && !!e.response
 
 export function describeError(e: unknown): string {
   if (axios.isAxiosError(e)) {
+    if (e.response?.status === 401)
+      return 'The backend refused the access token. Start MLPilot with `python start.py` (it passes the token to the UI).';
     if (e.response) return `HTTP ${e.response.status}: ${JSON.stringify(e.response.data?.detail ?? e.response.statusText)}`;
     return e.message || 'network error';
   }

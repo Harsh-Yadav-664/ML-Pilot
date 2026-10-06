@@ -4,12 +4,20 @@ import { expect, test } from '@playwright/test';
  * Load the sample from the landing page and watch the baseline finish, against the real
  * backend. Every API call the page makes must go to the project-scoped /api/v1 routes.
  */
-test('sample data loads and the baseline completes through the project API', async ({ page }) => {
+test('sample data loads and the baseline completes through the project API', async ({ page, request }) => {
   const apiCalls: string[] = [];
   page.on('request', (req) => {
     const url = new URL(req.url());
     if (url.port === '8000') apiCalls.push(`${req.method()} ${url.pathname}`);
   });
+
+  // start.py starts the backend next to the UI; wait until it answers.
+  const backend = 'http://127.0.0.1:8000';
+  await expect.poll(async () => (await request.get(`${backend}/health`).catch(() => null))?.status(), {
+    timeout: 120_000,
+  }).toBe(200);
+  // The API itself refuses a caller without the token; the UI below has it.
+  expect((await request.get(`${backend}/api/v1/projects/`)).status()).toBe(401);
 
   await page.goto('/');
   await page.getByRole('button', { name: /Start with sample data/ }).first().click();
