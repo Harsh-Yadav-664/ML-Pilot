@@ -34,6 +34,7 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 | The web UI builds and type-checks | CI `frontend` job (`npm run build`, `tsc --noEmit`) |
 | In a real browser, the UI loads the sample through the project API and the baseline run completes | CI `ui-smoke` job (`npm run test:smoke`, Playwright) |
 | The frontend's TypeScript API types match the backend's response models | CI: `python -m scripts.export_openapi --check` and `npm run gen:api` + `git diff --exit-code` |
+| Training and the agent loop run as durable jobs: an interrupted job is reported `failed: interrupted by restart`, a cancelled one stops before its next step, and progress is an ordered event log (poll or SSE) | `test_job_runner.py`, `test_agent_loop_telecom.py` |
 
 ### Not working yet, or planned
 

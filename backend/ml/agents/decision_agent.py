@@ -11,7 +11,7 @@ Given a dataset, it will:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 from ai.gateway import AIGateway
 from ai.router import TaskType
@@ -24,6 +24,29 @@ from ml.experiments.planner import ExperimentPlanner
 from ml.models.engines import DEFAULT_ENGINE
 
 logger = logging.getLogger(__name__)
+
+
+class LoopHooks(Protocol):
+    """Where the loop reports progress and checks for cancellation (app/jobs JobContext)."""
+
+    async def step(self, name: str, progress: float | None = None, **payload: Any) -> None: ...
+
+    async def emit(self, type_: str, **payload: Any) -> int: ...
+
+    async def check_cancelled(self) -> None: ...
+
+
+class NoHooks:
+    """Used when the loop runs outside the job runner (scripts, unit tests)."""
+
+    async def step(self, name: str, progress: float | None = None, **payload: Any) -> None:
+        return None
+
+    async def emit(self, type_: str, **payload: Any) -> int:
+        return 0
+
+    async def check_cancelled(self) -> None:
+        return None
 
 
 class DecisionAgent:
@@ -39,7 +62,11 @@ class DecisionAgent:
         max_workers: int = 3,
         *,
         project_id: str,
+        hooks: LoopHooks | None = None,
     ) -> dict:
+        hooks = hooks or NoHooks()
+        # Progress: baseline is one unit, each hypothesis one more.
+        units = n_hypotheses + 1
         logger.info(f"Starting DecisionAgent optimization loop on {dataset_path}")
 
         # 1. Profile the dataset
@@ -85,6 +112,7 @@ class DecisionAgent:
                 await db.commit()
 
         # Baseline
+        await hooks.step("Profiling the data and training the baseline", 0.0)
         baseline_id = await create_experiment(
             ExperimentCreate(
                 project_id=project_id,
@@ -96,6 +124,7 @@ class DecisionAgent:
                 parameters={"target_column": target_column},
             )
         )
+        await hooks.emit("step", name="baseline queued", experiment_id=baseline_id)
         # run_experiment_background opens its own session
         svc_for_run = ExperimentService(None)
         await svc_for_run.run_experiment_background(baseline_id)
@@ -103,6 +132,9 @@ class DecisionAgent:
         baseline_metrics = await get_experiment_metrics(baseline_id)
         # Decisions use validation F1; the test split is only for reporting.
         baseline_f1 = baseline_metrics.get("val_f1", 0.0)
+        await hooks.emit(
+            "cv_result", experiment_id=baseline_id, role="baseline", val_f1=baseline_f1
+        )
 
         experiments_info = []
         winner_features = []
@@ -117,6 +149,9 @@ class DecisionAgent:
 
         # 2 & 3. Sequential hypothesis generation and evaluation
         for i in range(n_hypotheses):
+            # Cancelling stops here, between hypotheses: at most one step runs on.
+            await hooks.check_cancelled()
+            await hooks.step(f"Hypothesis {i + 1} of {n_hypotheses}", (i + 1) / units)
             try:
                 hypothesis = await planner.generate_next_hypothesis(
                     profile=profile,
@@ -140,8 +175,16 @@ class DecisionAgent:
                     "hypothesis_llm": {"decision_mode": "fallback", "error": str(e)},
                 }
                 experiments_info.append(skipped)
+                await hooks.emit("proposal", index=i + 1, decision_mode="fallback", error=str(e))
                 continue
             hypothesis_llm = hypothesis.get("llm") or {"decision_mode": "llm"}
+            await hooks.emit(
+                "proposal",
+                index=i + 1,
+                name=hypothesis.get("name"),
+                formula=hypothesis.get("formula"),
+                decision_mode=hypothesis_llm.get("decision_mode"),
+            )
 
             # Create experiment
             eid = await create_experiment(
@@ -164,6 +207,7 @@ class DecisionAgent:
             )
 
             # Run experiment
+            await hooks.emit("step", name=f"training {hypothesis.get('name')}", experiment_id=eid)
             runner = ExperimentService(None)
             await runner.run_experiment_background(eid)
             result_metrics, result_params = await get_experiment_record(eid)
@@ -235,6 +279,15 @@ class DecisionAgent:
 
             experiments_info.append(result_info)
             history.append(result_info)
+            await hooks.emit(
+                "decision",
+                experiment_id=eid,
+                name=feature_name,
+                decision=decision,
+                decision_mode="rule",
+                val_f1=result_f1,
+                reason=rule_summary,
+            )
 
             if result_info["decision"] == "keep":
                 winner_features.append(result_info["feature_name"])

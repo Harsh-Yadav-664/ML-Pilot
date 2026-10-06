@@ -939,20 +939,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       backend
         .startAutoOptimize(d, hypotheses)
         .then((jobId) => {
+          let seen = 0;
           const poll = window.setInterval(() => {
             backend
-              .getAutoOptimize(jobId)
+              .getJobEvents(jobId, seen)
+              .then((events) => {
+                // Narrate what the job recorded, in order (decisions come from the rule).
+                for (const e of events) {
+                  seen = e.seq;
+                  const p = e.payload as Record<string, unknown>;
+                  if (e.type === 'proposal' && p.name) log(`Autopilot proposed ${String(p.name)} = ${String(p.formula)}`, 'info');
+                  if (e.type === 'decision') log(`Autopilot ${p.decision === 'keep' ? 'kept' : 'rejected'} ${String(p.name)}`, p.decision === 'keep' ? 'ok' : 'warn');
+                }
+                return backend.getJob(jobId);
+              })
               .then((job) => {
-                if (job.status === 'running') return;
+                if (job.status === 'queued' || job.status === 'running') return;
                 window.clearInterval(poll);
-                if (job.status === 'completed') done(`Autopilot finished. ${job.result?.summary ?? ''}`, 'ok');
+                if (job.status === 'succeeded') done(`Autopilot finished. ${job.result?.summary ?? ''}`, 'ok');
+                else if (job.status === 'cancelled') done('Autopilot was cancelled.', 'warn');
                 else done(`Autopilot failed: ${job.error ?? 'unknown error'}`, 'err');
               })
               .catch((err) => {
                 window.clearInterval(poll);
                 done(`Lost track of the autopilot job: ${backend.describeError(err)}`, 'err');
               });
-          }, 3000);
+          }, 2000);
         })
         .catch((err) => done(`Autopilot failed to start: ${backend.describeError(err)}`, 'err'));
       return;

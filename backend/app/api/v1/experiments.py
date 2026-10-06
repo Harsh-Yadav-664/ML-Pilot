@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from ai.router import TaskType
 from app.api.deps import DBSession, Gateway, ProjectID
 from app.db.models import Experiment
+from app.jobs import runner
 from app.schemas.api import (
     DatasetTargetRequest,
     Debrief,
@@ -29,21 +30,14 @@ router = APIRouter(prefix="/projects/{project_id}/experiments", tags=["experimen
 TREE_LIMIT = 500
 
 
-async def background_runner(experiment_id: str) -> None:
-    """Thin wrapper: ExperimentService.run_experiment_background opens its own session."""
-    try:
-        await ExperimentService(None).run_experiment_background(experiment_id)
-    except Exception:  # last-resort guard; the service already marks the experiment failed
-        logger.exception(f"Background task failed for experiment {experiment_id}")
-
-
-async def _queue(
-    db: DBSession, background_tasks: BackgroundTasks, data: ExperimentCreate
-) -> ExperimentRead:
+async def _queue(db: DBSession, data: ExperimentCreate) -> ExperimentRead:
+    """Create the experiment and a job that trains it; the job runner picks it up."""
     exp = await ExperimentService(db).create(data)
-    # Commit before scheduling: the background run reads the row from its own session.
+    await runner.enqueue(
+        db, project_id=data.project_id, kind="experiment", params={"experiment_id": exp.id}
+    )
     await db.commit()
-    background_tasks.add_task(background_runner, exp.id)
+    runner.notify()
     return ExperimentRead.model_validate(exp)
 
 
@@ -103,7 +97,6 @@ async def run_experiment(
     request: RunExperimentRequest,
     project_id: ProjectID,
     db: DBSession,
-    background_tasks: BackgroundTasks,
 ) -> ExperimentRead:
     """Queue an experiment that adds one suggested feature."""
     path = await data_service.version_path(db, request.data_version_id)
@@ -129,7 +122,7 @@ async def run_experiment(
             "formula": s.formula,
         },
     )
-    return await _queue(db, background_tasks, data)
+    return await _queue(db, data)
 
 
 @router.post("/baseline", response_model=ExperimentRead)
@@ -137,7 +130,6 @@ async def run_baseline(
     request: DatasetTargetRequest,
     project_id: ProjectID,
     db: DBSession,
-    background_tasks: BackgroundTasks,
 ) -> ExperimentRead:
     """Queue a deterministic baseline without new features."""
     path = await data_service.version_path(db, request.data_version_id)
@@ -153,7 +145,7 @@ async def run_baseline(
             "model_params": {"n_estimators": 50, "random_state": 42},
         },
     )
-    return await _queue(db, background_tasks, data)
+    return await _queue(db, data)
 
 
 @router.post("/auto-clean", response_model=ExperimentRead)
@@ -161,7 +153,6 @@ async def run_auto_clean(
     request: DatasetTargetRequest,
     project_id: ProjectID,
     db: DBSession,
-    background_tasks: BackgroundTasks,
     gateway: Gateway,
 ) -> ExperimentRead:
     """Ask the LLM for a cleaning configuration and queue it as a baseline."""
@@ -190,7 +181,7 @@ async def run_auto_clean(
             "model_params": {"n_estimators": 50, "random_state": 42},
         },
     )
-    return await _queue(db, background_tasks, data)
+    return await _queue(db, data)
 
 
 @router.get("/champion/export", response_model=ExportScript)

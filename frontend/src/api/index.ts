@@ -59,7 +59,8 @@ async function call<T>(request: () => Promise<T>, demoData: T): Promise<T> {
 /** Request and response shapes generated from the backend's OpenAPI schema (npm run gen:api). */
 type S = components['schemas'];
 export type DatasetInfo = S['DatasetInfo'];
-export type JobStatus = S['JobStatus'];
+export type Job = S['JobRead'];
+export type JobEvent = S['JobEventRead'];
 type ExperimentNode = S['ExperimentNode'];
 type ExperimentRead = S['ExperimentRead'];
 
@@ -225,14 +226,21 @@ export interface AutoOptimizeResult {
 
 export const startAutoOptimize = (d: ActiveDataset, n_hypotheses: number) =>
   api
-    .post<JobStatus>(`${project()}/agent/auto-optimize`, { ...versionBody(d), n_hypotheses } satisfies S['AutoOptimizeRequest'])
-    .then((r) => r.data.job_id);
+    .post<Job>(`${project()}/agent/auto-optimize`, { ...versionBody(d), n_hypotheses } satisfies S['AutoOptimizeRequest'])
+    .then((r) => r.data.id);
 
-export const getAutoOptimize = (jobId: string) =>
-  api.get<JobStatus>(`${project()}/agent/auto-optimize/${jobId}`).then((r) => ({
+/** A background job (auto-optimize, a training run): status, progress and result. */
+export const getJob = (jobId: string) =>
+  api.get<Job>(`${project()}/jobs/${jobId}`).then((r) => ({
     ...r.data,
     result: r.data.result as AutoOptimizeResult | null | undefined,
   }));
+
+/** The job's events after `after` (the last seq already seen), in order. */
+export const getJobEvents = (jobId: string, after: number) =>
+  api.get<JobEvent[]>(`${project()}/jobs/${jobId}/events`, { params: { after } }).then((r) => r.data);
+
+export const cancelJob = (jobId: string) => api.post<Job>(`${project()}/jobs/${jobId}/cancel`).then((r) => r.data);
 
 /** Grounded Q&A over the project's recorded experiment history. */
 export const chatAsk = (query: string) =>

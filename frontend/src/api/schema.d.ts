@@ -69,29 +69,9 @@ export interface paths {
         put?: never;
         /**
          * Start Auto Optimize
-         * @description Start the autonomous optimization loop on one data version.
+         * @description Queue the optimization loop on one data version. Follow it at /jobs/{id}.
          */
         post: operations["start_auto_optimize_api_v1_projects__project_id__agent_auto_optimize_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/{project_id}/agent/auto-optimize/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Auto Optimize
-         * @description Poll an auto-optimize job.
-         */
-        get: operations["get_auto_optimize_api_v1_projects__project_id__agent_auto_optimize__job_id__get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -384,6 +364,83 @@ export interface paths {
          * @description A standalone Python script that rebuilds the experiment's features and model.
          */
         get: operations["export_experiment_api_v1_projects__project_id__experiments__experiment_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job */
+        get: operations["get_job_api_v1_projects__project_id__jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Job
+         * @description Cancel a queued job now, or stop a running one at its next step.
+         */
+        post: operations["cancel_job_api_v1_projects__project_id__jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/jobs/{job_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Events
+         * @description Events in order of ``seq``. Poll with ``after`` = the last ``seq`` you saw.
+         */
+        get: operations["get_job_events_api_v1_projects__project_id__jobs__job_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/jobs/{job_id}/events/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Job Events
+         * @description The same events as Server-Sent Events, until the job has finished.
+         */
+        get: operations["stream_job_events_api_v1_projects__project_id__jobs__job_id__events_stream_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -692,21 +749,63 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** JobStatus */
-        JobStatus: {
+        /**
+         * JobEventRead
+         * @description One entry of a job's ordered event log.
+         */
+        JobEventRead: {
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Seq */
+            seq: number;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "step" | "proposal" | "guard" | "cv_result" | "decision" | "checkpoint" | "log";
+        };
+        /**
+         * JobRead
+         * @description A background job (app/jobs/runner.py).
+         */
+        JobRead: {
+            /** Cancel Requested */
+            cancel_requested: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Current Step */
+            current_step: string | null;
             /** Error */
-            error?: string | null;
-            /** Job Id */
-            job_id: string;
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Progress */
+            progress: number;
             /** Result */
-            result?: {
+            result: {
                 [key: string]: unknown;
             } | null;
+            /** Started At */
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
              */
-            status: "running" | "completed" | "failed";
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         };
         /** LeakageFinding */
         LeakageFinding: {
@@ -1056,39 +1155,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobStatus"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_auto_optimize_api_v1_projects__project_id__agent_auto_optimize__job_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobStatus"];
+                    "application/json": components["schemas"]["JobRead"];
                 };
             };
             /** @description Validation Error */
@@ -1633,6 +1700,140 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportScript"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_api_v1_projects__project_id__jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_job_api_v1_projects__project_id__jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_events_api_v1_projects__project_id__jobs__job_id__events_get: {
+        parameters: {
+            query?: {
+                /** @description Return events with seq greater than this */
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobEventRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_job_events_api_v1_projects__project_id__jobs__job_id__events_stream_get: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -67,9 +67,21 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
         json={"data_version_id": version, "target_column": "Churn", "n_hypotheses": 2},
     )
     assert job.status_code == 200, job.text
-    status = await wait_for_job(client, base, job.json()["job_id"])
-    assert status["status"] == "completed", status
+    assert job.json()["status"] == "queued"
+    status, events = await follow_job(client, base, job.json()["id"])
+    assert status["status"] == "succeeded", status
+    assert status["progress"] == 1.0
     result = status["result"]
+
+    # Progress came through the ordered event log: seq 1, 2, 3, ... with no gaps.
+    assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
+    types = [e["type"] for e in events]
+    assert types[0] == "step" and types.count("proposal") == 2 and types.count("decision") == 2
+    assert types.index("cv_result") < types.index("proposal") < types.index("decision")
+    steps = [
+        e["payload"]["name"] for e in events if e["type"] == "step" and "progress" in e["payload"]
+    ]
+    assert steps[-2:] == ["Hypothesis 1 of 2", "Hypothesis 2 of 2"]
 
     assert len(result["experiments"]) == 2
     tree = (await client.get(f"{base}/experiments", params={"data_version_id": version})).json()
@@ -120,13 +132,22 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
     assert "0" not in preds_line.split(":", 1)[1] and "1" not in preds_line.split(":", 1)[1]
 
 
-async def wait_for_job(client: httpx.AsyncClient, base: str, job_id: str) -> dict:
+async def follow_job(client: httpx.AsyncClient, base: str, job_id: str) -> tuple[dict, list[dict]]:
+    """Poll the job's events (after the last seq seen) until it finishes, like the UI does."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + 300
+    events: list[dict] = []
     while True:
-        body = (await client.get(f"{base}/agent/auto-optimize/{job_id}")).json()
-        if body["status"] != "running" or loop.time() > deadline:
-            return dict(body)
+        after = events[-1]["seq"] if events else 0
+        resp = await client.get(f"{base}/jobs/{job_id}/events", params={"after": after})
+        assert resp.status_code == 200, resp.text
+        events += resp.json()
+        status = (await client.get(f"{base}/jobs/{job_id}")).json()
+        if status["status"] in ("succeeded", "failed", "cancelled") or loop.time() > deadline:
+            rest = await client.get(f"{base}/jobs/{job_id}/events", params={"after": after})
+            seen = {e["seq"] for e in events}
+            events += [e for e in rest.json() if e["seq"] not in seen]
+            return dict(status), events
         await asyncio.sleep(0.2)
 
 

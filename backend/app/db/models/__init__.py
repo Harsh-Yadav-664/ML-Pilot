@@ -6,6 +6,7 @@ from app.db.models.dataset import Dataset
 from app.db.models.experiment import Experiment
 from app.db.models.feature import Feature
 from app.db.models.hypothesis import Hypothesis
+from app.db.models.job import Job, JobEvent
 from app.db.models.llm_call import LLMCall
 from app.db.models.model_artifact import ModelArtifact
 from app.db.models.project import Project
@@ -20,6 +21,8 @@ __all__ = [
     "Experiment",
     "Feature",
     "Hypothesis",
+    "Job",
+    "JobEvent",
     "LLMCall",
     "ModelArtifact",
     "Project",

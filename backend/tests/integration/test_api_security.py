@@ -53,7 +53,7 @@ async def test_post_endpoints_require_a_data_version(client, project_id, endpoin
 
 @pytest.mark.parametrize(
     "path",
-    ["experiments", "datasets/sample", "chat/ask", "agent/auto-optimize/x"],
+    ["experiments", "datasets/sample", "chat/ask", "jobs/x"],
 )
 async def test_unknown_project_is_404(client, path):
     method = client.post if path in ("datasets/sample", "chat/ask") else client.get
