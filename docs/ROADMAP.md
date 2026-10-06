@@ -6,7 +6,7 @@ This is the product direction and phased plan behind the GitHub issues listed in
 
 ## 0. The answer in one page
 
-**Stop building "AutoML, but cheaper" for a single CSV.** That space is full of free, strong tools (AutoGluon, ChatGPT/Julius, Colab's and Databricks' data-science agents), and a solo builder cannot beat them at fitting models.
+**Stop building "AutoML, but cheaper" for a single CSV.** That space is full of free, strong tools (AutoGluon, ChatGPT/Julius, Colab's and Databricks' data-science agents), and a small open-source project cannot beat them at fitting models.
 
 **Build this instead:** *MLPilot becomes the open-source, self-hosted "prediction agent" that works directly on a company's own database.*
 
@@ -77,7 +77,7 @@ The project's core rule: **the LLM proposes, deterministic code validates and ex
 | Frontend | `frontend/src`, `frontend/new_ui/src` | React UI (two near-identical copies) | Calls wrong URL prefix, falls back to mock data silently; upload stats are `Math.random()`, metrics are simulated |
 | Tests | `backend/tests/unit/*` | 47 unit tests | 1 fails (calls removed method); no CI |
 
-### 1.4 Words you'll be asked about in interviews
+### 1.4 Key terms
 
 - **Point-in-time correctness:** when building a training row "as of 1 March", every feature may only use rows with a timestamp before 1 March. Breaking this is *temporal leakage*.
 - **Entity / cutoff / horizon:** entity = the thing predicted (a customer); cutoff = the "as of" date; horizon = how far ahead (30 days).
@@ -91,12 +91,12 @@ The project's core rule: **the LLM proposes, deterministic code validates and ex
 
 ## 2. Why not a one-stop ML platform
 
-You asked whether "make it a one-stop ML/AI platform" is the better route for selling or open source. My honest read, with the reason:
+A broad "one-stop ML/AI platform" is the obvious alternative. We chose a narrow wedge instead, for these reasons:
 
-- **Breadth is where the incumbents are strongest.** DataRobot, H2O, Vertex AI, SageMaker, Databricks and AutoGluon have teams of tens to hundreds of people and years of head start. A one-stop platform from one student will be shallower than each of them at every step. Users try it, compare it with AutoGluon, and leave.
+- **Breadth is where the incumbents are strongest.** DataRobot, H2O, Vertex AI, SageMaker, Databricks and AutoGluon have teams of tens to hundreds of people and years of head start. A one-stop platform from a small project will be shallower than each of them at every step. Users try it, compare it with AutoGluon, and leave.
 - **Free tools already cover "upload CSV, get a model".** AutoGluon (open source, top of the TabArena benchmark), PyCaret, FLAML; ChatGPT data analysis and Julius for non-coders; Colab's Data Science Agent, BigQuery's and Databricks' data-science agents inside their platforms.
 - **What wins adoption is one painful job done much better.** That's how Optuna, MLflow and dbt each became standard while big platforms already "had" those features.
-- **The relational wedge still feels like a "complete" product to the user**, because it covers one job end to end: from their database to a trustworthy model and the SQL to run it. That gives you the "one-stop" experience for a real job without trying to cover all of ML.
+- **The relational wedge still feels like a "complete" product to the user**, because it covers one job end to end: from their database to a trustworthy model and the SQL to run it. That gives users the "one-stop" experience for a real job without trying to cover all of ML.
 - **It can grow outward later.** Once the core works: write predictions back to the database, scheduled re-scoring, monitoring, more connectors, and an MCP server so other AI agents can call it. Each extension stays tied to the same core.
 
 ---
@@ -209,13 +209,6 @@ You asked whether "make it a one-stop ML/AI platform" is the better route for se
 
 Not large enterprises with MLOps teams (they buy Kumo/Databricks).
 
-### 5.4 How it could make money (honest)
-
-- **Open-source core (Apache-2.0)** gets users and credibility; a strong RelBench table plus a write-up is what gets stars and attention.
-- **Paid later:** hosted version, connectors for warehouses, team features, support, or fixed-price "pilot" projects for small companies delivered with MLPilot.
-- **Funding:** only once there's a benchmark table, a demo on a real-looking database, and 2–3 people outside the project who ran it on their data. Before that, any pitch is a slide deck.
-- I can't promise sales. What I can say: the category has proven demand (Kumo's customers and acquisition), there is no free production-grade option (getML community forbids production use; RelAgent is research code), and the free tools people compare against don't do this step.
-
 ---
 
 ## 6. Target architecture
@@ -240,7 +233,7 @@ DuckDB, CSV                                                         report, expo
    └──────── LLM gateway (existing: providers, fallback, cost) ─────────┘
 ```
 
-Design defaults (chosen tonight, change them if you disagree):
+Design defaults (each can be revisited through an ADR, see #95):
 
 - **DuckDB is the internal engine.** CSV/Parquet uploads become a one-table DuckDB database, so there's one code path. Live databases are queried read-only, or snapshotted into DuckDB with a row limit for speed.
 - **First connectors: PostgreSQL, SQLite, DuckDB, CSV/Parquet.** MySQL next; Snowflake/BigQuery later.
@@ -294,7 +287,7 @@ Write predictions back to a separate schema (opt-in), scheduled re-scoring, simp
 ### What to delete or freeze now
 - `frontend/new_ui/` (duplicate), Deployments/drift mock screens, `Math.random()` stats, `simulateMetrics()`, `mock.ts` replies (keep only behind an explicit Demo mode).
 - Fake SHAP in `chat.py`.
-- DataClean adapter (`ml/data/preparation/dataclean/`), since you decided against it.
+- DataClean adapter (`ml/data/preparation/dataclean/`), since the project decided against it.
 - Claims in README that aren't true yet.
 
 ---
