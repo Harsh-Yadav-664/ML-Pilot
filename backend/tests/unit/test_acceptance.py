@@ -10,7 +10,8 @@ import pytest
 from ml.core.targets import TargetEncoder
 from ml.data.preparation.feature_frame import prepare_feature_frame
 from ml.experiments.acceptance import compare_feature_sets
-from ml.experiments.executor import acceptance_pipeline, split_train_val_test
+from ml.experiments.executor import acceptance_pipeline
+from ml.validation.splits import SplitPlan, make_splits
 
 SAMPLE = Path(__file__).resolve().parents[2] / "datasets" / "telecom_churn.csv"
 
@@ -19,10 +20,11 @@ SAMPLE = Path(__file__).resolve().parents[2] / "datasets" / "telecom_churn.csv"
 def telecom_training_rows():
     df = pd.read_csv(SAMPLE)
     X, _ = prepare_feature_frame(df.drop(columns=["Churn"]))
-    X_train, X_val, _, y_train, y_val, _, _ = split_train_val_test(X, df["Churn"], {})
-    y_raw = pd.concat([y_train, y_val])
+    split = make_splits(df["Churn"], SplitPlan.default_for(len(df), {}))
+    rows = np.sort(np.concatenate([split.train, split.val]))
+    y_raw = df["Churn"].iloc[rows]
     y = TargetEncoder.fit(y_raw).transform(y_raw)
-    return pd.concat([X_train, X_val]), y
+    return X.iloc[rows], y
 
 
 @pytest.mark.parametrize("seed", range(10))

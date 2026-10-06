@@ -7,8 +7,9 @@ import pytest
 from sklearn.datasets import make_classification
 from sklearn.pipeline import Pipeline
 
-from ml.experiments.executor import LocalExperimentExecutor, split_train_val_test
+from ml.experiments.executor import LocalExperimentExecutor
 from ml.experiments.schema import ExperimentSpec
+from ml.validation.splits import SplitPlan, make_splits
 
 
 def _data() -> pd.DataFrame:
@@ -35,20 +36,23 @@ def spy(monkeypatch):
     return calls
 
 
+@pytest.mark.parametrize("strategy", ["holdout", "cv"])
 @pytest.mark.parametrize("model_name", ["XGBClassifier", "RandomForestClassifier"])
-async def test_test_split_is_predicted_exactly_once_after_tuning(spy, model_name):
+async def test_test_split_is_predicted_exactly_once_after_tuning(spy, model_name, strategy):
     df = _data()
     spec = ExperimentSpec(
         id="split", project_id="p", dataset_version="v", hypothesis="h", change_description="c",
         model_name=model_name,
         parameters={"target_column": "target", "n_trials": 3, "model_params": {"n_estimators": 20}},
         feature_set=[],
+        validation_config={"strategy": strategy},
     )
     result = await LocalExperimentExecutor(data_loader_func=lambda _: df.copy()).run(spec)
     assert result.status.value == "completed"
+    assert result.parameters["split_plan"]["strategy"] == strategy
 
-    _, _, X_test, *_ = split_train_val_test(df.drop(columns=["target"]), df["target"], {})
-    test_rows = frozenset(X_test.index)
+    plan = SplitPlan.default_for(len(df), {"strategy": strategy})
+    test_rows = frozenset(df.index[make_splits(df["target"], plan).test])
 
     on_test = [i for i, (name, rows) in enumerate(spy) if rows & test_rows]
     # Exactly one model call touches test rows: the final predict_proba...
@@ -66,6 +70,7 @@ async def test_record_has_separate_val_and_test_metrics_and_split():
     spec = ExperimentSpec(
         id="metrics", project_id="p", dataset_version="v", hypothesis="h", change_description="c",
         model_name="LGBMClassifier", parameters={"target_column": "target", "n_trials": 2}, feature_set=[],
+        validation_config={"strategy": "holdout"},
     )
     result = await LocalExperimentExecutor(data_loader_func=lambda _: df.copy()).run(spec)
     m = result.metrics
@@ -75,5 +80,5 @@ async def test_record_has_separate_val_and_test_metrics_and_split():
     assert not any(k.startswith("ensemble_") for k in m)  # ensemble is validation-only now
     split = result.parameters["split"]
     assert (split["n_train"], split["n_val"], split["n_test"]) == (240, 80, 80)
-    assert split["random_state"] == 42 and split["stratified"] is True
+    assert split["seed"] == 42 and split["stratified"] is True
     assert "validation" in result.parameters["tuning"]
