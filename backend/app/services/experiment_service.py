@@ -10,12 +10,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import datasets
+from app.core.config import settings
 from app.db.models.experiment import Experiment
 from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
 from ml.data.ingestion.csv_loader import CsvLoader
-from ml.data.versions import version_id_of
+from ml.data.versions import content_hash, version_id_of
 from ml.experiments.executor import LocalExperimentExecutor
-from ml.experiments.schema import ExperimentSpec, ExperimentStatus
+from ml.experiments.manifest import RunManifest, build_manifest, replay
+from ml.experiments.schema import ExperimentResult, ExperimentSpec, ExperimentStatus
 
 if TYPE_CHECKING:
     from ai.gateway import AIGateway
@@ -122,6 +124,13 @@ class ExperimentService:
                 exp.decision = result.decision.value
                 if result.decision_reason:
                     exp.decision_reason = result.decision_reason
+                if result.status == ExperimentStatus.COMPLETED:
+                    exp.manifest = build_manifest(
+                        result,
+                        data_version_id=exp.data_version_id,
+                        preprocessing_config=exp.preprocessing_config,
+                        mlpilot_version=settings.APP_VERSION,
+                    ).model_dump(mode="json")
                 logger.info(f"Experiment {experiment_id} completed. F1: {result.metrics.get('f1')}")
 
             except Exception as e:
@@ -131,6 +140,21 @@ class ExperimentService:
 
             finally:
                 await session.commit()
+
+    async def replay(self, experiment_id: str) -> ExperimentResult:
+        """Retrain and re-score a completed experiment from its manifest alone: same data
+        version (checked by content hash), features, parameters, split and seed; no LLM."""
+        exp = await self.get(experiment_id)
+        if exp is None or exp.manifest is None:
+            raise LookupError(f"Experiment {experiment_id} has no run manifest to replay")
+        manifest = RunManifest.model_validate(exp.manifest)
+        if manifest.data_version_id is None:
+            raise LookupError(f"Experiment {experiment_id} did not train on a stored data version")
+        path = datasets.VERSIONS_DIR / f"{manifest.data_version_id}.csv"
+        if not path.exists() or content_hash(path) != manifest.data_version_id:
+            raise LookupError(f"Data version {manifest.data_version_id} is missing or changed")
+        loader = CsvLoader()
+        return await replay(manifest, str(path), lambda p: loader.load(p))
 
     async def suggest_experiments(
         self,

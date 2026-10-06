@@ -661,6 +661,13 @@ export interface components {
             hypothesis: string;
             /** Id */
             id: string;
+            /**
+             * Manifest
+             * @description What is needed to reproduce the run (RunManifest), once it completed
+             */
+            manifest?: {
+                [key: string]: unknown;
+            } | null;
             /** Metrics */
             metrics?: {
                 [key: string]: number | null;

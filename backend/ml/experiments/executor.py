@@ -229,7 +229,11 @@ class LocalExperimentExecutor(ExperimentRunner):
 
             # Engines without a search space are not tuned; that would repeat the same fit n_trials times.
             space = engine.search_space()
-            if not space:
+            if spec.parameters.get("replay"):
+                # A replay trains with the recorded parameters (ml/experiments/manifest.py).
+                space = {}
+                spec.parameters["tuning"] = "none: replayed with the recorded parameters"
+            elif not space:
                 spec.parameters["tuning"] = "none: no search space for this model"
             elif not has_optuna:
                 spec.parameters["tuning"] = "none: optuna not installed"

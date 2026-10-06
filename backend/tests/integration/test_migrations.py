@@ -118,7 +118,7 @@ def test_database_made_before_migrations_is_stamped_and_upgraded(tmp_path):
     assert DOMAIN_TABLES <= _tables(db)
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT count(*) FROM experiments").fetchone()[0] == 3
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("0003",)
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("0004",)
 
 
 def test_upgrade_to_head_is_idempotent(tmp_path):
