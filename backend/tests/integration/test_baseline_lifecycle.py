@@ -1,4 +1,4 @@
-"""POST /ui/experiments/baseline must reach a final status, never stay 'created'."""
+"""A queued baseline must reach a final status, never stay 'created'."""
 
 from __future__ import annotations
 
@@ -7,68 +7,41 @@ import asyncio
 import httpx
 import pandas as pd
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import app.db.session as db_session
-from app.core import datasets
-from app.db.base import Base
-from app.db.session import get_db
-from app.main import app
+from tests.fixtures.api import API
 
 FINAL = {"completed", "failed"}
 
 
-@pytest.fixture
-async def client(tmp_path, monkeypatch):
-    import app.db.models as _models  # noqa: F401  (register tables)
-
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
-    # Background runs open their own sessions through app.db.session.AsyncSessionLocal.
-    monkeypatch.setattr(db_session, "AsyncSessionLocal", factory)
-    # Let the API load CSVs from this test's temp dir.
-    monkeypatch.setattr(datasets, "ALLOWED_DATA_DIRS", [tmp_path])
-
-    async def override_db():
-        async with factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    app.dependency_overrides[get_db] = override_db
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-    app.dependency_overrides.clear()
-    await engine.dispose()
+async def upload(client: httpx.AsyncClient, project_id: str, df: pd.DataFrame) -> str:
+    resp = await client.post(
+        f"{API}/projects/{project_id}/datasets/upload",
+        files={"file": ("small.csv", df.to_csv(index=False).encode())},
+    )
+    assert resp.status_code == 200, resp.text
+    return str(resp.json()["data_version_id"])
 
 
 @pytest.fixture
-def small_csv(tmp_path):
-    path = tmp_path / "small.csv"
+async def small_version(client, project_id) -> str:
     rows = 60
-    pd.DataFrame(
+    df = pd.DataFrame(
         {
             "age": list(range(rows)),
             "plan": ["a", "b", "c"] * (rows // 3),
             "churn": ["Yes" if i % 3 == 0 else "No" for i in range(rows)],
         }
-    ).to_csv(path, index=False)
-    return path
+    )
+    return await upload(client, project_id, df)
 
 
 async def wait_for_final_status(
-    client: httpx.AsyncClient, exp_id: str, timeout: float = 60
+    client: httpx.AsyncClient, project_id: str, exp_id: str, timeout: float = 60
 ) -> dict:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
-        resp = await client.get(f"/api/v1/experiments/{exp_id}")
+        resp = await client.get(f"{API}/projects/{project_id}/experiments/{exp_id}")
         assert resp.status_code == 200, resp.text
         body = resp.json()
         if body["status"] in FINAL or loop.time() > deadline:
@@ -76,23 +49,23 @@ async def wait_for_final_status(
         await asyncio.sleep(0.05)
 
 
-async def test_baseline_reaches_completed_20_times(client, small_csv):
+async def test_baseline_reaches_completed_20_times(client, project_id, small_version):
     for _ in range(20):
         resp = await client.post(
-            "/api/v1/ui/experiments/baseline",
-            json={"dataset_path": str(small_csv), "target_column": "churn"},
+            f"{API}/projects/{project_id}/experiments/baseline",
+            json={"data_version_id": small_version, "target_column": "churn"},
         )
         assert resp.status_code == 200, resp.text
-        body = await wait_for_final_status(client, resp.json()["id"])
+        body = await wait_for_final_status(client, project_id, resp.json()["id"])
         assert body["status"] == "completed", body.get("decision_reason")
 
 
-async def test_baseline_failure_is_recorded_with_message(client, tmp_path):
+async def test_baseline_failure_is_recorded_with_message(client, project_id, small_version):
     resp = await client.post(
-        "/api/v1/ui/experiments/baseline",
-        json={"dataset_path": str(tmp_path / "missing.csv"), "target_column": "churn"},
+        f"{API}/projects/{project_id}/experiments/baseline",
+        json={"data_version_id": small_version, "target_column": "no_such_column"},
     )
     assert resp.status_code == 200, resp.text
-    body = await wait_for_final_status(client, resp.json()["id"])
+    body = await wait_for_final_status(client, project_id, resp.json()["id"])
     assert body["status"] == "failed"
     assert body["decision_reason"]

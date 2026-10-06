@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.gateway import AIGateway
@@ -32,3 +32,15 @@ def get_gateway() -> AIGateway:
 
 
 Gateway = Annotated[AIGateway, Depends(get_gateway)]
+
+
+async def get_project_id(project_id: str, db: DBSession) -> str:
+    """The `{project_id}` path parameter, checked to name an existing project (404 otherwise)."""
+    from app.services.project_service import ProjectService
+
+    if await ProjectService(db).get(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project_id
+
+
+ProjectID = Annotated[str, Depends(get_project_id)]

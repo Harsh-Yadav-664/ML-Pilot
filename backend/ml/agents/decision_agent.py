@@ -32,7 +32,13 @@ class DecisionAgent:
         self.settings = settings
 
     async def run_optimization_loop(
-        self, dataset_path: str, target_column: str, n_hypotheses: int = 5, max_workers: int = 3
+        self,
+        dataset_path: str,
+        target_column: str,
+        n_hypotheses: int = 5,
+        max_workers: int = 3,
+        *,
+        project_id: str,
     ) -> dict:
         logger.info(f"Starting DecisionAgent optimization loop on {dataset_path}")
 
@@ -81,7 +87,7 @@ class DecisionAgent:
         # Baseline
         baseline_id = await create_experiment(
             ExperimentCreate(
-                project_id="demo-project-id",
+                project_id=project_id,
                 dataset_version=dataset_path,
                 hypothesis="Baseline without new features",
                 change_description="Baseline run",
@@ -140,7 +146,7 @@ class DecisionAgent:
             # Create experiment
             eid = await create_experiment(
                 ExperimentCreate(
-                    project_id="demo-project-id",
+                    project_id=project_id,
                     parent_id=champion_id,
                     dataset_version=dataset_path,
                     hypothesis=hypothesis.get("reason", "Generated hypothesis"),

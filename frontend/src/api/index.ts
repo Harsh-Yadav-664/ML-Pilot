@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { components } from './schema';
 import {
   ColumnProfile,
   DataMetrics,
@@ -14,8 +15,7 @@ import {
   mockWarnings,
 } from './mock';
 
-export const API_BASE_URL: string =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1/ui';
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
 const DEMO_KEY = 'mlpilot.demo';
 
@@ -56,92 +56,178 @@ async function call<T>(request: () => Promise<T>, demoData: T): Promise<T> {
   return res;
 }
 
-/** The dataset the user is working on (set by sample data, upload or SQL). */
+/** Request and response shapes generated from the backend's OpenAPI schema (npm run gen:api). */
+type S = components['schemas'];
+export type DatasetInfo = S['DatasetInfo'];
+export type JobStatus = S['JobStatus'];
+type ExperimentNode = S['ExperimentNode'];
+type ExperimentRead = S['ExperimentRead'];
+
+/** The dataset the user is working on: an immutable data version of the active project. */
 export interface ActiveDataset {
-  dataset_path: string;
+  data_version_id: string;
   filename: string;
   target_column: string;
-  /** First 12 hex chars of the immutable data version's SHA-256 (absent in Demo mode). */
+  /** First 12 hex chars of the data version's SHA-256 (absent in Demo mode). */
   short_hash?: string;
 }
 
-export interface DatasetInfo {
-  dataset_path: string;
-  filename: string;
-  columns: string[];
-  total_rows: number;
-  default_target?: string;
-  data_version_id: string;
-  short_hash: string;
+/* ---------------- the active project ---------------- */
+
+const PROJECT_KEY = 'mlpilot.project';
+let projectId: string | null = null;
+
+function rememberProject(id: string) {
+  projectId = id;
+  try {
+    localStorage.setItem(PROJECT_KEY, id);
+  } catch {
+    /* storage unavailable: the latest project is picked again next time */
+  }
 }
 
-const ds = (d: ActiveDataset) => ({ dataset_path: d.dataset_path, target_column: d.target_column });
+/**
+ * Pick the project to work in: the one used last, else the most recent one, else a new one.
+ * Also the first call to the backend, so it doubles as the connection check.
+ */
+export async function ensureProject(): Promise<S['ProjectRead']> {
+  let remembered: string | null = null;
+  try {
+    remembered = localStorage.getItem(PROJECT_KEY);
+  } catch {
+    remembered = null;
+  }
+  const list = (await api.get<S['PaginatedResponse_ProjectRead_']>('/projects/')).data.items;
+  const chosen = list.find((p) => p.id === remembered) ?? list[0];
+  const project =
+    chosen ??
+    (
+      await api.post<S['ProjectRead']>('/projects/', {
+        name: 'My first project',
+        task_type: 'binary_classification',
+      } satisfies S['ProjectCreate'])
+    ).data;
+  rememberProject(project.id);
+  connection.live = true;
+  return project;
+}
+
+function project(): string {
+  if (!projectId) throw new Error('No project selected yet');
+  return `/projects/${projectId}`;
+}
+
+const version = (d: ActiveDataset) => `${project()}/datasets/${d.data_version_id}`;
+const target = (d: ActiveDataset) => ({ target_column: d.target_column });
+const versionBody = (d: ActiveDataset): S['DatasetTargetRequest'] => ({
+  data_version_id: d.data_version_id,
+  target_column: d.target_column,
+});
 
 export const loadSampleDataset = () =>
-  api.post<DatasetInfo>('/data/sample', { dataset_name: 'telecom_churn' }).then((r) => r.data);
+  api
+    .post<DatasetInfo>(`${project()}/datasets/sample`, { dataset_name: 'telecom_churn' } satisfies S['SampleDatasetRequest'])
+    .then((r) => r.data);
 
 export const uploadDataset = (file: File) => {
   const form = new FormData();
   form.append('file', file);
   return api
-    .post<DatasetInfo>('/data/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
+    .post<DatasetInfo>(`${project()}/datasets/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
     .then((r) => r.data);
 };
 
 export const getDataMetrics = (d: ActiveDataset) =>
-  call(() => api.get<DataMetrics>('/data/metrics', { params: ds(d) }).then((r) => r.data), mockMetrics);
+  call(() => api.get<S['DataMetrics']>(`${version(d)}/metrics`, { params: target(d) }).then((r): DataMetrics => r.data), mockMetrics);
 
 export const getLeakageWarnings = (d: ActiveDataset) =>
-  call(() => api.get<LeakageWarning[]>('/data/leakage-warnings', { params: ds(d) }).then((r) => r.data), mockWarnings);
+  call(
+    () =>
+      api
+        .get<S['LeakageFinding'][]>(`${version(d)}/leakage`, { params: target(d) })
+        .then((r) => r.data.map((w): LeakageWarning => ({ ...w, category: w.category as LeakageWarning['category'] }))),
+    mockWarnings
+  );
 
 export const getColumns = (d: ActiveDataset) =>
-  call(() => api.get<ColumnProfile[]>('/data/columns', { params: ds(d) }).then((r) => r.data), mockColumns);
+  call(() => api.get<S['ColumnProfile'][]>(`${version(d)}/columns`, { params: target(d) }).then((r): ColumnProfile[] => r.data), mockColumns);
 
 export const getFeatureSuggestions = (d: ActiveDataset) =>
   call(
-    () => api.get<FeatureSuggestion[]>('/agent/suggestions', { params: ds(d), timeout: 120000 }).then((r) => r.data),
+    () =>
+      api
+        .get<S['FeatureSuggestion'][]>(`${version(d)}/suggestions`, { params: target(d), timeout: 120000 })
+        .then((r) => r.data.map((s): FeatureSuggestion => ({ ...s, risk: s.risk ?? '' }))),
     mockSuggestions
   );
 
-type BackendStatus = Experiment['status'] | 'created';
-type BackendExperiment = Omit<Experiment, 'status'> & { status: BackendStatus };
+const toExperiment = (e: ExperimentNode): Experiment => ({
+  ...e,
+  status: e.status === 'created' ? 'queued' : (e.status as Experiment['status']),
+  metrics: Object.fromEntries(Object.entries(e.metrics).filter(([, v]) => v != null)) as Experiment['metrics'],
+  feature: e.feature ?? undefined,
+  error: e.error ?? undefined,
+  hypothesis_mode: (e.hypothesis_mode as Experiment['hypothesis_mode']) ?? null,
+});
+
+const queued = (e: ExperimentRead): Experiment => ({
+  id: e.id,
+  parent_id: e.parent_id ?? null,
+  model_name: e.model_name,
+  status: 'queued',
+  metrics: {},
+  runtime_seconds: 0,
+  created_at: e.created_at,
+  title: e.change_description,
+});
 
 export const getExperimentTree = (d: ActiveDataset | null) =>
   call(
     () =>
       api
-        .get<BackendExperiment[]>('/experiments/tree', { params: d ? { dataset_path: d.dataset_path } : {} })
-        .then((r) => r.data.map((e): Experiment => ({ ...e, status: e.status === 'created' ? 'queued' : e.status }))),
+        .get<ExperimentNode[]>(`${project()}/experiments`, { params: d ? { data_version_id: d.data_version_id } : {} })
+        .then((r) => r.data.map(toExperiment)),
     mockExperiments
   );
 
 export const runExperiment = (d: ActiveDataset, suggestion: FeatureSuggestion, model_name: string, parent_id: string | null) =>
   api
-    .post<Experiment>('/experiments/run', { ...ds(d), feature_suggestion: suggestion, model_name, parent_id })
-    .then((r) => r.data);
+    .post<ExperimentRead>(`${project()}/experiments`, {
+      ...versionBody(d),
+      feature_suggestion: { name: suggestion.name, formula: suggestion.formula, reason: suggestion.reason },
+      model_name,
+      parent_id,
+    } satisfies S['RunExperimentRequest'])
+    .then((r) => queued(r.data));
 
 export const runBaseline = (d: ActiveDataset) =>
-  api.post<Experiment>('/experiments/baseline', ds(d)).then((r) => r.data);
+  api.post<ExperimentRead>(`${project()}/experiments/baseline`, versionBody(d)).then((r) => queued(r.data));
 
 export const runAutoClean = (d: ActiveDataset) =>
-  api.post<Experiment>('/agent/auto-clean', ds(d), { timeout: 120000 }).then((r) => r.data);
+  api.post<ExperimentRead>(`${project()}/experiments/auto-clean`, versionBody(d), { timeout: 120000 }).then((r) => queued(r.data));
 
-export interface AutoOptimizeJob {
-  status: 'running' | 'completed' | 'failed';
-  error?: string;
-  result?: { summary: string; best_f1: number; winner_features: string[] };
+/** What a finished auto-optimize job reports (DecisionAgent.run_optimization_loop). */
+export interface AutoOptimizeResult {
+  summary: string;
+  best_f1: number;
+  winner_features: string[];
 }
 
 export const startAutoOptimize = (d: ActiveDataset, n_hypotheses: number) =>
-  api.post<{ job_id: string }>('/agent/auto-optimize', { ...ds(d), n_hypotheses }).then((r) => r.data.job_id);
+  api
+    .post<JobStatus>(`${project()}/agent/auto-optimize`, { ...versionBody(d), n_hypotheses } satisfies S['AutoOptimizeRequest'])
+    .then((r) => r.data.job_id);
 
 export const getAutoOptimize = (jobId: string) =>
-  api.get<AutoOptimizeJob>(`/agent/auto-optimize/${jobId}`).then((r) => r.data);
+  api.get<JobStatus>(`${project()}/agent/auto-optimize/${jobId}`).then((r) => ({
+    ...r.data,
+    result: r.data.result as AutoOptimizeResult | null | undefined,
+  }));
 
-/** Grounded Q&A over the recorded experiment history (POST /chat/ask). */
+/** Grounded Q&A over the project's recorded experiment history. */
 export const chatAsk = (query: string) =>
-  axios
-    .post<{ answer: string }>(`${API_BASE_URL.replace(/\/ui\/?$/, '')}/chat/ask`, { query }, { timeout: 120000 })
+  api
+    .post<S['AskResponse']>(`${project()}/chat/ask`, { query } satisfies S['AskRequest'], { timeout: 120000 })
     .then((r) => r.data.answer);
 
 /** True when the backend answered with an HTTP error (it is reachable). */

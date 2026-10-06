@@ -47,7 +47,7 @@ Branch names: `issue-<number>-<short-slug>` unless your tool assigns one.
 
 | Path | What it is |
 |---|---|
-| `backend/app/` | FastAPI app. `api/v1/ui.py` serves the UI (`/api/v1/ui/...`); `api/v1/chat.py` the chat panel |
+| `backend/app/` | FastAPI app. All routes are project-scoped under `/api/v1/projects/{id}/...` (`api/v1/`), with request/response models in `schemas/api.py`. After changing them run `python -m scripts.export_openapi` and `npm run gen:api` (CI fails on drift) |
 | `backend/ai/` | LLM gateway: providers, routing (`router.py`), cost tracking. Use `AIGateway.complete` / `complete_structured` |
 | `backend/ml/data/` | Ingestion (CSV, Parquet, SQL), profiling, preparation |
 | `backend/ml/validation/` | Leakage detection, validation strategies |
@@ -98,7 +98,7 @@ Note: on `main` at 2026-10-05 the install and start-up are broken (issues [0.1] 
 - Every experiment/run record stores what's needed to reproduce it: data version hash, task spec, split definition, seed, engine and version, features (formula or SQL), LLM provider/model/cost, `decision_mode`.
 - LLM prompts live next to the code that uses them, ask for structured output, and are covered by a stub-provider test.
 - Keep the stub provider deterministic so tests are repeatable.
-- Frontend: all API calls go through `frontend/src/api/`; base URL from `VITE_API_BASE_URL`.
+- Frontend: all API calls go through `frontend/src/api/`, typed with the generated `schema.d.ts`; base URL from `VITE_API_BASE_URL` (default `http://localhost:8000/api/v1`).
 
 ## 7. Scope guard (do not build)
 

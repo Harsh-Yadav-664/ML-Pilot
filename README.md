@@ -29,13 +29,15 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 | Chat panel answers, and a debrief that uses the model's built-in feature importances (not SHAP) | `test_chat_and_autoclean_api.py`, `test_debrief.py` |
 | Auto-clean returns an HTTP error when the LLM's cleaning plan is invalid (no silent empty result) | `test_cleaning_agent.py`, `test_chat_and_autoclean_api.py::test_auto_clean_surfaces_llm_failure` |
 | LLM gateway falls back to the offline stub when a provider fails or no key is set | `test_ai_gateway.py`, `test_stub_provider.py` |
-| Dataset paths are limited to the upload and sample folders | `test_api_security.py` |
+| The API takes no file paths: data is addressed by content-hash version id, and other projects' experiments return 404 | `test_api_security.py` |
 | SQL import (API only) accepts a single read-only `SELECT`, refuses writes, and hides passwords in errors | `test_sql_loader.py`, `test_api_security.py` |
 | The web UI builds and type-checks | CI `frontend` job (`npm run build`, `tsc --noEmit`) |
+| In a real browser, the UI loads the sample through the project API and the baseline run completes | CI `ui-smoke` job (`npm run test:smoke`, Playwright) |
+| The frontend's TypeScript API types match the backend's response models | CI: `python -m scripts.export_openapi --check` and `npm run gen:api` + `git diff --exit-code` |
 
 ### Not working yet, or planned
 
-- **Direct database connection in the UI: planned (Phase 2).** The backend can import one read-only SQL query into a CSV (`POST /api/v1/ui/data/connect-sql`), but the UI does not offer it, and there is no multi-table support yet.
+- **Direct database connection in the UI: planned (Phase 2).** The backend can import one read-only SQL query into a CSV (`POST /api/v1/projects/{project_id}/datasets/sql`), but the UI does not offer it, and there is no multi-table support yet.
 - **Prediction task spec, point-in-time training tables, LLM-written SQL features, evidence report, SQL/dbt export:** planned (Phases 1–5).
 - **Real LLM providers:** the gateway registers a real provider when you set its key (see `backend/.env.example`), but CI never calls a real provider, so that path is untested.
 - **Demo mode** in the UI shows sample charts and numbers. It is switched on explicitly and labelled on screen. Everything outside Demo mode comes from the backend or says "not available".
@@ -68,6 +70,7 @@ On Windows PowerShell, set `$env:PYTHONIOENCODING="utf-8"` before `python start.
 ```bash
 cd backend && pip install -r requirements-dev.txt && pytest && ruff check . && ruff format --check . && mypy
 cd frontend && npm run build && npx tsc --noEmit
+cd frontend && npx playwright install chromium && npm run test:smoke   # starts backend + UI itself
 ```
 
 ## Architecture

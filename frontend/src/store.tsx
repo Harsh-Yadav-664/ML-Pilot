@@ -171,7 +171,9 @@ const DATASET_KEY = 'mlpilot.dataset';
 function readDataset(): ActiveDataset | null {
   try {
     const raw = sessionStorage.getItem(DATASET_KEY);
-    return raw ? (JSON.parse(raw) as ActiveDataset) : null;
+    const d = raw ? (JSON.parse(raw) as Partial<ActiveDataset>) : null;
+    // Saved by an older version (path-based): drop it rather than send a path.
+    return d?.data_version_id ? (d as ActiveDataset) : null;
   } catch {
     return null;
   }
@@ -373,7 +375,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (demo) return;
     (async () => {
       try {
-        await backend.getExperimentTree(null);
+        await backend.ensureProject();
       } catch (err) {
         // No sample data outside Demo mode: show the failure, not numbers.
         setConnectionError(backend.describeError(err));
@@ -406,7 +408,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let dead = false;
     (async () => {
       let loaded;
-      const sample: ActiveDataset = { dataset_path: 'demo', filename: 'churn_customers.csv', target_column: 'is_churned' };
+      const sample: ActiveDataset = { data_version_id: 'demo', filename: 'churn_customers.csv', target_column: 'is_churned' };
       try {
         loaded = await Promise.all([
           backend.getDataMetrics(sample),
@@ -630,7 +632,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       backend
         .loadSampleDataset()
         .then((info) => {
-          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns, info.default_target), short_hash: info.short_hash };
+          const d = { data_version_id: info.data_version_id, filename: info.filename, target_column: pickTarget(info.columns, info.default_target ?? undefined), short_hash: info.short_hash };
           setDataset(d);
           return loadDataset(d);
         })
@@ -705,7 +707,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!demo) {
         try {
           const info = await backend.uploadDataset(file);
-          const d = { dataset_path: info.dataset_path, filename: info.filename, target_column: pickTarget(info.columns), short_hash: info.short_hash };
+          const d = { data_version_id: info.data_version_id, filename: info.filename, target_column: pickTarget(info.columns), short_hash: info.short_hash };
           setDataset(d);
           setUploadOpen(false);
           toast(`Uploaded ${info.filename}`, 'ok');
