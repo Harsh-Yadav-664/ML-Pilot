@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from sklearn.base import clone
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -26,6 +25,7 @@ from ml.core.targets import TargetEncoder
 from ml.data.preparation.feature_frame import ONEHOT_MAX_CATEGORIES, prepare_feature_frame
 from ml.experiments.schema import ExperimentSpec, ExperimentResult, ExperimentStatus, ExperimentDecision
 from ml.experiments.acceptance import compare_feature_sets
+from ml.validation.splits import SplitPlan, make_splits
 from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.importance import IMPORTANCE_METHOD, builtin_importances
 
@@ -65,38 +65,6 @@ def acceptance_pipeline(X: pd.DataFrame) -> Pipeline:
         ('preprocessor', build_preprocessor(X)),
         ('classifier', LGBMClassifier(**params, random_state=0, verbose=-1)),
     ])
-
-
-def split_train_val_test(
-    X: pd.DataFrame, y: pd.Series, config: dict[str, Any]
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series, dict[str, Any]]:
-    """Split rows into train / validation / test with a recorded, seeded definition.
-
-    Tuning and keep/reject decisions use validation; the test split is scored once.
-    Stratified by the target when every class has enough rows.
-    """
-    test_size = config.get("test_size", 0.2)
-    val_size = config.get("val_size", 0.2)
-    random_state = config.get("random_state", 42)
-    stratified = bool(y.value_counts().min() >= 5)
-    X_rest, X_test, y_rest, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y if stratified else None
-    )
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_rest, y_rest, test_size=val_size / (1 - test_size), random_state=random_state,
-        stratify=y_rest if stratified else None,
-    )
-    info = {
-        "method": "random holdout",
-        "test_size": test_size,
-        "val_size": val_size,
-        "random_state": random_state,
-        "stratified": stratified,
-        "n_train": len(X_train),
-        "n_val": len(X_val),
-        "n_test": len(X_test),
-    }
-    return X_train, X_val, X_test, y_train, y_val, y_test, info
 
 
 def predict_once(pipeline: Pipeline, X: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None]:
@@ -201,11 +169,19 @@ class LocalExperimentExecutor(ExperimentRunner):
                     for f in missing_feats:
                         X[f] = 0  # Fallback to prevent crash
 
-            random_state = spec.validation_config.get("random_state", 42)
-            X_train, X_val, X_test, y_train, y_val, y_test, split_info = split_train_val_test(
-                X, y, spec.validation_config
-            )
-            spec.parameters["split"] = split_info
+            # One split contract (ml/validation/splits.py): tuning and decisions see only
+            # train/validation rows; the test rows are scored once at the end.
+            plan = SplitPlan.default_for(len(X), spec.validation_config)
+            split = make_splits(y, plan)
+            random_state = plan.seed
+            X_train, X_val, X_test = X.iloc[split.train], X.iloc[split.val], X.iloc[split.test]
+            y_train, y_val, y_test = y.iloc[split.train], y.iloc[split.val], y.iloc[split.test]
+            # Inner folds as positions within X_train (cv plans only).
+            inner_folds = [
+                (np.searchsorted(split.train, a), np.searchsorted(split.train, b)) for a, b in split.folds
+            ]
+            spec.parameters["split_plan"] = plan.model_dump()
+            spec.parameters["split"] = split.summary()
             spec.parameters["feature_columns"] = list(X_train.columns)
 
             # Encode class labels (fit on training labels only) and record the
@@ -246,6 +222,27 @@ class LocalExperimentExecutor(ExperimentRunner):
                 # Each pipeline gets its own preprocessor so fits never share state.
                 return Pipeline(steps=[('preprocessor', clone(preprocessor)), ('classifier', estimator)])
 
+            def validation_predictions(estimator, with_proba: bool = False):
+                """Predictions for the validation rows: the holdout split, or out-of-fold
+                predictions over the inner folds. Never touches the test rows."""
+                if not inner_folds:
+                    pipe = make_pipeline(estimator)
+                    pipe.fit(X_train, y_train)
+                    prob = pipe.predict_proba(X_val) if with_proba and hasattr(pipe, "predict_proba") else None
+                    return y_val, pipe.predict(X_val), prob
+                y_pred = np.empty(len(y_train), dtype=y_train.dtype)
+                prob = None
+                for fit_idx, val_idx in inner_folds:
+                    pipe = make_pipeline(clone(estimator))
+                    pipe.fit(X_train.iloc[fit_idx], y_train[fit_idx])
+                    y_pred[val_idx] = pipe.predict(X_train.iloc[val_idx])
+                    if with_proba and hasattr(pipe, "predict_proba"):
+                        fold_prob = pipe.predict_proba(X_train.iloc[val_idx])
+                        if prob is None:
+                            prob = np.zeros((len(y_train), fold_prob.shape[1]))
+                        prob[val_idx] = fold_prob
+                return y_train, y_pred, prob
+
             # 3. Initialize Model and Optuna Tuning
             model_cls = MODEL_REGISTRY.get(spec.model_name)
             if not model_cls:
@@ -270,7 +267,10 @@ class LocalExperimentExecutor(ExperimentRunner):
                 spec.parameters['tuning'] = 'none: optuna not installed'
             if has_optuna and tunable:
                 n_trials = spec.parameters.get('n_trials', 20)
-                spec.parameters['tuning'] = f'optuna, {n_trials} trials, scored on the validation split'
+                spec.parameters['tuning'] = (
+                    f'optuna, {n_trials} trials, scored on the validation split'
+                    if not inner_folds else f'optuna, {n_trials} trials, scored out-of-fold on {len(inner_folds)} inner folds'
+                )
 
                 def objective(trial):
                     params = model_params.copy()
@@ -283,11 +283,9 @@ class LocalExperimentExecutor(ExperimentRunner):
                     })
                     if 'random_state' in model_cls().get_params():
                         params['random_state'] = random_state
-                    # Tuning never sees the test split: fit on train, score on validation.
-                    pipe_tune = make_pipeline(model_cls(**params))
-                    pipe_tune.fit(X_train, y_train)
-                    y_pred_tune = pipe_tune.predict(X_val)
-                    return compute_classification_metrics(y_val, y_pred_tune, None)['f1']
+                    # Tuning never sees the test split: score on validation rows only.
+                    y_true_tune, y_pred_tune, _ = validation_predictions(model_cls(**params))
+                    return compute_classification_metrics(y_true_tune, y_pred_tune, None)['f1']
 
                 def run_study():
                     sampler = optuna.samplers.TPESampler(seed=random_state)
@@ -305,12 +303,11 @@ class LocalExperimentExecutor(ExperimentRunner):
             if 'random_state' in model_cls().get_params():
                 best_params['random_state'] = random_state
 
-            # 4. Validation metrics: fit on train, score on validation.
+            # 4. Validation metrics (holdout, or out-of-fold for small data).
             def fit_and_score_val():
-                pipe = make_pipeline(model_cls(**best_params))
-                pipe.fit(X_train, y_train)
-                prob = pipe.predict_proba(X_val) if hasattr(pipe, "predict_proba") else None
-                return compute_classification_metrics(y_val, pipe.predict(X_val), prob)
+                return compute_classification_metrics(
+                    *validation_predictions(model_cls(**best_params), with_proba=True)
+                )
 
             val_metrics = await asyncio.to_thread(fit_and_score_val)
 
@@ -324,12 +321,11 @@ class LocalExperimentExecutor(ExperimentRunner):
                             LogisticRegression(**(best_params if spec.model_name == 'LogisticRegression' else {'random_state': random_state, 'max_iter': 1000})),
                         ]
                         preds = {}
+                        y_true_val = None
                         for i, member in enumerate(members):
-                            pipe = make_pipeline(member)
-                            pipe.fit(X_train, y_train)
-                            preds[f'p{i}'] = pipe.predict(X_val)
+                            y_true_val, preds[f'p{i}'], _ = validation_predictions(member)
                         vote = pd.DataFrame(preds).mode(axis=1)[0].values
-                        return compute_classification_metrics(y_val, vote, None)
+                        return compute_classification_metrics(y_true_val, vote, None)
 
                     for k, v in (await asyncio.to_thread(ensemble_val_metrics)).items():
                         val_metrics[f'ensemble_{k}'] = v
