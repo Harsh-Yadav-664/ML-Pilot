@@ -368,6 +368,8 @@ async def get_experiment_tree(db: DBSession, dataset_path: Optional[str] = None)
             "feature": params.get("feature_name"),
             "decision": e.decision if e.decision in ("keep", "reject") else ("baseline" if not e.parent_id else "none"),
             "error": e.decision_reason if e.status in ("failed", "rejected_invalid") else None,
+            # 'fallback' when the idea came from the offline stub instead of a real LLM.
+            "hypothesis_mode": (params.get("hypothesis_llm") or {}).get("decision_mode"),
             "on_champion_path": e.id in path_ids,
             "champion": bool(path_ids) and e.id == path_ids[-1],
         })

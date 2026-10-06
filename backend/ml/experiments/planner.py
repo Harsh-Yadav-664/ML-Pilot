@@ -92,11 +92,11 @@ Explain what new feature to create, the logic/formula, why it helps, potential l
         }
 
         # Ask AI Gateway
-        response = await self.gateway.complete_structured(
+        result = await self.gateway.complete_structured_result(
             task_type=TaskType.HYPOTHESIZE,
             prompt=prompt,
             schema=schema,
             system=system_prompt,
         )
-
-        return response
+        # Which provider answered, and whether it was the offline fallback, travels with the idea.
+        return {**result.data, "llm": result.meta()}

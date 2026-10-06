@@ -114,14 +114,18 @@ class DecisionAgent:
                     history=history
                 )
             except Exception as e:
+                # No made-up hypothesis: record the failed iteration as a fallback and move on.
                 logger.error(f"Failed to generate hypothesis: {e}")
-                hypothesis = {
-                    "name": f"fallback_feature_{i}", 
-                    "formula": "feature * 1.5", 
-                    "reason": "Fallback suggestion",
-                    "non_redundant_reasoning": "Fallback"
+                skipped = {
+                    "id": None, "feature_name": None, "formula": None, "f1": None,
+                    "decision": "skipped", "reason": f"The planner failed, so nothing was tested: {e}",
+                    "decision_mode": "fallback", "explanation_mode": None, "acceptance": None,
+                    "hypothesis_llm": {"decision_mode": "fallback", "error": str(e)},
                 }
-            
+                experiments_info.append(skipped)
+                continue
+            hypothesis_llm = hypothesis.get("llm") or {"decision_mode": "llm"}
+
             # Create experiment
             eid = await create_experiment(ExperimentCreate(
                 project_id="demo-project-id",
@@ -135,7 +139,8 @@ class DecisionAgent:
                     "target_column": target_column,
                     "features": champion_features,
                     "feature_name": hypothesis.get("name"),
-                    "formula": hypothesis.get("formula")
+                    "formula": hypothesis.get("formula"),
+                    "hypothesis_llm": hypothesis_llm,
                 }
             ))
 
@@ -170,7 +175,7 @@ class DecisionAgent:
 
             explanation_mode = "llm"
             try:
-                explanation = await self.gateway.complete(
+                explained = await self.gateway.complete_result(
                     task_type=TaskType.SUMMARIZE,
                     prompt=(
                         f"A candidate feature '{feature_name}' = {formula} was {decision}ed by a fixed "
@@ -179,6 +184,7 @@ class DecisionAgent:
                     ),
                     system="You explain ML experiment decisions plainly. Use only the facts given.",
                 )
+                explanation, explanation_mode = explained.text, explained.decision_mode
             except Exception as e:
                 logger.error(f"Decision explanation failed: {e}")
                 explanation, explanation_mode = "", "fallback"
@@ -203,6 +209,7 @@ class DecisionAgent:
                 "decision_mode": decision_data["decision_mode"],
                 "explanation_mode": decision_data["explanation_mode"],
                 "acceptance": decision_data["acceptance"],
+                "hypothesis_llm": hypothesis_llm,
             }
             
             experiments_info.append(result_info)

@@ -54,6 +54,8 @@ export interface Experiment {
   /** Set by the backend: the best measured model so far, and the lineage that leads to it. */
   champion?: boolean;
   on_champion_path?: boolean;
+  /** 'fallback' when the feature idea came from the offline stub, not a real LLM. */
+  hypothesis_mode?: 'llm' | 'fallback' | null;
 }
 
 export interface ColumnProfile {
