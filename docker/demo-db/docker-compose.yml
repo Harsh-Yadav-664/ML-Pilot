@@ -1,0 +1,27 @@
+# Synthetic e-commerce database for demos and tests (issue #47):
+#   docker compose -f docker/demo-db/docker-compose.yml up demo-db
+# PostgreSQL on 127.0.0.1:5433 with two roles: mlpilot_ro (read only) and mlpilot_rw (can write,
+# to test the privilege warning). It is a file of its own so it starts without the MLPILOT_TOKEN
+# that the main docker/docker-compose.yml requires for the backend.
+#
+# The passwords below are documented demo values for fake data on localhost; override them
+# with DEMO_RO_PASSWORD / DEMO_RW_PASSWORD / DEMO_ADMIN_PASSWORD.
+
+services:
+  demo-db:
+    build:
+      context: .
+    environment:
+      POSTGRES_USER: demo_admin
+      POSTGRES_PASSWORD: ${DEMO_ADMIN_PASSWORD:-mlpilot_demo_admin}
+      POSTGRES_DB: demo
+      DEMO_RO_PASSWORD: ${DEMO_RO_PASSWORD:-mlpilot_demo_ro}
+      DEMO_RW_PASSWORD: ${DEMO_RW_PASSWORD:-mlpilot_demo_rw}
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      # The server only listens on TCP after the init scripts (schema, data, roles) are done.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U mlpilot_ro -d demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 60

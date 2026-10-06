@@ -59,6 +59,8 @@ jobs:
         run: pytest -q
       - name: 1M-row CSV load and profile (prints the timing, must stay under 10 s)
         run: pytest -q -s tests/unit/test_duckdb_engine.py::test_a_million_row_csv_loads_and_profiles_in_under_ten_seconds
+      - name: Demo database (prints the table checksums and the recency AUC)
+        run: pytest -q -s -p no:logging tests/unit/test_demo_db.py -k "checksums or recency_feature or default_size"
       - name: SQL guard against Postgres (prints the refused hostile queries and can_write)
         run: pytest -q -s -p no:logging tests/integration/test_sql_guard_postgres.py
       - name: Planted-leak suite (prints leakage precision/recall)
@@ -66,6 +68,54 @@ jobs:
       # The OpenAPI schema is the frontend's contract (frontend/openapi.json).
       - name: API contract is up to date
         run: python -m scripts.export_openapi --check
+
+  # The demo database as Docker ships it (issue #47): `docker compose up demo-db`, then psql as
+  # the read-only role and the integration test against it.
+  demo-db:
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE: docker compose -f docker/demo-db/docker-compose.yml
+      MLPILOT_DEMO_PG_HOST: 127.0.0.1
+      MLPILOT_DEMO_PG_PORT: "5433"
+      MLPILOT_DEMO_PG_DB: demo
+      # The documented demo defaults of docker/demo-db/docker-compose.yml (fake data, localhost only).
+      MLPILOT_DEMO_PG_RO_USER: mlpilot_ro
+      MLPILOT_DEMO_PG_RO_PASSWORD: mlpilot_demo_ro
+      MLPILOT_DEMO_PG_RW_USER: mlpilot_rw
+      MLPILOT_DEMO_PG_RW_PASSWORD: mlpilot_demo_rw
+      MLPILOT_DEMO_PG_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - name: docker compose up demo-db (waits until the schema, data and roles are loaded)
+        run: $COMPOSE up -d --build --wait --wait-timeout 600 demo-db
+      - name: psql as mlpilot_ro lists the tables; an INSERT fails
+        run: |
+          psql_ro() { $COMPOSE exec -T -e PGPASSWORD=mlpilot_demo_ro demo-db psql -h 127.0.0.1 -U mlpilot_ro -d demo "$@"; }
+          psql_ro -c '\dt'
+          psql_ro -tc 'SELECT count(*) AS customers FROM customers'
+          if out=$(psql_ro -c "INSERT INTO products VALUES (999999, 'x', 'y', 1)" 2>&1); then
+            echo "INSERT as mlpilot_ro unexpectedly succeeded: $out"; exit 1
+          fi
+          echo "$out"
+          echo "$out" | grep -q 'permission denied'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Integration test against the compose service (tables, roles, recency AUC)
+        working-directory: backend
+        run: pytest -q -s -p no:logging tests/integration/test_demo_db_compose.py
+      - name: Container log (on failure)
+        if: failure()
+        run: $COMPOSE logs --no-color demo-db | tail -100
 
   # Optional engine: AutoGluon (Apache-2.0) is large, so this job may fail or be
   # slow without blocking the PR. It runs the same e2e test with AutoGluon.

@@ -162,6 +162,7 @@ erDiagram
 | `backend/ml/features/` | Safe formula evaluator |
 | `backend/ml/agents/` | The experiment loop and the cleaning agent |
 | `frontend/` | The web UI |
+| `docker/demo-db/` | Synthetic e-commerce demo database: seeded generator, schema, read-only and write roles, SQLite and DuckDB export |
 | `docs/adr/` | Decision records |
 
 Planned modules (created where the issues say): `ml/data/schema_graph.py`, `ml/tasks/`, `ml/reports/`, `ml/export/`, `benchmarks/`.
