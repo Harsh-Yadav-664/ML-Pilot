@@ -1,16 +1,37 @@
 # MLPilot
 
-An open-source, self-hosted prediction agent for tabular and relational data. **Early stage:** this README separates what runs today from what is planned.
+**Ask your database a prediction question. Get an answer you can check.**
 
-## The problem
+> "Which customers who ordered this year won't order again in the next 30 days?"
 
-Most of a company's prediction questions ("which customers will stop ordering next month?") are answered from data spread across several database tables. Before any model can be trained, someone has to turn those tables into one training table with the right time cutoffs. Get a cutoff wrong and future information leaks into training: the model looks great in testing and fails in production. Free AutoML tools and LLM data-science agents all start from a ready-made CSV, so they skip this step.
+MLPilot is a self-hosted tool for questions like that. You point it at your data, it builds the training table with the dates handled correctly, tries ideas for new columns one at a time, and keeps only the ones that survive an honest test. At the end you get the model, the SQL that builds its inputs, and a record of what was tried and what actually helped.
 
-## The solution (where MLPilot is going)
+**Status: early.** Today it works on a single CSV file. Connecting to a database from the UI, joining several tables and the final report are not built yet. [What works today](#what-works-today) lists what a test in CI shows, and [what doesn't](#not-working-yet-or-planned) lists the rest. Nothing in this README is claimed unless a test or CI step demonstrates it.
 
-MLPilot connects read-only to a company database. It turns a question into a reviewable prediction task, builds a point-in-time-correct training table, and lets an LLM propose features as readable SQL. It keeps a feature only if time-based validation shows a real gain. It ends with an evidence report and exportable SQL and model files. The LLM only proposes; deterministic code validates and runs everything.
+## Why this exists
 
-The reasoning, competitors and phases are in [`docs/ROADMAP.md`](docs/ROADMAP.md). Work is tracked in GitHub issues, listed in [issue #21](https://github.com/Harsh-Yadav-664/ML-Pilot/issues/21).
+The model is the easy part: LightGBM is three lines. Teams lose weeks on what comes before it. What does "churn" mean on a given date? How do five tables become one row per customer? And does any column quietly contain information from after that date?
+
+That last one is called leakage, and it is easy to do by accident. A column like "total orders" counts next month's orders too, the model scores 95% in testing, and in production it does nothing. Free AutoML tools and chat-style data assistants mostly start from a clean CSV, so they start after this step. MLPilot is meant to start before it.
+
+## What you can rely on
+
+These come from [`AGENTS.md`](AGENTS.md), where they are rules for every contributor, human or AI:
+
+- **The AI suggests, code decides.** A language model may propose a feature, but what it writes is treated as data. Formulas go through a whitelist evaluator, it never runs Python or shell from a model, and whether a feature is kept is decided by a statistical rule, not by the model.
+- **The test set is used once.** Tuning and every keep or reject decision use training and validation rows only. A test checks that the test rows are scored exactly once, after all tuning.
+- **No made-up numbers.** If something isn't implemented, the screen says "not available". When an LLM call falls back to the offline stub, the result is marked as a fallback.
+- **Read-only by design.** It runs on your machine, the SQL import accepts a single read-only `SELECT` and refuses writes, and a database password is kept out of error messages.
+
+## Who it is for
+
+This is the target, not today's reach, because today it reads one CSV:
+
+- a small data team or analyst with a Postgres or SQLite database and no ML engineer, who wants a first churn or repeat-purchase model they can explain to a manager;
+- a consultant who needs to show a client evidence, not just a score;
+- anyone who wants to see the whole pipeline done carefully, with the code to read.
+
+The reasoning, the competitors and the phases are in [`docs/ROADMAP.md`](docs/ROADMAP.md). Work is tracked in GitHub issues, listed in [issue #21](https://github.com/Harsh-Yadav-664/ML-Pilot/issues/21). Each issue says what to build, which files to open and how to prove it is done.
 
 ## What works today
 
