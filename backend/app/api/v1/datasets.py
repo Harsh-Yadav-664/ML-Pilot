@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.api.deps import DBSession, Gateway, ProjectID
@@ -27,6 +28,7 @@ from app.services import data_service
 from app.services.connection_service import ConnectionService
 from app.services.data_version_service import register_file_version
 from app.services.experiment_service import ExperimentService
+from ml.data import sql_guard
 from ml.data.engine import EngineError, arrow_to_pandas
 from ml.data.ingestion.sql_loader import (
     DEFAULT_ROW_LIMIT,
@@ -34,7 +36,7 @@ from ml.data.ingestion.sql_loader import (
     SqlLoader,
     redact,
 )
-from ml.data.sources import ConnectionFailure
+from ml.data.sources import ConnectionFailure, SourceWithChecks
 from ml.data.versions import StoredVersion
 
 logger = logging.getLogger(__name__)
@@ -168,6 +170,12 @@ def _query_connection_string(
     return df, file_id, {"type": "sql", "connection": file_id}
 
 
+def _snapshot_query(source: SourceWithChecks, query: str) -> pa.Table:
+    """The query may read only tables the connection's schema lists (guard layer 1)."""
+    q = sql_guard.guard(query, source.dialect, allowed_tables=sql_guard.allowed_tables(source))
+    return sql_guard.execute(source, q, limit=DEFAULT_ROW_LIMIT, timeout_s=DEFAULT_TIMEOUT_SECONDS)
+
+
 async def _query_saved_connection(
     db: DBSession, project_id: str, connection_id: str, query: str
 ) -> tuple[pd.DataFrame, str, dict[str, str]]:
@@ -176,9 +184,7 @@ async def _query_saved_connection(
     conn = await svc.get(project_id, connection_id)
     source = svc.source(conn)
     try:
-        table = await asyncio.to_thread(
-            source.query, query, limit=DEFAULT_ROW_LIMIT, timeout_s=DEFAULT_TIMEOUT_SECONDS
-        )
+        table = await asyncio.to_thread(_snapshot_query, source, query)
     except (ConnectionFailure, EngineError) as e:
         message = e.message if isinstance(e, ConnectionFailure) else str(e)
         logger.warning("Snapshot from connection %s failed: %s", conn.id, type(e).__name__)

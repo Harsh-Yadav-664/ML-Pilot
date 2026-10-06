@@ -1,15 +1,13 @@
-"""What every live source shares: the connection spec, short error messages, the guard hook."""
+"""What every live source shares: the connection spec and short error messages.
+
+Queries reach a live source only through ``ml.data.sql_guard``."""
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
-import pyarrow as pa
-
-from ml.data.engine import DataSource, QueryRejected
-from ml.data.ingestion.sql_loader import UnsafeQueryError, validate_read_only_query
+from ml.data.engine import DataSource
 
 Dialect = Literal["postgres", "sqlite", "duckdb"]
 SSL_MODES = ("disable", "prefer", "require", "verify-ca", "verify-full")
@@ -61,6 +59,15 @@ class Privileges:
 
 
 class SourceWithChecks(DataSource, Protocol):
+    def connect(self, timeout_s: float) -> Any:
+        """A driver connection, opened read-only where the driver allows (for the SQL guard)."""
+        ...
+
+    def failure(self, exc: BaseException) -> Exception:
+        """A driver error as MLPilot's own exception, without the driver's text where it
+        could carry connection details."""
+        ...
+
     def server_version(self) -> str: ...
 
     def privileges(self) -> Privileges: ...
@@ -68,47 +75,6 @@ class SourceWithChecks(DataSource, Protocol):
     def check(self) -> None:
         """Open a connection and run a trivial query; raises ConnectionFailure."""
         ...
-
-
-def guard(sql: str, dialect: str) -> None:
-    """Layer 1: one SELECT, nothing that modifies data (shared with the SQL import)."""
-    try:
-        validate_read_only_query(sql, dialect)
-    except UnsafeQueryError as e:
-        raise QueryRejected(str(e)) from e
-
-
-def limited_sql(sql: str, dialect: str, limit: int) -> str:
-    """The query wrapped to fetch at most ``limit + 1`` rows, so overflow can be detected."""
-    from sqlglot import exp
-
-    tree = validate_read_only_query(sql, dialect)
-    return exp.select("*").from_(tree.subquery("mlpilot_q")).limit(limit + 1).sql(dialect=dialect)
-
-
-def rows_to_arrow(names: list[str], rows: list[tuple]) -> pa.Table:
-    """Rows from a DB-API cursor as Arrow; a column Arrow can't type is kept as text."""
-    from decimal import Decimal
-
-    columns: dict[str, pa.Array] = {}
-    for i, name in enumerate(names):
-        values = [r[i] for r in rows]
-        values = [float(v) if isinstance(v, Decimal) else v for v in values]
-        try:
-            columns[name] = pa.array(values)
-        except (pa.ArrowInvalid, pa.ArrowTypeError):
-            columns[name] = pa.array([None if v is None else str(v) for v in values], pa.string())
-    return pa.table(columns)
-
-
-class Deadline:
-    """A wall-clock limit for a query, polled by drivers that have no server-side timeout."""
-
-    def __init__(self, seconds: float) -> None:
-        self.at = time.monotonic() + seconds
-
-    def expired(self) -> bool:
-        return time.monotonic() > self.at
 
 
 def open_source(spec: ConnectionSpec) -> SourceWithChecks:

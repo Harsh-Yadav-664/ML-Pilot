@@ -11,6 +11,7 @@ import duckdb
 import pg8000.native
 import pytest
 
+from ml.data import sql_guard
 from ml.data.engine import EngineError, QueryRejected, QueryTimeout, RowLimitExceeded, TableRef
 from ml.data.sources import ConnectionFailure, ConnectionSpec, open_source
 from ml.data.sources.postgres import PostgresSource
@@ -85,7 +86,7 @@ def test_postgres_enforces_select_only_row_limit_and_timeout(pg: ConnectionSpec)
     with pytest.raises(RowLimitExceeded):
         src.query("SELECT * FROM mlpilot_test_orders", limit=5, timeout_s=5)
     with pytest.raises(QueryTimeout):
-        src.query("SELECT pg_sleep(5)", limit=5, timeout_s=1)
+        src.query("SELECT count(*) FROM generate_series(1, 10000000000) AS g", limit=5, timeout_s=1)
     assert src.query("SELECT count(*) AS n FROM mlpilot_test_orders", limit=1, timeout_s=5).column(
         "n"
     ).to_pylist() == [20]  # nothing was dropped or deleted
@@ -94,13 +95,12 @@ def test_postgres_enforces_select_only_row_limit_and_timeout(pg: ConnectionSpec)
 def test_postgres_refuses_writes_even_if_the_sql_guard_were_bypassed(pg: ConnectionSpec) -> None:
     """Layer 2: the transaction itself is READ ONLY, whatever SQL reaches it."""
     src = PostgresSource(pg)
-    with (
-        pytest.raises(ConnectionFailure, match="25006"),
-        src._read_only(5) as conn,
-    ):  # read_only_sql_transaction
-        conn.run("CREATE TABLE should_not_exist (a int)")
-    with pytest.raises(ConnectionFailure, match="25006"), src._read_only(5) as conn:
-        conn.run("DELETE FROM mlpilot_test_orders")
+    for sql in ("CREATE TABLE should_not_exist (a int)", "DELETE FROM mlpilot_test_orders"):
+        with (
+            pytest.raises(ConnectionFailure, match="25006"),  # read_only_sql_transaction
+            sql_guard.read_only_session(src, 5) as session,
+        ):
+            session.fetch_rows(sql, [], max_rows=None, max_bytes=10**6)
     assert src.query("SELECT count(*) AS n FROM mlpilot_test_orders", limit=1, timeout_s=5).column(
         "n"
     ).to_pylist() == [20]
@@ -207,7 +207,7 @@ def test_file_databases_refuse_writes_and_limits_apply(
 
 def test_sqlite_is_opened_read_only_at_the_file_level(sqlite_file: Path) -> None:
     src = open_source(ConnectionSpec("sqlite", str(sqlite_file)))
-    con = src._open()  # type: ignore[attr-defined]
+    con = src.connect(5)  # the file handle alone, before the guard's session settings
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
         con.execute("INSERT INTO orders VALUES (99, 'x', 1)")
     con.close()
