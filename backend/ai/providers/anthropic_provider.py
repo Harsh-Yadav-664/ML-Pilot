@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Optional
 
 from ml.core.interfaces import AIProvider, ModelInfo
+
+logger = logging.getLogger(__name__)
+
 
 _ANTHROPIC_MODELS = [
     ModelInfo(
@@ -91,5 +95,6 @@ class AnthropicProvider(AIProvider):
                 messages=[{"role": "user", "content": "ping"}],
             )
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 - health check: any client error means unhealthy
+            logger.warning("%s health check failed", type(self).__name__, exc_info=True)
             return False

@@ -108,7 +108,7 @@ class AIGateway:
                 cls = getattr(importlib.import_module(module), cls_name)
                 self.providers[name] = cls(value)
                 logger.info("Registered LLM provider: %s", name)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - a broken optional provider is skipped with one log line
                 logger.warning("LLM provider %s could not be registered: %s", name, e)
         self.providers["stub"] = StubProvider()
         if len(self.providers) == 1:
@@ -132,7 +132,7 @@ class AIGateway:
             start = time.perf_counter()
             try:
                 answer = await call(provider, selected_model)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - recorded in LLMResult.errors; the next provider is tried
                 errors.append(f"{provider_name}: {e}")
                 logger.warning("Provider %r failed for task %r: %s. Trying next...", provider_name, task_type.value, e)
                 continue
@@ -195,10 +195,7 @@ class AIGateway:
         """Return models from all registered providers."""
         result: dict[str, list[ModelInfo]] = {}
         for name, provider in self.providers.items():
-            try:
-                result[name] = await provider.list_models()
-            except Exception:
-                result[name] = []
+            result[name] = await provider.list_models()
         return result
 
     def get_cost_summary(self) -> dict:

@@ -16,3 +16,7 @@ target-version = "py313"
 python_version = "3.13"
 strict = false
 ignore_missing_imports = true
+
+[tool.ruff.lint]
+# AGENTS.md rule 8 (failures are loud). CI enforces these with --select; the rest is #88.
+extend-select = ["S110", "BLE001", "SIM105"]

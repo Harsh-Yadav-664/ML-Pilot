@@ -58,7 +58,7 @@ class ExperimentResult(BaseModel):
     model_name: str
     parameters: dict[str, Any]
     validation_config: dict[str, Any]
-    metrics: dict[str, float] = Field(
+    metrics: dict[str, Optional[float]] = Field(
         ..., description="Computed metrics e.g. {'f1': 0.821, 'recall': 0.847, 'auc': 0.91}"
     )
     artifacts: list[str] = Field(default_factory=list, description="Artifact file paths")
@@ -69,6 +69,6 @@ class ExperimentResult(BaseModel):
     decision_reason: Optional[str] = None
     agent_model: Optional[str] = Field(None, description="LLM model that made the decision")
     timestamp: datetime
-    parent_metrics: Optional[dict[str, float]] = Field(
+    parent_metrics: Optional[dict[str, Optional[float]]] = Field(
         None, description="Parent experiment metrics for delta comparison"
     )

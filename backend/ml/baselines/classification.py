@@ -12,6 +12,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 
+from app.core.errors import describe
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from xgboost import XGBClassifier
@@ -112,8 +114,8 @@ class ClassificationBaseline:
                     metrics=metrics,
                     params={"target_encoding": target_encoder.to_dict()},
                 ))
-            except Exception as e:
-                results.append(BaselineResult(model_name=name, metrics={}, error=str(e)))
+            except Exception as e:  # noqa: BLE001 - one baseline failing is recorded on its result
+                results.append(BaselineResult(model_name=name, metrics={}, error=describe(e)))
         
         return results
 

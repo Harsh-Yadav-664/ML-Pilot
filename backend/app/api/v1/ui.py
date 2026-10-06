@@ -76,7 +76,7 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
             "columns": columns,
             "total_rows": len(df)
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - any parse error becomes an HTTP 400
         logger.error(f"Failed to parse uploaded CSV: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {e}")
 
@@ -107,7 +107,7 @@ async def load_sample_dataset(request: SampleDataRequest) -> dict[str, Any]:
             "total_rows": len(df),
             "default_target": default_target
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - any load error becomes an HTTP 500
         logger.error(f"Failed to load sample data: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load sample data: {str(e)}")
 
@@ -130,7 +130,7 @@ async def connect_sql(request: SqlConnectRequest) -> dict[str, Any]:
             "columns": columns,
             "total_rows": len(df)
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - any driver error becomes a redacted HTTP 400
         # Never echo the connection string or password back or into logs.
         message = redact(str(e), request.connection_string)
         logger.error(f"Failed to connect and query SQL: {message}")
@@ -279,8 +279,8 @@ async def background_runner(experiment_id: str):
     try:
         svc = ExperimentService(None)  # session unused — service opens its own
         await svc.run_experiment_background(experiment_id)
-    except Exception as e:
-        logger.error(f"Background task failed for experiment {experiment_id}: {e}")
+    except Exception:  # noqa: BLE001 - last-resort guard; the service already marks the experiment failed
+        logger.exception(f"Background task failed for experiment {experiment_id}")
 
 @router.post("/experiments/run")
 async def run_experiment(data: dict[str, Any], db: DBSession, background_tasks: BackgroundTasks) -> ExperimentRead:
@@ -385,8 +385,8 @@ async def _run_agent_task(job_id: str, dataset_path: str, target_column: str, n_
         result = await agent.run_optimization_loop(dataset_path, target_column, n_hypotheses)
         JOBS[job_id]["status"] = "completed"
         JOBS[job_id]["result"] = result
-    except Exception as e:
-        logger.error(f"Auto-optimize failed: {e}")
+    except Exception as e:  # noqa: BLE001 - recorded on the job as status 'failed' with the message
+        logger.exception(f"Auto-optimize failed: {e}")
         JOBS[job_id]["status"] = "failed"
         JOBS[job_id]["error"] = str(e)
 
