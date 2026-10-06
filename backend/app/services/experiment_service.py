@@ -1,24 +1,25 @@
 """Experiment CRUD and orchestration service."""
+
 from __future__ import annotations
 
-import uuid
 import logging
-from typing import TYPE_CHECKING, Optional
-from datetime import datetime, timezone
+import uuid
+from typing import TYPE_CHECKING
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.experiment import Experiment
 from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
-from ml.experiments.schema import ExperimentSpec, ExperimentStatus
-from ml.experiments.executor import LocalExperimentExecutor
 from ml.data.ingestion.csv_loader import CsvLoader
+from ml.experiments.executor import LocalExperimentExecutor
+from ml.experiments.schema import ExperimentSpec, ExperimentStatus
 
 if TYPE_CHECKING:
     from ai.gateway import AIGateway
 
 logger = logging.getLogger(__name__)
+
 
 class ExperimentService:
     def __init__(self, db: AsyncSession) -> None:
@@ -30,7 +31,7 @@ class ExperimentService:
         await self.db.flush()
         return experiment
 
-    async def get(self, experiment_id: str) -> Optional[Experiment]:
+    async def get(self, experiment_id: str) -> Experiment | None:
         result = await self.db.execute(select(Experiment).where(Experiment.id == experiment_id))
         return result.scalar_one_or_none()
 
@@ -51,7 +52,7 @@ class ExperimentService:
         )
         return list(result.scalars().all()), total
 
-    async def update(self, experiment_id: str, data: ExperimentUpdate) -> Optional[Experiment]:
+    async def update(self, experiment_id: str, data: ExperimentUpdate) -> Experiment | None:
         exp = await self.get(experiment_id)
         if not exp:
             return None
@@ -62,7 +63,7 @@ class ExperimentService:
 
     async def run_experiment_background(self, experiment_id: str) -> None:
         """Run the experiment using the ML core and update the DB.
-        
+
         IMPORTANT: Always opens its own AsyncSessionLocal so it never shares
         the request-scoped session (which is already closed by the time the
         background task runs), preventing SQLAlchemy 'session already closed' errors.
@@ -134,8 +135,8 @@ class ExperimentService:
         """
         from ai.gateway import AIGateway
         from app.core.config import settings
-        from ml.experiments.planner import ExperimentPlanner
         from ml.data.profiling.profiler import DataProfiler
+        from ml.experiments.planner import ExperimentPlanner
 
         # In MVP, assume dataset_version is a valid local file path
         loader = CsvLoader()
@@ -173,7 +174,6 @@ class ExperimentService:
         return hypotheses
 
 
-
 def champion_path(experiments: list) -> list:
     """Return the champion lineage: the latest completed baseline, then each kept child.
 
@@ -186,7 +186,8 @@ def champion_path(experiments: list) -> list:
     path = [max(roots, key=lambda e: e.created_at)]
     while True:
         kept = [
-            e for e in experiments
+            e
+            for e in experiments
             if e.parent_id == path[-1].id and e.decision == "keep" and e.status == "completed"
         ]
         if not kept:

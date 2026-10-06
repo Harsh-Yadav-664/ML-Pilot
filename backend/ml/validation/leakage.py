@@ -13,6 +13,7 @@ taxonomy, and `run(table, target, context) -> list[Finding]`:
 A finding with severity `block` or `warn` is a flag; `info` is context only.
 The same Finding type is used by the evidence report (#60).
 """
+
 from __future__ import annotations
 
 import re
@@ -123,12 +124,21 @@ class IdColumnCheck(Check):
             monotonic = (not is_text) and (s.is_monotonic_increasing or s.is_monotonic_decreasing)
             if is_text or monotonic:
                 context.id_columns.add(col)
-                out.append(Finding(
-                    col, self.name, self.category, "warn",
-                    f"'{col}' identifies rows ({ratio:.0%} unique{', monotonic' if monotonic else ''}); "
-                    "it should not be used as a feature.",
-                    {"unique_ratio": round(ratio, 4), "monotonic": bool(monotonic), "text": is_text},
-                ))
+                out.append(
+                    Finding(
+                        col,
+                        self.name,
+                        self.category,
+                        "warn",
+                        f"'{col}' identifies rows ({ratio:.0%} unique{', monotonic' if monotonic else ''}); "
+                        "it should not be used as a feature.",
+                        {
+                            "unique_ratio": round(ratio, 4),
+                            "monotonic": bool(monotonic),
+                            "text": is_text,
+                        },
+                    )
+                )
         return out
 
 
@@ -150,40 +160,80 @@ class TargetCopyCheck(Check):
             forward = pair.groupby(col, observed=True)[target].nunique().max()
             backward = pair.groupby(target, observed=True)[col].nunique().max()
             if forward == 1 and backward == 1 and pair[col].nunique() == y.nunique(dropna=True):
-                out.append(Finding(
-                    col, self.name, self.category, "block",
-                    f"'{col}' is a one-to-one relabelling of the target '{target}'.",
-                    {"rows_checked": len(pair), "distinct_values": int(pair[col].nunique())},
-                ))
+                out.append(
+                    Finding(
+                        col,
+                        self.name,
+                        self.category,
+                        "block",
+                        f"'{col}' is a one-to-one relabelling of the target '{target}'.",
+                        {"rows_checked": len(pair), "distinct_values": int(pair[col].nunique())},
+                    )
+                )
         return out
-
 
     def _continuous(self, table, target):
         """For a numeric target: a column that is a (near) perfectly monotone function of it."""
         out = []
         for col in table.columns.drop(target):
-            if not pd.api.types.is_numeric_dtype(table[col]) or pd.api.types.is_bool_dtype(table[col]):
+            if not pd.api.types.is_numeric_dtype(table[col]) or pd.api.types.is_bool_dtype(
+                table[col]
+            ):
                 continue
             pair = table[[col, target]].dropna()
             if len(pair) < 10 or pair[col].nunique() < 3:
                 continue
             rho = abs(float(pair[col].corr(pair[target], method="spearman")))
             if rho > 0.999:
-                out.append(Finding(
-                    col, self.name, self.category, "block",
-                    f"'{col}' rises and falls with the target '{target}' almost exactly (rank correlation {rho:.4f}).",
-                    {"spearman": round(rho, 6), "rows_checked": len(pair)},
-                ))
+                out.append(
+                    Finding(
+                        col,
+                        self.name,
+                        self.category,
+                        "block",
+                        f"'{col}' rises and falls with the target '{target}' almost exactly (rank correlation {rho:.4f}).",
+                        {"spearman": round(rho, 6), "rows_checked": len(pair)},
+                    )
+                )
         return out
 
 
 # Tokens that name something only known after the outcome (whole tokens only).
 POST_OUTCOME_TOKENS = {
-    "cancelled", "canceled", "cancellation", "churned", "refund", "refunded", "chargeback",
-    "outcome", "result", "resolved", "resolution", "closed", "terminated", "termination",
-    "default", "defaulted", "writeoff", "collections", "label", "after", "post", "final",
+    "cancelled",
+    "canceled",
+    "cancellation",
+    "churned",
+    "refund",
+    "refunded",
+    "chargeback",
+    "outcome",
+    "result",
+    "resolved",
+    "resolution",
+    "closed",
+    "terminated",
+    "termination",
+    "default",
+    "defaulted",
+    "writeoff",
+    "collections",
+    "label",
+    "after",
+    "post",
+    "final",
 }
-TIME_TOKENS = {"date", "time", "timestamp", "datetime", "created", "updated", "modified", "at", "on"}
+TIME_TOKENS = {
+    "date",
+    "time",
+    "timestamp",
+    "datetime",
+    "created",
+    "updated",
+    "modified",
+    "at",
+    "on",
+}
 
 
 class NameTokenCheck(Check):
@@ -199,20 +249,30 @@ class NameTokenCheck(Check):
             tokens = name_tokens(col)
             hits = sorted((set(tokens) & POST_OUTCOME_TOKENS) | (set(tokens) & target_tokens))
             if hits:
-                out.append(Finding(
-                    col, self.name, self.category, "warn",
-                    f"'{col}' names {', '.join(repr(h) for h in hits)}, which suggests it is only known "
-                    "after the outcome. Confirm it is available at prediction time.",
-                    {"tokens": tokens, "matched": hits},
-                ))
+                out.append(
+                    Finding(
+                        col,
+                        self.name,
+                        self.category,
+                        "warn",
+                        f"'{col}' names {', '.join(repr(h) for h in hits)}, which suggests it is only known "
+                        "after the outcome. Confirm it is available at prediction time.",
+                        {"tokens": tokens, "matched": hits},
+                    )
+                )
             elif set(tokens) & {"date", "time", "timestamp", "datetime"} or (
                 tokens[-1:] in (["at"], ["on"]) and len(tokens) > 1
             ):
-                out.append(Finding(
-                    col, self.name, "L4", "info",
-                    f"'{col}' looks like a timestamp; use time-based splits if rows are ordered in time.",
-                    {"tokens": tokens},
-                ))
+                out.append(
+                    Finding(
+                        col,
+                        self.name,
+                        "L4",
+                        "info",
+                        f"'{col}' looks like a timestamp; use time-based splits if rows are ordered in time.",
+                        {"tokens": tokens},
+                    )
+                )
         return out
 
 
@@ -225,7 +285,11 @@ class SingleFeatureCheck(Check):
     warn_at = 0.90
 
     def run(self, table, target, context):
-        data = table if len(table) <= context.max_rows else table.sample(context.max_rows, random_state=context.seed)
+        data = (
+            table
+            if len(table) <= context.max_rows
+            else table.sample(context.max_rows, random_state=context.seed)
+        )
         data = data[data[target].notna()]
         y_raw = data[target]
         classify = _is_binary_or_categorical(y_raw)
@@ -250,13 +314,23 @@ class SingleFeatureCheck(Check):
             if score is None or score <= self.warn_at:
                 continue
             severity = "block" if score > self.block_at else "warn"
-            out.append(Finding(
-                col, self.name, self.category, severity,
-                f"'{col}' alone predicts '{target}' with {metric} {score:.3f}. Real signals rarely do; "
-                "check it is not derived from the outcome.",
-                {"metric": metric, "score": round(score, 4), "folds": 3, "model": "decision tree, depth 3",
-                 "rows": len(data)},
-            ))
+            out.append(
+                Finding(
+                    col,
+                    self.name,
+                    self.category,
+                    severity,
+                    f"'{col}' alone predicts '{target}' with {metric} {score:.3f}. Real signals rarely do; "
+                    "check it is not derived from the outcome.",
+                    {
+                        "metric": metric,
+                        "score": round(score, 4),
+                        "folds": 3,
+                        "model": "decision tree, depth 3",
+                        "rows": len(data),
+                    },
+                )
+            )
         return out
 
     @staticmethod
@@ -264,7 +338,9 @@ class SingleFeatureCheck(Check):
         scores = []
         for fit_idx, val_idx in folds.split(X, y):
             if classify:
-                model = DecisionTreeClassifier(max_depth=3, random_state=seed).fit(X[fit_idx], y[fit_idx])
+                model = DecisionTreeClassifier(max_depth=3, random_state=seed).fit(
+                    X[fit_idx], y[fit_idx]
+                )
                 prob = model.predict_proba(X[val_idx])
                 classes = model.classes_
                 if len(np.unique(y[val_idx])) < 2:
@@ -275,10 +351,16 @@ class SingleFeatureCheck(Check):
                     full = np.zeros((len(val_idx), int(y.max()) + 1))
                     full[:, classes] = prob
                     present = np.unique(y[val_idx])
-                    full = full[:, present] / np.clip(full[:, present].sum(axis=1, keepdims=True), 1e-12, None)
-                    scores.append(roc_auc_score(y[val_idx], full, multi_class="ovr", labels=present))
+                    full = full[:, present] / np.clip(
+                        full[:, present].sum(axis=1, keepdims=True), 1e-12, None
+                    )
+                    scores.append(
+                        roc_auc_score(y[val_idx], full, multi_class="ovr", labels=present)
+                    )
             else:
-                model = DecisionTreeRegressor(max_depth=3, random_state=seed).fit(X[fit_idx], y[fit_idx])
+                model = DecisionTreeRegressor(max_depth=3, random_state=seed).fit(
+                    X[fit_idx], y[fit_idx]
+                )
                 scores.append(r2_score(y[val_idx], model.predict(X[val_idx])))
         return float(np.mean(scores)) if scores else None
 
@@ -299,15 +381,27 @@ class DuplicateRowsCheck(Check):
         if share <= self.warn_share:
             return []
         conflicting = int(
-            table[dup_mask].groupby(list(features.columns), dropna=False, observed=True)[target].nunique().gt(1).sum()
+            table[dup_mask]
+            .groupby(list(features.columns), dropna=False, observed=True)[target]
+            .nunique()
+            .gt(1)
+            .sum()
         )
-        return [Finding(
-            None, self.name, self.category, "warn",
-            f"{share:.0%} of rows have an exact duplicate (ignoring IDs). A random split puts copies in both "
-            "train and test, which inflates test scores.",
-            {"duplicated_rows": int(dup_mask.sum()), "share": round(share, 4),
-             "duplicate_groups_with_different_targets": conflicting},
-        )]
+        return [
+            Finding(
+                None,
+                self.name,
+                self.category,
+                "warn",
+                f"{share:.0%} of rows have an exact duplicate (ignoring IDs). A random split puts copies in both "
+                "train and test, which inflates test scores.",
+                {
+                    "duplicated_rows": int(dup_mask.sum()),
+                    "share": round(share, 4),
+                    "duplicate_groups_with_different_targets": conflicting,
+                },
+            )
+        ]
 
 
 class GlobalNormalisationCheck(Check):
@@ -325,17 +419,33 @@ class GlobalNormalisationCheck(Check):
             v = s.dropna()
             if len(v) < 20 or v.nunique() <= 2 or np.allclose(v, v.round()):
                 continue
-            lo, hi, mean, std = float(v.min()), float(v.max()), float(v.mean()), float(v.std(ddof=0))
+            lo, hi, mean, std = (
+                float(v.min()),
+                float(v.max()),
+                float(v.mean()),
+                float(v.std(ddof=0)),
+            )
             minmax = abs(lo) < 1e-12 and abs(hi - 1.0) < 1e-9
-            zscore = abs(mean) < 1e-9 and (abs(std - 1.0) < 1e-6 or abs(float(v.std(ddof=1)) - 1.0) < 1e-6)
+            zscore = abs(mean) < 1e-9 and (
+                abs(std - 1.0) < 1e-6 or abs(float(v.std(ddof=1)) - 1.0) < 1e-6
+            )
             if minmax or zscore:
-                kind = "min-max scaled to exactly [0, 1]" if minmax else "standardised to mean 0, std 1"
-                out.append(Finding(
-                    col, self.name, self.category, "warn",
-                    f"'{col}' is {kind} over the whole file, so test rows influenced the scaling. "
-                    "Use the raw column; MLPilot fits scaling on training rows only.",
-                    {"min": lo, "max": hi, "mean": round(mean, 12), "std": round(std, 12)},
-                ))
+                kind = (
+                    "min-max scaled to exactly [0, 1]"
+                    if minmax
+                    else "standardised to mean 0, std 1"
+                )
+                out.append(
+                    Finding(
+                        col,
+                        self.name,
+                        self.category,
+                        "warn",
+                        f"'{col}' is {kind} over the whole file, so test rows influenced the scaling. "
+                        "Use the raw column; MLPilot fits scaling on training rows only.",
+                        {"min": lo, "max": hi, "mean": round(mean, 12), "std": round(std, 12)},
+                    )
+                )
         return out
 
 
@@ -349,8 +459,12 @@ DEFAULT_CHECKS: tuple[type[Check], ...] = (
 )
 
 
-def scan(table: pd.DataFrame, target: str, checks: tuple[type[Check], ...] = DEFAULT_CHECKS,
-         context: Context | None = None) -> list[Finding]:
+def scan(
+    table: pd.DataFrame,
+    target: str,
+    checks: tuple[type[Check], ...] = DEFAULT_CHECKS,
+    context: Context | None = None,
+) -> list[Finding]:
     """Run every check. A check that crashes raises; failures are never hidden."""
     if target not in table.columns:
         raise ValueError(f"Target column '{target}' not found")

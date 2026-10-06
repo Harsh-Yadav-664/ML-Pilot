@@ -1,11 +1,12 @@
 """Datasets API endpoints."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DBSession
-from app.schemas.dataset import DatasetCreate, DatasetRead, DatasetUpdate
 from app.schemas.common import PaginatedResponse
+from app.schemas.dataset import DatasetCreate, DatasetRead, DatasetUpdate
 from app.services.dataset_service import DatasetService
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])

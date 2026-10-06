@@ -1,7 +1,7 @@
 """ModelProvider ABC implementation using joblib."""
+
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ class JobLibModelProvider(ModelProvider):
     def save(self, model: Any, path: str) -> str:
         """Serialize model using joblib."""
         import joblib
+
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(model, path)
         return str(Path(path).resolve())
@@ -32,6 +33,7 @@ class JobLibModelProvider(ModelProvider):
     def load(self, path: str) -> Any:
         """Deserialize model from path."""
         import joblib
+
         return joblib.load(path)
 
     def get_feature_importance(self, model: Any, feature_names: list[str]) -> dict[str, float]:

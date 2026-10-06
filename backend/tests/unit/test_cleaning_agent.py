@@ -1,4 +1,5 @@
 """Tests for DataCleaningAgent with the offline stub provider."""
+
 from __future__ import annotations
 
 import pytest
@@ -20,7 +21,12 @@ def profile() -> ProfileResult:
         column_stats={
             "age": {"dtype": "int64", "missing_count": 0, "missing_rate": 0.0, "unique_count": 4},
             "city": {"dtype": "object", "missing_count": 0, "missing_rate": 0.0, "unique_count": 2},
-            "target": {"dtype": "int64", "missing_count": 0, "missing_rate": 0.0, "unique_count": 2},
+            "target": {
+                "dtype": "int64",
+                "missing_count": 0,
+                "missing_rate": 0.0,
+                "unique_count": 2,
+            },
         },
     )
 
@@ -44,8 +50,13 @@ async def test_stub_provider_returns_valid_strategy(profile):
 
 
 async def test_valid_llm_strategy_is_returned(profile):
-    columns = {"age": ["impute_median", "standard_scale"], "city": ["impute_constant", "onehot_encode"]}
-    strategy = await agent_returning({"columns": columns}).generate_cleaning_strategy(profile, "target")
+    columns = {
+        "age": ["impute_median", "standard_scale"],
+        "city": ["impute_constant", "onehot_encode"],
+    }
+    strategy = await agent_returning({"columns": columns}).generate_cleaning_strategy(
+        profile, "target"
+    )
     assert strategy == {"columns": columns}
 
 

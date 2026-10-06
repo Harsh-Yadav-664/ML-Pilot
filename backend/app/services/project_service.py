@@ -1,10 +1,10 @@
 """Project CRUD service."""
+
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
@@ -25,7 +25,7 @@ class ProjectService:
         await self.db.flush()
         return project
 
-    async def get(self, project_id: str) -> Optional[Project]:
+    async def get(self, project_id: str) -> Project | None:
         result = await self.db.execute(select(Project).where(Project.id == project_id))
         return result.scalar_one_or_none()
 
@@ -46,7 +46,7 @@ class ProjectService:
         )
         return list(result.scalars().all()), total
 
-    async def update(self, project_id: str, data: ProjectUpdate) -> Optional[Project]:
+    async def update(self, project_id: str, data: ProjectUpdate) -> Project | None:
         project = await self.get(project_id)
         if not project:
             return None

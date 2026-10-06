@@ -3,10 +3,10 @@
 Returns deterministic, structured placeholder responses for all task types.
 Always registered as the last-resort fallback in AIGateway.
 """
+
 from __future__ import annotations
 
-import json
-from typing import Any, Optional
+from typing import Any
 
 from ml.core.interfaces import AIProvider, ModelInfo
 
@@ -28,7 +28,16 @@ _STUB_MODELS = [
         context_window=8192,
         cost_per_1k_prompt_tokens=0.0,
         cost_per_1k_completion_tokens=0.0,
-        capabilities=["complete", "structured", "format", "summarize", "hypothesize", "analyze", "report", "decide"],
+        capabilities=[
+            "complete",
+            "structured",
+            "format",
+            "summarize",
+            "hypothesize",
+            "analyze",
+            "report",
+            "decide",
+        ],
         is_free=True,
     )
 ]
@@ -52,7 +61,7 @@ class StubProvider(AIProvider):
         self,
         prompt: str,
         system: str = "",
-        model: Optional[str] = None,
+        model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ) -> str:
@@ -69,7 +78,7 @@ class StubProvider(AIProvider):
         prompt: str,
         schema: dict[str, Any],
         system: str = "",
-        model: Optional[str] = None,
+        model: str | None = None,
         max_tokens: int = 2048,
     ) -> dict[str, Any]:
         """Return a stub structured response matching the schema keys."""
@@ -114,7 +123,7 @@ class StubProvider(AIProvider):
         self,
         prompt_tokens: int,
         completion_tokens: int,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> float:
         """Always returns 0.0 — stub is free."""
         return 0.0

@@ -1,7 +1,9 @@
 """Application configuration via pydantic-settings."""
+
 from __future__ import annotations
 
 from typing import Any
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -51,6 +53,7 @@ class Settings(BaseSettings):
     def parse_cors_origins(cls, v: Any) -> list[str]:
         if isinstance(v, str):
             import json
+
             return json.loads(v)
         return v
 

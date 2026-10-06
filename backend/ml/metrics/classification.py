@@ -1,10 +1,12 @@
 """Classification metrics computation."""
+
 from __future__ import annotations
 
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 from app.core.errors import describe, unavailable
+
 
 def compute_classification_metrics(
     y_true: np.ndarray,
@@ -13,7 +15,7 @@ def compute_classification_metrics(
     notes: dict[str, str] | None = None,
 ) -> dict[str, float | None]:
     """Compute standard classification metrics.
-    
+
     Args:
         y_true: True labels.
         y_pred: Predicted labels.
@@ -26,7 +28,7 @@ def compute_classification_metrics(
     # Labels are encoded by ml.core.targets.TargetEncoder: for binary targets
     # 1 is the positive class, so precision/recall/F1 are reported for it.
     binary = set(np.unique(y_true)) | set(np.unique(y_pred)) <= {0, 1}
-    average = 'binary' if binary else 'weighted'
+    average = "binary" if binary else "weighted"
     metrics = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "precision": float(precision_score(y_true, y_pred, average=average, zero_division=0)),

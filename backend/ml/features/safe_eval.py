@@ -15,6 +15,7 @@ raises InvalidFormula. Division by zero gives NaN; infinities become NaN.
 This file is also copied verbatim into exported scoring scripts, so it must only
 import numpy and pandas.
 """
+
 import ast
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -139,7 +140,9 @@ def _check(node: ast.AST, columns: frozenset, depth: int, used: set) -> None:
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name) or node.func.id not in FUNCTIONS:
             name = node.func.id if isinstance(node.func, ast.Name) else ast.unparse(node.func)
-            raise InvalidFormula(f"function '{name}' is not allowed; allowed: {', '.join(FUNCTIONS)}")
+            raise InvalidFormula(
+                f"function '{name}' is not allowed; allowed: {', '.join(FUNCTIONS)}"
+            )
         if node.keywords:
             raise InvalidFormula("keyword arguments are not allowed")
         _, arity = FUNCTIONS[node.func.id]
@@ -161,7 +164,11 @@ def parse(formula: str, columns: Iterable[str]) -> Expr:
         tree = ast.parse(formula.strip(), mode="eval")
     except (SyntaxError, ValueError, RecursionError, MemoryError) as e:
         raise InvalidFormula(f"not a valid expression: {e}") from None
-    n_nodes = sum(1 for n in ast.walk(tree) if not isinstance(n, (ast.expr_context, ast.operator, ast.unaryop, ast.cmpop, ast.boolop)))
+    n_nodes = sum(
+        1
+        for n in ast.walk(tree)
+        if not isinstance(n, (ast.expr_context, ast.operator, ast.unaryop, ast.cmpop, ast.boolop))
+    )
     if n_nodes > MAX_NODES:
         raise InvalidFormula(f"formula has more than {MAX_NODES} parts")
     cols = frozenset(str(c) for c in columns)
@@ -221,8 +228,14 @@ def _eval(node: ast.AST, df: pd.DataFrame, columns: frozenset) -> Any:
             out = combine(out, v)
         return out
     if isinstance(node, ast.Compare):
-        compare = {ast.Eq: np.equal, ast.NotEq: np.not_equal, ast.Lt: np.less,
-                   ast.LtE: np.less_equal, ast.Gt: np.greater, ast.GtE: np.greater_equal}
+        compare = {
+            ast.Eq: np.equal,
+            ast.NotEq: np.not_equal,
+            ast.Lt: np.less,
+            ast.LtE: np.less_equal,
+            ast.Gt: np.greater,
+            ast.GtE: np.greater_equal,
+        }
         left = _eval(node.left, df, columns)
         out = None
         for op, right_node in zip(node.ops, node.comparators):
@@ -235,7 +248,9 @@ def _eval(node: ast.AST, df: pd.DataFrame, columns: frozenset) -> Any:
         func, _ = FUNCTIONS[node.func.id]
         with np.errstate(divide="ignore", invalid="ignore"):
             return func(*(_eval(a, df, columns) for a in node.args))
-    raise InvalidFormula(f"{type(node).__name__} is not allowed in a formula")  # parse() prevents this
+    raise InvalidFormula(
+        f"{type(node).__name__} is not allowed in a formula"
+    )  # parse() prevents this
 
 
 def evaluate(expr: Expr, df: pd.DataFrame) -> pd.Series:
@@ -249,7 +264,9 @@ def evaluate(expr: Expr, df: pd.DataFrame) -> pd.Series:
     except InvalidFormula:
         raise
     except (TypeError, ValueError) as e:
-        raise InvalidFormula(f"cannot compute on this data (are all used columns numeric?): {e}") from None
+        raise InvalidFormula(
+            f"cannot compute on this data (are all used columns numeric?): {e}"
+        ) from None
     out = pd.Series(values, index=df.index, dtype="float64")
     return out.replace([np.inf, -np.inf], np.nan)
 

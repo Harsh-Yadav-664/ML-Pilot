@@ -1,4 +1,5 @@
 """An AIGateway with only the offline stub provider, for tests."""
+
 from __future__ import annotations
 
 from ai.gateway import AIGateway

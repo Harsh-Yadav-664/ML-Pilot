@@ -4,6 +4,7 @@ This is the model's own importance (tree impurity/gain, or |coefficient| for
 linear models), not SHAP. Encoded columns (e.g. one-hot) are summed back to
 the source column so only real column names are reported.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,7 +20,9 @@ def _source_column(encoded_name: str, columns: list[str]) -> str | None:
     return max(matches, key=len) if matches else None
 
 
-def builtin_importances(pipeline: Pipeline, columns: list[str], top_n: int = 10) -> dict[str, float]:
+def builtin_importances(
+    pipeline: Pipeline, columns: list[str], top_n: int = 10
+) -> dict[str, float]:
     """Return {original column: share of total importance}, largest first.
 
     Raises ValueError if the model or preprocessor doesn't expose importances.

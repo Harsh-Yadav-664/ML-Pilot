@@ -1,9 +1,10 @@
 """GroqProvider — OpenAI-compatible provider via Groq."""
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -28,7 +29,17 @@ _GROQ_MODELS = [
         context_window=131072,
         cost_per_1k_prompt_tokens=0.59,
         cost_per_1k_completion_tokens=0.79,
-        capabilities=["complete", "structured", "format", "summarize", "hypothesize", "analyze", "synthesize", "report", "decide"],
+        capabilities=[
+            "complete",
+            "structured",
+            "format",
+            "summarize",
+            "hypothesize",
+            "analyze",
+            "synthesize",
+            "report",
+            "decide",
+        ],
         is_free=False,
     ),
     ModelInfo(
@@ -57,7 +68,7 @@ class GroqProvider(AIProvider):
         self,
         prompt: str,
         system: str = "",
-        model: Optional[str] = None,
+        model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ) -> str:
@@ -79,25 +90,29 @@ class GroqProvider(AIProvider):
         prompt: str,
         schema: dict[str, Any],
         system: str = "",
-        model: Optional[str] = None,
+        model: str | None = None,
         max_tokens: int = 2048,
     ) -> dict[str, Any]:
-        system_with_json = f"{system}\n\nRespond ONLY with valid JSON matching this schema: {json.dumps(schema)}"
-        raw = await self.complete(prompt, system=system_with_json, model=model, max_tokens=max_tokens, temperature=0.2)
+        system_with_json = (
+            f"{system}\n\nRespond ONLY with valid JSON matching this schema: {json.dumps(schema)}"
+        )
+        raw = await self.complete(
+            prompt, system=system_with_json, model=model, max_tokens=max_tokens, temperature=0.2
+        )
         # Extract JSON from markdown code fences if present
         if "```" in raw:
             raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+            raw = raw.removeprefix("json")
         return json.loads(raw.strip())
 
-    def estimate_cost(self, prompt_tokens: int, completion_tokens: int, model: Optional[str] = None) -> float:
+    def estimate_cost(
+        self, prompt_tokens: int, completion_tokens: int, model: str | None = None
+    ) -> float:
         m = model or self.DEFAULT_MODEL
         info = next((mi for mi in _GROQ_MODELS if mi.name == m), _GROQ_MODELS[0])
-        return (
-            (prompt_tokens / 1000) * info.cost_per_1k_prompt_tokens
-            + (completion_tokens / 1000) * info.cost_per_1k_completion_tokens
-        )
+        return (prompt_tokens / 1000) * info.cost_per_1k_prompt_tokens + (
+            completion_tokens / 1000
+        ) * info.cost_per_1k_completion_tokens
 
     async def list_models(self) -> list[ModelInfo]:
         return list(_GROQ_MODELS)

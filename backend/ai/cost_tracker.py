@@ -1,23 +1,24 @@
 """CostTracker — logs per-request AI usage and cost."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 
 @dataclass
 class UsageRecord:
     """A single AI API usage record."""
+
     provider: str
     model: str
     prompt_tokens: int
     completion_tokens: int
     cost_usd: float
     task_type: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    experiment_id: Optional[str] = None
-    project_id: Optional[str] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    experiment_id: str | None = None
+    project_id: str | None = None
 
 
 class CostTracker:
@@ -34,8 +35,8 @@ class CostTracker:
         completion_tokens: int,
         cost_usd: float,
         task_type: str = "unknown",
-        experiment_id: Optional[str] = None,
-        project_id: Optional[str] = None,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
     ) -> UsageRecord:
         """Log a usage record and return it."""
         record = UsageRecord(
@@ -51,7 +52,7 @@ class CostTracker:
         self._records.append(record)
         return record
 
-    def total_cost(self, provider: Optional[str] = None) -> float:
+    def total_cost(self, provider: str | None = None) -> float:
         """Return total cost in USD, optionally filtered by provider."""
         records = self._records
         if provider:
@@ -67,8 +68,8 @@ class CostTracker:
 
     def get_records(
         self,
-        provider: Optional[str] = None,
-        project_id: Optional[str] = None,
+        provider: str | None = None,
+        project_id: str | None = None,
     ) -> list[UsageRecord]:
         """Return usage records, optionally filtered."""
         records = self._records
@@ -83,7 +84,12 @@ class CostTracker:
         by_provider: dict[str, dict] = {}
         for r in self._records:
             if r.provider not in by_provider:
-                by_provider[r.provider] = {"requests": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0}
+                by_provider[r.provider] = {
+                    "requests": 0,
+                    "cost_usd": 0.0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                }
             by_provider[r.provider]["requests"] += 1
             by_provider[r.provider]["cost_usd"] += r.cost_usd
             by_provider[r.provider]["prompt_tokens"] += r.prompt_tokens

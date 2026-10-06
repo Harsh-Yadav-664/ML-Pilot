@@ -1,4 +1,5 @@
 """DataProfiler: deterministic dataset profiling."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -65,16 +66,15 @@ class DataProfiler:
             warnings=warnings,
         )
 
-    def _generate_warnings(self, df: pd.DataFrame, missing_rate: float, duplicate_rows: int, target_balance: dict) -> list[str]:
+    def _generate_warnings(
+        self, df: pd.DataFrame, missing_rate: float, duplicate_rows: int, target_balance: dict
+    ) -> list[str]:
         warnings: list[str] = []
         if missing_rate > 0.2:
             warnings.append(f"High missing rate: {missing_rate:.1%} of all cells are missing.")
         if duplicate_rows > 0:
             warnings.append(f"{duplicate_rows} duplicate rows detected.")
-        if (
-            target_balance.get("type") == "categorical"
-            and target_balance.get("distribution")
-        ):
+        if target_balance.get("type") == "categorical" and target_balance.get("distribution"):
             dist = target_balance["distribution"]
             if dist:
                 min_class_frac = min(dist.values())
@@ -82,10 +82,7 @@ class DataProfiler:
                     warnings.append(
                         f"Severe class imbalance detected: smallest class is {min_class_frac:.1%}."
                     )
-        high_missing_cols = [
-            col for col in df.columns
-            if df[col].isna().mean() > 0.5
-        ]
+        high_missing_cols = [col for col in df.columns if df[col].isna().mean() > 0.5]
         if high_missing_cols:
             warnings.append(f"Columns with >50% missing: {high_missing_cols}")
         return warnings

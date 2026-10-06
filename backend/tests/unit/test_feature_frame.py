@@ -1,10 +1,15 @@
 """ID columns are excluded and numbers stored as text are converted, with a report."""
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from ml.data.preparation.feature_frame import coerce_numeric_text, find_id_columns, prepare_feature_frame
+from ml.data.preparation.feature_frame import (
+    coerce_numeric_text,
+    find_id_columns,
+    prepare_feature_frame,
+)
 
 
 def _frame(n: int = 50) -> pd.DataFrame:

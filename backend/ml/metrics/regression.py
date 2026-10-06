@@ -1,11 +1,12 @@
 """Regression metric computation."""
+
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
-from ml.core.interfaces import MetricProvider, ClassificationMetrics, RegressionMetrics
+from ml.core.interfaces import ClassificationMetrics, MetricProvider, RegressionMetrics
 
 
 class SklearnRegressionMetricProvider(MetricProvider):
@@ -22,10 +23,16 @@ class SklearnRegressionMetricProvider(MetricProvider):
 
         return RegressionMetrics(rmse=rmse, mae=mae, r2=r2, mape=mape)
 
-    def compute_classification(self, y_true: Any, y_pred: Any, y_prob: Optional[Any] = None) -> ClassificationMetrics:
-        raise NotImplementedError("Use SklearnClassificationMetricProvider for classification metrics.")
+    def compute_classification(
+        self, y_true: Any, y_pred: Any, y_prob: Any | None = None
+    ) -> ClassificationMetrics:
+        raise NotImplementedError(
+            "Use SklearnClassificationMetricProvider for classification metrics."
+        )
 
-    def compare(self, baseline: dict[str, float], challenger: dict[str, float], primary_metric: str) -> dict[str, Any]:
+    def compare(
+        self, baseline: dict[str, float], challenger: dict[str, float], primary_metric: str
+    ) -> dict[str, Any]:
         delta = challenger.get(primary_metric, 0) - baseline.get(primary_metric, 0)
         return {
             "primary_metric": primary_metric,
@@ -33,5 +40,8 @@ class SklearnRegressionMetricProvider(MetricProvider):
             "challenger": challenger.get(primary_metric),
             "delta": delta,
             "improved": delta > 0 if primary_metric in ("r2",) else delta < 0,
-            "all_deltas": {k: challenger.get(k, 0) - baseline.get(k, 0) for k in set(baseline) | set(challenger)},
+            "all_deltas": {
+                k: challenger.get(k, 0) - baseline.get(k, 0)
+                for k in set(baseline) | set(challenger)
+            },
         }

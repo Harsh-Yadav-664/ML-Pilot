@@ -7,12 +7,20 @@ from ml.core.interfaces import ProfileResult
 logger = logging.getLogger(__name__)
 
 # Steps understood by ml.data.preparation.dynamic_builder.DynamicPipelineBuilder
-ALLOWED_STEPS = frozenset({
-    "impute_median", "impute_mean", "impute_constant", "impute_most_frequent",
-    "standard_scale", "robust_scale", "minmax_scale",
-    "onehot_encode", "target_encode",
-    "log1p",
-})
+ALLOWED_STEPS = frozenset(
+    {
+        "impute_median",
+        "impute_mean",
+        "impute_constant",
+        "impute_most_frequent",
+        "standard_scale",
+        "robust_scale",
+        "minmax_scale",
+        "onehot_encode",
+        "target_encode",
+        "log1p",
+    }
+)
 
 STRATEGY_SCHEMA = {
     "type": "object",
@@ -40,7 +48,7 @@ class DataCleaningAgent:
 
         Raises CleaningStrategyError if the LLM call fails or returns an invalid strategy.
         """
-        
+
         system_prompt = (
             "You are an expert Data Scientist specializing in data preparation and feature engineering. "
             "You will receive a dataset profile containing columns, missing values, skewness, and cardinality. "
@@ -59,10 +67,10 @@ class DataCleaningAgent:
             "5. For categorical columns, always include an imputer before an encoder.\n"
             "Example output format:\n"
             "{\n"
-            "  \"columns\": {\n"
-            "    \"age\": [\"impute_median\", \"standard_scale\"],\n"
-            "    \"income\": [\"impute_median\", \"log1p\", \"robust_scale\"],\n"
-            "    \"city\": [\"impute_constant\", \"target_encode\"]\n"
+            '  "columns": {\n'
+            '    "age": ["impute_median", "standard_scale"],\n'
+            '    "income": ["impute_median", "log1p", "robust_scale"],\n'
+            '    "city": ["impute_constant", "target_encode"]\n'
             "  }\n"
             "}"
         )

@@ -1,8 +1,10 @@
 """Tests for AIGateway registration and fallback."""
+
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from ai.gateway import AIGateway
 from ai.router import TaskType

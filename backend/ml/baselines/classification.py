@@ -1,24 +1,23 @@
 """Classification baseline runner."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from lightgbm import LGBMClassifier
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_validate
 from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from xgboost import XGBClassifier
 
 from app.core.errors import describe
-
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
-
 from ml.core.targets import TargetEncoder
 
 
@@ -27,7 +26,7 @@ class BaselineResult:
     model_name: str
     metrics: dict[str, float]
     params: dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
+    error: str | None = None
 
 
 CLASSIFICATION_MODELS = {
@@ -48,27 +47,40 @@ class ClassificationBaseline:
         self.models = CLASSIFICATION_MODELS
 
     def _build_preprocessor(self, X: pd.DataFrame) -> ColumnTransformer:
-        numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
-        categorical_features = X.select_dtypes(include=['object', 'category']).columns
+        numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
+        categorical_features = X.select_dtypes(include=["object", "category"]).columns
 
         return ColumnTransformer(
             transformers=[
-                ('num', Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='median')),
-                    ('scaler', StandardScaler())
-                ]), numeric_features),
-                ('cat', Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-                    ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
-                ]), categorical_features)
-            ])
+                (
+                    "num",
+                    Pipeline(
+                        steps=[
+                            ("imputer", SimpleImputer(strategy="median")),
+                            ("scaler", StandardScaler()),
+                        ]
+                    ),
+                    numeric_features,
+                ),
+                (
+                    "cat",
+                    Pipeline(
+                        steps=[
+                            ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+                            ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+                        ]
+                    ),
+                    categorical_features,
+                ),
+            ]
+        )
 
     def run(
         self,
         X_train: pd.DataFrame,
         y_train: pd.Series,
-        X_val: Optional[pd.DataFrame] = None,
-        y_val: Optional[pd.Series] = None,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
     ) -> list[BaselineResult]:
         """Run all baseline classifiers and return a list of BaselineResult."""
         results = []
@@ -79,44 +91,49 @@ class ClassificationBaseline:
         y_train = target_encoder.transform(y_train)
         if y_val is not None:
             y_val = target_encoder.transform(y_val)
-        f1_average = 'binary' if target_encoder.is_binary else 'weighted'
+        f1_average = "binary" if target_encoder.is_binary else "weighted"
 
         for name, model_cls in self.models.items():
             try:
                 # Initialize model, passing random_state if supported
-                if 'random_state' in model_cls().get_params():
+                if "random_state" in model_cls().get_params():
                     clf = model_cls(random_state=self.random_state)
                 else:
                     clf = model_cls()
-                    
-                pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', clf)])
-                
+
+                pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("classifier", clf)])
+
                 if X_val is None:
                     # Use Cross Validation
-                    scoring = ['f1' if target_encoder.is_binary else 'f1_weighted', 'accuracy']
-                    cv_results = cross_validate(pipeline, X_train, y_train, cv=self.cv_folds, scoring=scoring)
+                    scoring = ["f1" if target_encoder.is_binary else "f1_weighted", "accuracy"]
+                    cv_results = cross_validate(
+                        pipeline, X_train, y_train, cv=self.cv_folds, scoring=scoring
+                    )
                     metrics = {
                         "f1": float(np.mean(cv_results[f"test_{scoring[0]}"])),
-                        "accuracy": float(np.mean(cv_results['test_accuracy']))
+                        "accuracy": float(np.mean(cv_results["test_accuracy"])),
                     }
                 else:
                     # Use explicit Validation Set
                     pipeline.fit(X_train, y_train)
                     y_pred = pipeline.predict(X_val)
-                    from sklearn.metrics import f1_score, accuracy_score
+                    from sklearn.metrics import accuracy_score, f1_score
+
                     metrics = {
                         "f1": float(f1_score(y_val, y_pred, average=f1_average, zero_division=0)),
-                        "accuracy": float(accuracy_score(y_val, y_pred))
+                        "accuracy": float(accuracy_score(y_val, y_pred)),
                     }
-                
-                results.append(BaselineResult(
-                    model_name=name,
-                    metrics=metrics,
-                    params={"target_encoding": target_encoder.to_dict()},
-                ))
+
+                results.append(
+                    BaselineResult(
+                        model_name=name,
+                        metrics=metrics,
+                        params={"target_encoding": target_encoder.to_dict()},
+                    )
+                )
             except Exception as e:  # noqa: BLE001 - one baseline failing is recorded on its result
                 results.append(BaselineResult(model_name=name, metrics={}, error=describe(e)))
-        
+
         return results
 
     def list_models(self) -> list[str]:

@@ -1,24 +1,25 @@
 """MLPilot FastAPI application entry point."""
+
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.v1 import chat, datasets, experiments, hypotheses, models, projects, reports, ui
 from app.core.config import settings
-from app.core.logging import setup_logging, get_logger
+from app.core.logging import get_logger, setup_logging
 from app.db.session import create_all_tables
-from app.api.v1 import projects, datasets, experiments, hypotheses, models, reports, ui, chat
 
 setup_logging(settings.LOG_LEVEL)
 logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan: startup and shutdown."""
     logger.info("Starting up MLPilot backend...")
     await create_all_tables()
@@ -37,7 +38,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all for local UI development
+    allow_origins=["*"],  # Allow all for local UI development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,4 +64,6 @@ async def health() -> JSONResponse:
 
 @app.get("/", tags=["root"])
 async def root() -> JSONResponse:
-    return JSONResponse({"app": settings.APP_NAME, "version": settings.APP_VERSION, "docs": "/docs"})
+    return JSONResponse(
+        {"app": settings.APP_NAME, "version": settings.APP_VERSION, "docs": "/docs"}
+    )

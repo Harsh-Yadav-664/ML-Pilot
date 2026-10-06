@@ -7,6 +7,7 @@ Given a dataset, it will:
   4. Evaluate results and mark each as KEEP/REJECT using LLM reasoning
   5. Return a summary with the winning feature set
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,14 +16,15 @@ from typing import Any
 from ai.gateway import AIGateway
 from ai.router import TaskType
 from app.db.session import AsyncSessionLocal
-from app.services.experiment_service import ExperimentService
 from app.schemas.experiment import ExperimentCreate
+from app.services.experiment_service import ExperimentService
 from ml.data.ingestion.csv_loader import CsvLoader
 from ml.data.profiling.profiler import DataProfiler
-from ml.models.engines import DEFAULT_ENGINE
 from ml.experiments.planner import ExperimentPlanner
+from ml.models.engines import DEFAULT_ENGINE
 
 logger = logging.getLogger(__name__)
+
 
 class DecisionAgent:
     def __init__(self, gateway: AIGateway, settings: Any):
@@ -30,14 +32,10 @@ class DecisionAgent:
         self.settings = settings
 
     async def run_optimization_loop(
-        self, 
-        dataset_path: str, 
-        target_column: str, 
-        n_hypotheses: int = 5, 
-        max_workers: int = 3
+        self, dataset_path: str, target_column: str, n_hypotheses: int = 5, max_workers: int = 3
     ) -> dict:
         logger.info(f"Starting DecisionAgent optimization loop on {dataset_path}")
-        
+
         # 1. Profile the dataset
         loader = CsvLoader()
         df = loader.load(dataset_path)
@@ -57,7 +55,9 @@ class DecisionAgent:
         async def get_experiment_record(exp_id: str) -> tuple[dict, dict]:
             async with AsyncSessionLocal() as db:
                 from sqlalchemy import select
+
                 from app.db.models.experiment import Experiment as ExpModel
+
                 result = await db.execute(select(ExpModel).where(ExpModel.id == exp_id))
                 exp = result.scalar_one_or_none()
                 if not exp:
@@ -69,6 +69,7 @@ class DecisionAgent:
 
         async def save_decision(exp_id: str, decision: str, reason: str) -> None:
             from app.schemas.experiment import ExperimentUpdate
+
             async with AsyncSessionLocal() as db:
                 await ExperimentService(db).update(
                     exp_id, ExperimentUpdate(decision=decision, decision_reason=reason)
@@ -76,15 +77,17 @@ class DecisionAgent:
                 await db.commit()
 
         # Baseline
-        baseline_id = await create_experiment(ExperimentCreate(
-            project_id="demo-project-id",
-            dataset_version=dataset_path,
-            hypothesis="Baseline without new features",
-            change_description="Baseline run",
-            model_name=DEFAULT_ENGINE,
-            feature_set=[],
-            parameters={"target_column": target_column}
-        ))
+        baseline_id = await create_experiment(
+            ExperimentCreate(
+                project_id="demo-project-id",
+                dataset_version=dataset_path,
+                hypothesis="Baseline without new features",
+                change_description="Baseline run",
+                model_name=DEFAULT_ENGINE,
+                feature_set=[],
+                parameters={"target_column": target_column},
+            )
+        )
         # run_experiment_background opens its own session
         svc_for_run = ExperimentService(None)
         await svc_for_run.run_experiment_background(baseline_id)
@@ -100,7 +103,7 @@ class DecisionAgent:
         champion_id = baseline_id
         champion_features: list[dict] = []
         best_f1 = baseline_f1
-        
+
         # History for the sequential loop
         history = [{"name": "baseline", "formula": "None", "f1": baseline_f1}]
 
@@ -111,15 +114,21 @@ class DecisionAgent:
                     profile=profile,
                     target_column=target_column,
                     objective="Maximize F1 score while preventing overfitting",
-                    history=history
+                    history=history,
                 )
             except Exception as e:  # noqa: BLE001 - recorded as a skipped iteration with decision_mode 'fallback'
                 # No made-up hypothesis: record the failed iteration as a fallback and move on.
                 logger.error(f"Failed to generate hypothesis: {e}")
                 skipped = {
-                    "id": None, "feature_name": None, "formula": None, "f1": None,
-                    "decision": "skipped", "reason": f"The planner failed, so nothing was tested: {e}",
-                    "decision_mode": "fallback", "explanation_mode": None, "acceptance": None,
+                    "id": None,
+                    "feature_name": None,
+                    "formula": None,
+                    "f1": None,
+                    "decision": "skipped",
+                    "reason": f"The planner failed, so nothing was tested: {e}",
+                    "decision_mode": "fallback",
+                    "explanation_mode": None,
+                    "acceptance": None,
                     "hypothesis_llm": {"decision_mode": "fallback", "error": str(e)},
                 }
                 experiments_info.append(skipped)
@@ -127,22 +136,24 @@ class DecisionAgent:
             hypothesis_llm = hypothesis.get("llm") or {"decision_mode": "llm"}
 
             # Create experiment
-            eid = await create_experiment(ExperimentCreate(
-                project_id="demo-project-id",
-                parent_id=champion_id,
-                dataset_version=dataset_path,
-                hypothesis=hypothesis.get("reason", "Generated hypothesis"),
-                change_description=f"Added feature: {hypothesis.get('name')} via formula {hypothesis.get('formula')}",
-                model_name=DEFAULT_ENGINE,
-                feature_set=[hypothesis.get("name")] if hypothesis.get("name") else [],
-                parameters={
-                    "target_column": target_column,
-                    "features": champion_features,
-                    "feature_name": hypothesis.get("name"),
-                    "formula": hypothesis.get("formula"),
-                    "hypothesis_llm": hypothesis_llm,
-                }
-            ))
+            eid = await create_experiment(
+                ExperimentCreate(
+                    project_id="demo-project-id",
+                    parent_id=champion_id,
+                    dataset_version=dataset_path,
+                    hypothesis=hypothesis.get("reason", "Generated hypothesis"),
+                    change_description=f"Added feature: {hypothesis.get('name')} via formula {hypothesis.get('formula')}",
+                    model_name=DEFAULT_ENGINE,
+                    feature_set=[hypothesis.get("name")] if hypothesis.get("name") else [],
+                    parameters={
+                        "target_column": target_column,
+                        "features": champion_features,
+                        "feature_name": hypothesis.get("name"),
+                        "formula": hypothesis.get("formula"),
+                        "hypothesis_llm": hypothesis_llm,
+                    },
+                )
+            )
 
             # Run experiment
             runner = ExperimentService(None)
@@ -162,7 +173,9 @@ class DecisionAgent:
                 rule_summary = f"Rejected: the formula is invalid ({invalid['reason']}), so nothing was trained."
             elif acceptance is None:
                 decision = "reject"
-                rule_summary = "Rejected: the experiment did not complete, so there is no measured gain."
+                rule_summary = (
+                    "Rejected: the experiment did not complete, so there is no measured gain."
+                )
             else:
                 decision = "keep" if acceptance["accepted"] else "reject"
                 lo, hi = acceptance["ci95"]
@@ -211,7 +224,7 @@ class DecisionAgent:
                 "acceptance": decision_data["acceptance"],
                 "hypothesis_llm": hypothesis_llm,
             }
-            
+
             experiments_info.append(result_info)
             history.append(result_info)
 
@@ -232,5 +245,5 @@ class DecisionAgent:
             "champion_features": champion_features,
             "experiments": experiments_info,
             "best_f1": best_f1,
-            "summary": summary
+            "summary": summary,
         }

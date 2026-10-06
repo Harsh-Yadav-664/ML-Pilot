@@ -1,4 +1,5 @@
 """The debrief only talks about real columns of the dataset (no fake SHAP)."""
+
 from __future__ import annotations
 
 import sys
@@ -43,7 +44,11 @@ async def test_debrief_mentions_only_real_columns(session_factory, monkeypatch):
         hypothesis="baseline",
         change_description="baseline",
         model_name="RandomForestClassifier",
-        parameters={"target_column": "Churn", "model_params": {"n_estimators": 20}, "ensemble": False},
+        parameters={
+            "target_column": "Churn",
+            "model_params": {"n_estimators": 20},
+            "ensemble": False,
+        },
     )
     result = await LocalExperimentExecutor(lambda _: df.drop(columns=["customerID"])).run(spec)
     importances = result.parameters["feature_importances"]

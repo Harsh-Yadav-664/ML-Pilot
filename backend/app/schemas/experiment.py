@@ -1,12 +1,13 @@
 """Experiment Pydantic v2 schemas."""
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-from ml.experiments.schema import ExperimentStatus, ExperimentDecision
+from ml.experiments.schema import ExperimentDecision, ExperimentStatus
 
 
 class ExperimentCreate(BaseModel):
@@ -22,19 +23,19 @@ class ExperimentCreate(BaseModel):
     feature_set: list[str] = []
     preprocessing_config: dict[str, Any] = {}
     budget: dict[str, float] = {}
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
 
 
 class ExperimentRead(ExperimentCreate):
     id: str
-    metrics: Optional[dict[str, Optional[float]]] = None
+    metrics: dict[str, float | None] | None = None
     artifacts: list[str] = []
-    runtime_seconds: Optional[float] = None
-    cost_usd: Optional[float] = None
+    runtime_seconds: float | None = None
+    cost_usd: float | None = None
     status: ExperimentStatus = ExperimentStatus.CREATED
     decision: ExperimentDecision = ExperimentDecision.PENDING
-    decision_reason: Optional[str] = None
-    agent_model: Optional[str] = None
+    decision_reason: str | None = None
+    agent_model: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -42,10 +43,10 @@ class ExperimentRead(ExperimentCreate):
 class ExperimentUpdate(BaseModel):
     model_config = ConfigDict()
 
-    status: Optional[ExperimentStatus] = None
-    decision: Optional[ExperimentDecision] = None
-    decision_reason: Optional[str] = None
-    metrics: Optional[dict[str, Optional[float]]] = None
+    status: ExperimentStatus | None = None
+    decision: ExperimentDecision | None = None
+    decision_reason: str | None = None
+    metrics: dict[str, float | None] | None = None
 
 
 class ExperimentSuggestRequest(BaseModel):

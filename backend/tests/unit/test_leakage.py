@@ -1,4 +1,5 @@
 """Leakage scanner: no false positives on the telecom sample, and it finds planted leaks."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,22 +21,27 @@ def test_only_customer_id_is_flagged_on_telecom():
     assert fid.category == "ID" and fid.evidence["unique_ratio"] == 1.0
 
 
-@pytest.mark.parametrize("name, tokens", [
-    ("InternetService", ["internet", "service"]),
-    ("Dependents", ["dependents"]),
-    ("StreamingTV", ["streaming", "tv"]),
-    ("customerID", ["customer", "id"]),
-    ("signup_date", ["signup", "date"]),
-    ("HTTPStatusCode", ["http", "status", "code"]),
-])
+@pytest.mark.parametrize(
+    "name, tokens",
+    [
+        ("InternetService", ["internet", "service"]),
+        ("Dependents", ["dependents"]),
+        ("StreamingTV", ["streaming", "tv"]),
+        ("customerID", ["customer", "id"]),
+        ("signup_date", ["signup", "date"]),
+        ("HTTPStatusCode", ["http", "status", "code"]),
+    ],
+)
 def test_names_are_split_into_whole_tokens(name, tokens):
     assert name_tokens(name) == tokens
 
 
 def test_planted_leak_suite_precision_and_recall():
     result = evaluate()
-    print(f"\nplanted-leak suite: precision={result['precision']:.2f} recall={result['recall']:.2f} "
-          f"over {len(CASES)} datasets (TP={result['tp']} FP={result['fp']} FN={result['fn']})")
+    print(
+        f"\nplanted-leak suite: precision={result['precision']:.2f} recall={result['recall']:.2f} "
+        f"over {len(CASES)} datasets (TP={result['tp']} FP={result['fp']} FN={result['fn']})"
+    )
     assert len(CASES) >= 10
     assert result["recall"] >= 0.9, result["cases"]
     assert result["precision"] >= 0.8, result["cases"]
@@ -48,13 +54,22 @@ def test_findings_carry_category_severity_and_evidence():
     assert isinstance(copy, Finding)
     assert (copy.column, copy.category, copy.severity) == ("is_active", "L2", "block")
     assert copy.evidence["rows_checked"] > 0 and copy.explanation
-    assert set(copy.to_dict()) == {"column", "check", "category", "severity", "explanation", "evidence"}
+    assert set(copy.to_dict()) == {
+        "column",
+        "check",
+        "category",
+        "severity",
+        "explanation",
+        "evidence",
+    }
 
 
 def test_single_feature_check_works_for_text_targets():
     rng = np.random.default_rng(0)
     y = rng.choice(["Yes", "No"], 400)
-    df = pd.DataFrame({"noise": rng.normal(size=400), "leak": (y == "Yes") + rng.normal(0, 0.01, 400), "y": y})
+    df = pd.DataFrame(
+        {"noise": rng.normal(size=400), "leak": (y == "Yes") + rng.normal(0, 0.01, 400), "y": y}
+    )
     flagged = {f.column: f for f in scan(df, "y") if f.check == "single_feature_predictiveness"}
     assert set(flagged) == {"leak"} and flagged["leak"].severity == "block"
 

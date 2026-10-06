@@ -1,28 +1,30 @@
 """All 9 provider ABCs for MLPilot."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
 from ml.validation.leakage import Finding
 
-
 # ─────────────────────────────────────────────────────────────────
 # Shared dataclasses
 # ─────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ProfileResult:
     """Result of dataset profiling."""
+
     rows: int
     columns: int
-    missing_rate: float           # fraction of all cells that are missing
+    missing_rate: float  # fraction of all cells that are missing
     duplicate_rows: int
     target_balance: dict[str, Any]  # class distribution for classification, stats for regression
-    column_stats: dict[str, Any]    # per-column stats keyed by column name
+    column_stats: dict[str, Any]  # per-column stats keyed by column name
     warnings: list[str] = field(default_factory=list)
 
 
@@ -33,10 +35,11 @@ LeakageWarning = Finding
 @dataclass
 class ReadinessReport:
     """Overall data readiness assessment."""
-    data_quality_score: float       # 0.0 – 1.0
-    leakage_risk: str               # 'high' (a block finding), 'medium' (a warn finding), 'none'
-    validation_risk: str            # 'high', 'medium', 'low', 'none'
-    feature_risk: str               # 'high', 'medium', 'low', 'none'
+
+    data_quality_score: float  # 0.0 – 1.0
+    leakage_risk: str  # 'high' (a block finding), 'medium' (a warn finding), 'none'
+    validation_risk: str  # 'high', 'medium', 'low', 'none'
+    feature_risk: str  # 'high', 'medium', 'low', 'none'
     warnings: list[LeakageWarning] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
 
@@ -44,6 +47,7 @@ class ReadinessReport:
 @dataclass
 class ModelInfo:
     """Metadata for an AI language model."""
+
     name: str
     provider: str
     context_window: int
@@ -59,9 +63,9 @@ class ClassificationMetrics:
     f1: float
     precision: float
     recall: float
-    roc_auc: Optional[float] = None
-    log_loss: Optional[float] = None
-    confusion_matrix: Optional[list[list[int]]] = None
+    roc_auc: float | None = None
+    log_loss: float | None = None
+    confusion_matrix: list[list[int]] | None = None
 
 
 @dataclass
@@ -69,12 +73,13 @@ class RegressionMetrics:
     rmse: float
     mae: float
     r2: float
-    mape: Optional[float] = None
+    mape: float | None = None
 
 
 @dataclass
 class ValidationSplit:
     """A single train/validation split."""
+
     train_indices: list[int]
     val_indices: list[int]
     fold: int = 0
@@ -83,6 +88,7 @@ class ValidationSplit:
 # ─────────────────────────────────────────────────────────────────
 # 1. DatasetProvider
 # ─────────────────────────────────────────────────────────────────
+
 
 class DatasetProvider(ABC):
     """Abstract interface for loading datasets."""
@@ -106,6 +112,7 @@ class DatasetProvider(ABC):
 # ─────────────────────────────────────────────────────────────────
 # 2. DataPreparationProvider
 # ─────────────────────────────────────────────────────────────────
+
 
 class DataPreparationProvider(ABC):
     """Abstract interface for data preparation."""
@@ -140,6 +147,7 @@ class DataPreparationProvider(ABC):
 # 3. AIProvider
 # ─────────────────────────────────────────────────────────────────
 
+
 class AIProvider(ABC):
     """Abstract interface for language model providers."""
 
@@ -148,7 +156,7 @@ class AIProvider(ABC):
         self,
         prompt: str,
         system: str = "",
-        model: Optional[str] = None,
+        model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
     ) -> str:
@@ -161,14 +169,16 @@ class AIProvider(ABC):
         prompt: str,
         schema: dict[str, Any],
         system: str = "",
-        model: Optional[str] = None,
+        model: str | None = None,
         max_tokens: int = 2048,
     ) -> dict[str, Any]:
         """Generate a structured JSON response conforming to *schema*."""
         ...
 
     @abstractmethod
-    def estimate_cost(self, prompt_tokens: int, completion_tokens: int, model: Optional[str] = None) -> float:
+    def estimate_cost(
+        self, prompt_tokens: int, completion_tokens: int, model: str | None = None
+    ) -> float:
         """Estimate the cost in USD for the given token counts."""
         ...
 
@@ -186,6 +196,7 @@ class AIProvider(ABC):
 # ─────────────────────────────────────────────────────────────────
 # 4. ExperimentRunner
 # ─────────────────────────────────────────────────────────────────
+
 
 class ExperimentRunner(ABC):
     """Abstract interface for running ML experiments."""
@@ -214,6 +225,7 @@ class ExperimentRunner(ABC):
 # ─────────────────────────────────────────────────────────────────
 # 5. ModelProvider
 # ─────────────────────────────────────────────────────────────────
+
 
 class ModelProvider(ABC):
     """Abstract interface for ML model lifecycle management."""
@@ -253,6 +265,7 @@ class ModelProvider(ABC):
 # 6. MetricProvider
 # ─────────────────────────────────────────────────────────────────
 
+
 class MetricProvider(ABC):
     """Abstract interface for computing evaluation metrics."""
 
@@ -261,7 +274,7 @@ class MetricProvider(ABC):
         self,
         y_true: Any,
         y_pred: Any,
-        y_prob: Optional[Any] = None,
+        y_prob: Any | None = None,
     ) -> ClassificationMetrics:
         """Compute classification metrics."""
         ...
@@ -290,6 +303,7 @@ class MetricProvider(ABC):
 # 7. ValidationStrategy
 # ─────────────────────────────────────────────────────────────────
 
+
 class ValidationStrategy(ABC):
     """Abstract interface for train/validation splitting strategies."""
 
@@ -313,6 +327,7 @@ class ValidationStrategy(ABC):
 # 8. ReportProvider
 # ─────────────────────────────────────────────────────────────────
 
+
 class ReportProvider(ABC):
     """Abstract interface for generating experiment/project reports."""
 
@@ -331,6 +346,7 @@ class ReportProvider(ABC):
 # ─────────────────────────────────────────────────────────────────
 # 9. DeploymentProvider
 # ─────────────────────────────────────────────────────────────────
+
 
 class DeploymentProvider(ABC):
     """Abstract interface for model deployment."""
@@ -362,20 +378,20 @@ class DeploymentProvider(ABC):
 
 
 __all__ = [
-    "ProfileResult",
-    "LeakageWarning",
-    "ReadinessReport",
-    "ModelInfo",
-    "ClassificationMetrics",
-    "RegressionMetrics",
-    "ValidationSplit",
-    "DatasetProvider",
-    "DataPreparationProvider",
     "AIProvider",
-    "ExperimentRunner",
-    "ModelProvider",
-    "MetricProvider",
-    "ValidationStrategy",
-    "ReportProvider",
+    "ClassificationMetrics",
+    "DataPreparationProvider",
+    "DatasetProvider",
     "DeploymentProvider",
+    "ExperimentRunner",
+    "LeakageWarning",
+    "MetricProvider",
+    "ModelInfo",
+    "ModelProvider",
+    "ProfileResult",
+    "ReadinessReport",
+    "RegressionMetrics",
+    "ReportProvider",
+    "ValidationSplit",
+    "ValidationStrategy",
 ]

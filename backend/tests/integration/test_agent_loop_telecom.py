@@ -1,4 +1,5 @@
 """Baseline + agent iterations on the bundled telecom sample (string Yes/No target)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -43,10 +44,12 @@ async def session_factory(tmp_path, monkeypatch):
 def real_formulas(monkeypatch):
     """The offline stub has no planner output, so propose real formulas on this sample.
     (Without this the planner falls back to a formula that the safe evaluator rejects.)"""
-    proposals = iter([
-        {"name": "charge_x_tenure", "formula": "MonthlyCharges * tenure"},
-        {"name": "avg_charge", "formula": "TotalCharges / (tenure + 1)"},
-    ])
+    proposals = iter(
+        [
+            {"name": "charge_x_tenure", "formula": "MonthlyCharges * tenure"},
+            {"name": "avg_charge", "formula": "TotalCharges / (tenure + 1)"},
+        ]
+    )
 
     async def propose(self, **kwargs):
         return {**next(proposals), "reason": "test proposal", "non_redundant_reasoning": "new"}
@@ -70,7 +73,10 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
         assert exp.status == "completed", exp.decision_reason
         assert exp.metrics and "f1" in exp.metrics
         # Default positive class is the minority class ("Yes" in this sample)
-        assert exp.parameters["target_encoding"] == {"classes": ["No", "Yes"], "positive_class": "Yes"}
+        assert exp.parameters["target_encoding"] == {
+            "classes": ["No", "Yes"],
+            "positive_class": "Yes",
+        }
 
     baseline = next(e for e in exps if e.parent_id is None)
 
@@ -111,12 +117,16 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
         check=False,
     )
     assert run.returncode == 0, run.stderr
-    preds_line = next(line for line in run.stdout.splitlines() if line.startswith("Sample predictions:"))
+    preds_line = next(
+        line for line in run.stdout.splitlines() if line.startswith("Sample predictions:")
+    )
     assert "'Yes'" in preds_line or "'No'" in preds_line
     assert "0" not in preds_line.split(":", 1)[1] and "1" not in preds_line.split(":", 1)[1]
 
 
-async def test_explanation_failure_does_not_change_the_decision(session_factory, monkeypatch, real_formulas):
+async def test_explanation_failure_does_not_change_the_decision(
+    session_factory, monkeypatch, real_formulas
+):
     monkeypatch.setitem(sys.modules, "optuna", None)
     gateway = stub_gateway()
 
@@ -124,7 +134,9 @@ async def test_explanation_failure_does_not_change_the_decision(session_factory,
         raise RuntimeError("LLM down")
 
     monkeypatch.setattr(gateway, "complete", broken_complete)
-    result = await DecisionAgent(gateway, settings=None).run_optimization_loop(str(SAMPLE), "Churn", n_hypotheses=1)
+    result = await DecisionAgent(gateway, settings=None).run_optimization_loop(
+        str(SAMPLE), "Churn", n_hypotheses=1
+    )
     info = result["experiments"][0]
     assert info["decision_mode"] == "rule"
     assert info["explanation_mode"] == "fallback"

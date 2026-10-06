@@ -3,15 +3,16 @@
 Tuning, early stopping, ensembles and keep/reject decisions only ever see the
 train and validation rows. The test rows are scored once, at the end.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
-from sklearn.model_selection import StratifiedKFold, KFold, train_test_split
+from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
 # Below this many rows a single validation split is too noisy; use inner CV instead.
 SMALL_DATA_ROWS = 2000
@@ -24,13 +25,13 @@ class SplitPlan(BaseModel):
     # holdout: share of all rows used for validation
     val_fraction: float = Field(0.2, gt=0, lt=1)
     # cv: number of inner folds over the non-test rows
-    inner_folds: Optional[int] = Field(None, ge=2)
+    inner_folds: int | None = Field(None, ge=2)
     # temporal (filled in by the relational task work, #52)
-    val_time: Optional[str] = None
-    test_time: Optional[str] = None
+    val_time: str | None = None
+    test_time: str | None = None
 
     @classmethod
-    def default_for(cls, n_rows: int, config: dict[str, Any] | None = None) -> "SplitPlan":
+    def default_for(cls, n_rows: int, config: dict[str, Any] | None = None) -> SplitPlan:
         """Holdout for normal-sized data, inner 5-fold CV under SMALL_DATA_ROWS rows."""
         config = dict(config or {})
         # Older experiments used random_state / test_size / val_size.
@@ -64,9 +65,9 @@ class SplitIndices:
             "strategy": self.plan.strategy,
             "seed": self.plan.seed,
             "stratified": self.stratified,
-            "n_train": int(len(self.train)),
-            "n_val": int(len(self.val)),
-            "n_test": int(len(self.test)),
+            "n_train": len(self.train),
+            "n_val": len(self.val),
+            "n_test": len(self.test),
             "inner_folds": len(self.folds) or None,
         }
 
@@ -79,7 +80,9 @@ def make_splits(y: pd.Series | np.ndarray, plan: SplitPlan) -> SplitIndices:
     rows = np.arange(len(y))
     stratified = bool(y.value_counts().min() >= max(5, plan.inner_folds or 0))
     strat = y if stratified else None
-    rest, test = train_test_split(rows, test_size=plan.test_fraction, random_state=plan.seed, stratify=strat)
+    rest, test = train_test_split(
+        rows, test_size=plan.test_fraction, random_state=plan.seed, stratify=strat
+    )
     rest, test = np.sort(rest), np.sort(test)
 
     if plan.strategy == "cv":
@@ -89,10 +92,15 @@ def make_splits(y: pd.Series | np.ndarray, plan: SplitPlan) -> SplitIndices:
             else KFold(n_splits=plan.inner_folds, shuffle=True, random_state=plan.seed)
         )
         folds = [(rest[a], rest[b]) for a, b in splitter.split(rest, y.iloc[rest])]
-        return SplitIndices(plan, stratified, train=rest, val=np.array([], dtype=int), test=test, folds=folds)
+        return SplitIndices(
+            plan, stratified, train=rest, val=np.array([], dtype=int), test=test, folds=folds
+        )
 
     val_share = plan.val_fraction / (1 - plan.test_fraction)
     train, val = train_test_split(
-        rest, test_size=val_share, random_state=plan.seed, stratify=y.iloc[rest] if stratified else None
+        rest,
+        test_size=val_share,
+        random_state=plan.seed,
+        stratify=y.iloc[rest] if stratified else None,
     )
     return SplitIndices(plan, stratified, train=np.sort(train), val=np.sort(val), test=test)

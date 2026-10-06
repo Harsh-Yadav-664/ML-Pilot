@@ -1,4 +1,5 @@
 """The test split is scored once, after tuning, and never used for fitting or tuning."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,6 +30,7 @@ def spy(monkeypatch):
         def method(self, X, *args, **kwargs):
             calls.append((name, frozenset(X.index)))
             return real[name](self, X, *args, **kwargs)
+
         return method
 
     for name in real:
@@ -41,7 +43,11 @@ def spy(monkeypatch):
 async def test_test_split_is_predicted_exactly_once_after_tuning(spy, model_name, strategy):
     df = _data()
     spec = ExperimentSpec(
-        id="split", project_id="p", dataset_version="v", hypothesis="h", change_description="c",
+        id="split",
+        project_id="p",
+        dataset_version="v",
+        hypothesis="h",
+        change_description="c",
         model_name=model_name,
         parameters={"target_column": "target", "n_trials": 3, "model_params": {"n_estimators": 20}},
         feature_set=[],
@@ -60,7 +66,9 @@ async def test_test_split_is_predicted_exactly_once_after_tuning(spy, model_name
     name, rows = spy[on_test[0]]
     assert name == "predict_proba" and rows == test_rows
     # ...and it is the last fit/predict call involving the experiment's model, after all tuning.
-    assert on_test[0] > max(i for i, (n, _) in enumerate(spy) if n == "fit" and not (spy[i][1] & test_rows))
+    assert on_test[0] > max(
+        i for i, (n, _) in enumerate(spy) if n == "fit" and not (spy[i][1] & test_rows)
+    )
     # No fit ever includes a test row.
     assert all(not (rows & test_rows) for n, rows in spy if n == "fit")
 
@@ -68,8 +76,14 @@ async def test_test_split_is_predicted_exactly_once_after_tuning(spy, model_name
 async def test_record_has_separate_val_and_test_metrics_and_split():
     df = _data()
     spec = ExperimentSpec(
-        id="metrics", project_id="p", dataset_version="v", hypothesis="h", change_description="c",
-        model_name="LGBMClassifier", parameters={"target_column": "target", "n_trials": 2}, feature_set=[],
+        id="metrics",
+        project_id="p",
+        dataset_version="v",
+        hypothesis="h",
+        change_description="c",
+        model_name="LGBMClassifier",
+        parameters={"target_column": "target", "n_trials": 2},
+        feature_set=[],
         validation_config={"strategy": "holdout"},
     )
     result = await LocalExperimentExecutor(data_loader_func=lambda _: df.copy()).run(spec)

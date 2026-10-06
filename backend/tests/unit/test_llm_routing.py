@@ -1,4 +1,5 @@
 """Config-driven LLM routing: any provider per tier, every call recorded, fallbacks visible."""
+
 from __future__ import annotations
 
 import json
@@ -60,18 +61,25 @@ async def test_ollama_provider_over_mocked_http():
     data = await gateway.complete_structured_result(TaskType.SQL, "hi", schema={"type": "object"})
     assert text.text == "local answer" and text.provider == "ollama" and text.cost_usd == 0.0
     assert data.data == {"name": "x"} and data.decision_mode == "llm"
-    assert requests[0]["model"] == "llama3.1" and requests[0]["messages"][0] == {"role": "system", "content": "be brief"}
+    assert requests[0]["model"] == "llama3.1" and requests[0]["messages"][0] == {
+        "role": "system",
+        "content": "be brief",
+    }
     assert requests[1]["format"] == {"type": "object"}
 
 
 async def test_parse_failure_falls_back_to_stub_and_is_recorded(monkeypatch):
-    gateway = AIGateway(_settings(OPENAI_API_KEY="test-key-not-real"), router=_only("openai", "gpt-4o"))
+    gateway = AIGateway(
+        _settings(OPENAI_API_KEY="test-key-not-real"), router=_only("openai", "gpt-4o")
+    )
 
     async def bad_json(**kwargs):
         raise json.JSONDecodeError("Expecting value", "not json", 0)
 
     monkeypatch.setattr(gateway.providers["openai"], "complete_structured", bad_json)
-    result = await gateway.complete_structured_result(TaskType.HYPOTHESIZE, "idea?", schema={"properties": {}})
+    result = await gateway.complete_structured_result(
+        TaskType.HYPOTHESIZE, "idea?", schema={"properties": {}}
+    )
     assert result.provider == "stub" and result.decision_mode == "fallback"
     assert result.errors and result.errors[0].startswith("openai: Expecting value")
     assert result.meta()["note"] == "offline stub provider"
@@ -83,7 +91,9 @@ async def test_every_prompt_goes_through_the_hooks():
     records: list[PromptRecord] = []
     gateway.add_prompt_hook(records.append)
     result = await gateway.complete_result(TaskType.REPORT, "the prompt", system="sys")
-    assert [(r.prompt_id, r.prompt, r.system, r.provider) for r in records] == [(result.prompt_id, "the prompt", "sys", "stub")]
+    assert [(r.prompt_id, r.prompt, r.system, r.provider) for r in records] == [
+        (result.prompt_id, "the prompt", "sys", "stub")
+    ]
 
 
 def test_routing_file_is_loaded_and_validated(tmp_path, monkeypatch):
@@ -104,5 +114,6 @@ def test_routing_file_is_loaded_and_validated(tmp_path, monkeypatch):
 
 def test_example_config_is_valid():
     from pathlib import Path
+
     example = Path(__file__).resolve().parents[3] / "config" / "llm.example.yaml"
     assert set(load_routing(example)) == {"cheap", "reasoning", "sql"}
