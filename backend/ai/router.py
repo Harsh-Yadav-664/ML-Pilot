@@ -16,6 +16,7 @@ class TaskType(str, Enum):
     REPORT = "report"  # medium (generating reports)
     DECIDE = "decide"  # strongest available (making experiment decisions)
     SQL = "sql"  # writing SQL features (relational tasks)
+    SPEC = "spec"  # drafting a prediction task spec from a question (relational tasks)
 
 
 class TaskRouter:

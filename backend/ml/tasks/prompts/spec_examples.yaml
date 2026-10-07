@@ -1,0 +1,36 @@
+# Worked examples shown to the model. They use made-up table names, not the user's data.
+examples:
+  - question: Which customers will stop ordering in the next 30 days?
+    assumptions:
+      - Churn means no order that is not cancelled in the 30 days after the cutoff.
+      - Only customers who ordered in the 90 days before the cutoff are scored.
+    spec: |
+      name: stop_ordering_30d
+      entity: {table: customers, key: customer_id, created_at: signup_at}
+      eligibility:
+        - "signup_at < :cutoff"
+        - exists: {table: orders, where: "ordered_at >= :cutoff - interval '90 days' AND ordered_at < :cutoff"}
+      target:
+        type: binary
+        expression: {table: orders, agg: count, where: "status != 'cancelled'", compare: "= 0"}
+      horizon: 30d
+      cutoffs: {start: 2023-04-01, end: 2024-10-01, every: 1 month}
+      split: {val_from: 2024-04-01, test_from: 2024-07-01}
+  - question: Which accounts will file a complaint within 2 weeks?
+    assumptions:
+      - A complaint is any row in the complaints table.
+      - Every account that existed before the cutoff is scored.
+    spec: |
+      name: complaint_14d
+      entity: {table: accounts, key: account_id, created_at: opened_at}
+      eligibility:
+        - "opened_at < :cutoff"
+      target:
+        type: binary
+        expression: {table: complaints, agg: count, compare: ">= 1"}
+      horizon: 14d
+      cutoffs: {start: 2023-04-01, end: 2024-10-01, every: 1 month}
+      split: {val_from: 2024-04-01, test_from: 2024-07-01}
+  - question: Predict customers
+    assumptions: []
+    clarifying_question: What should be predicted about customers, and over what time horizon? For example "which customers will stop ordering in the next 30 days".

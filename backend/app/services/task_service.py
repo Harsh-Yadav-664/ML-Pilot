@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai.gateway import AIGateway
 from app.core import datasets
 from app.db.models import DataVersion, Run
 from app.db.models.task_spec import TaskSpec as TaskSpecRow
@@ -34,6 +35,8 @@ from app.schemas.tasks import (
     SpecIssueRead,
     SplitPreview,
     SplitPreviewRequest,
+    TaskDraft,
+    TaskDraftRequest,
     TaskRunRead,
     TaskSpecInput,
     TaskSpecRead,
@@ -41,12 +44,14 @@ from app.schemas.tasks import (
     TimelineEntry,
 )
 from app.services.connection_service import ConnectionService
+from app.services.privacy_service import PrivacyService
 from ml.data.engine import EngineError
+from ml.data.profiling.db_stats import TableStats
 from ml.data.schema_graph import SchemaGraph
 from ml.data.snapshot import DataDescription
 from ml.data.sources import ConnectionFailure
 from ml.data.workspace import workspace_for
-from ml.tasks import labels
+from ml.tasks import labels, nl_to_spec
 from ml.tasks.feasibility import FeasibilityReport, Thresholds, check_feasibility
 from ml.tasks.spec import (
     SpecError,
@@ -66,6 +71,7 @@ from ml.validation.splits import (
 )
 
 CONFIRMED_BY = "local user"
+MAX_TABLES_PROFILED = 40  # tables whose statistics go into the drafting prompt
 
 
 def _read_issue(i: SpecIssue) -> SpecIssueRead:
@@ -143,6 +149,50 @@ class TaskService:
             schema_fingerprint=schema_fingerprint(graph),
         )
 
+    async def draft(self, project_id: str, data: TaskDraftRequest, gateway: AIGateway) -> TaskDraft:
+        """Draft a task spec from a question. Reads the schema and column statistics, asks the
+        language model (or, offline, the rule-based drafter), validates, and saves nothing."""
+        connections = ConnectionService(self.db)
+        conn = await connections.get(project_id, data.connection_id)
+        graph = await connections.schema_graph(conn)
+        now = await self._as_of(project_id, data.data_version_id) or datetime.now(UTC)
+        stats: dict[str, TableStats] = {}
+        for table in graph.tables[:MAX_TABLES_PROFILED]:
+            stats[table.key] = (await connections.table_stats(conn, table.key)).stats
+        ends = nl_to_spec.data_end(graph, stats, now)
+        # Profiling cached statistics (a write). The prompt log records the prompt on its own
+        # connection, and SQLite allows one writer at a time: release this one first.
+        await self.db.commit()
+        builder = await PrivacyService(self.db).builder(project_id)
+        try:
+            draft = await nl_to_spec.draft_spec(
+                data.question, graph, gateway=gateway, builder=builder, as_of=ends, stats=stats
+            )
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        source = {
+            "question": draft.question,
+            "decision_mode": draft.decision_mode,
+            "assumptions": draft.assumptions,
+            "repaired": draft.repaired,
+            "llm": draft.llm,
+            "drafted_at": datetime.now(UTC).isoformat(),
+        }
+        return TaskDraft(
+            status=draft.status,
+            question=draft.question,
+            decision_mode=draft.decision_mode,
+            clarifying_question=draft.clarifying_question,
+            yaml=draft.yaml,
+            spec=draft.spec.model_dump(mode="json", exclude_none=True) if draft.spec else None,
+            description=nl_to_spec.describe_spec(draft.spec) if draft.spec else None,
+            assumptions=draft.assumptions,
+            issues=[_read_issue(i) for i in draft.issues],
+            repaired=draft.repaired,
+            data_ends=ends,
+            source=source,
+        )
+
     # -- storing ------------------------------------------------------------------------------
     async def create(self, project_id: str, data: TaskSpecInput) -> TaskSpecRead:
         spec, _, issues = await self.check(project_id, data)
@@ -156,6 +206,7 @@ class TaskService:
                 409, f"A task named {spec.name!r} exists; edit it (PUT) to save a new version"
             )
         row = self._new_row(project_id, spec, data.connection_id, 1)
+        row.draft_source = data.draft_source
         self.db.add(row)
         await self.db.flush()
         return await self._read(row, issues)
@@ -180,6 +231,8 @@ class TaskService:
         if row.status == "draft":
             row.yaml = to_yaml(spec)
             row.connection_id = data.connection_id
+            if data.draft_source is not None:
+                row.draft_source = data.draft_source
             await self.db.flush()
             return await self._read(row, issues)
         newest = await self.db.scalar(
@@ -188,6 +241,7 @@ class TaskService:
             )
         )
         new = self._new_row(project_id, spec, data.connection_id, (newest or row.version) + 1)
+        new.draft_source = data.draft_source if data.draft_source is not None else row.draft_source
         self.db.add(new)
         await self.db.flush()
         return await self._read(new, issues)
@@ -509,6 +563,7 @@ class TaskService:
             schema_fingerprint=row.schema_fingerprint,
             confirmed_by=row.confirmed_by,
             confirmed_at=_utc(row.confirmed_at),
+            draft_source=row.draft_source,
             used_by_runs=used or 0,
             created_at=_utc(row.created_at) or datetime.now(UTC),
             issues=[_read_issue(i) for i in issues],

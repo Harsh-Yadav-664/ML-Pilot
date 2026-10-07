@@ -3409,6 +3409,158 @@
         "title": "TableStatsRead",
         "type": "object"
       },
+      "TaskDraft": {
+        "description": "A drafted spec to read and confirm, or the question to ask the user first. Nothing is\nsaved: save it with POST /tasks (pass ``source`` as ``draft_source``) and confirm it there.",
+        "properties": {
+          "assumptions": {
+            "description": "The judgement calls the draft made",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "clarifying_question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarifying Question"
+          },
+          "data_ends": {
+            "description": "Where the data ends: cutoffs were chosen to fit it",
+            "format": "date-time",
+            "title": "Data Ends",
+            "type": "string"
+          },
+          "decision_mode": {
+            "description": "fallback: no language model answered, the rule-based drafter did",
+            "enum": [
+              "llm",
+              "fallback"
+            ],
+            "title": "Decision Mode",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The spec in plain sentences",
+            "title": "Description"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/SpecIssueRead"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "repaired": {
+            "description": "The first answer had errors and a second try fixed them",
+            "title": "Repaired",
+            "type": "boolean"
+          },
+          "source": {
+            "additionalProperties": true,
+            "description": "What to save with the spec: question, decision_mode, assumptions, LLM calls",
+            "title": "Source",
+            "type": "object"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
+          },
+          "status": {
+            "description": "spec: ready to preview and confirm. clarify: ask the user ``clarifying_question``. invalid: the draft still breaks the format or the schema",
+            "enum": [
+              "spec",
+              "clarify",
+              "invalid"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "yaml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yaml"
+          }
+        },
+        "required": [
+          "status",
+          "question",
+          "decision_mode",
+          "assumptions",
+          "issues",
+          "repaired",
+          "data_ends",
+          "source"
+        ],
+        "title": "TaskDraft",
+        "type": "object"
+      },
+      "TaskDraftRequest": {
+        "properties": {
+          "connection_id": {
+            "description": "The database the question is about",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "data_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A database version: its as_of is where the data ends. Default: now",
+            "title": "Data Version Id"
+          },
+          "question": {
+            "description": "The prediction question, in plain words",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "connection_id"
+        ],
+        "title": "TaskDraftRequest",
+        "type": "object"
+      },
       "TaskRunRead": {
         "properties": {
           "created_at": {
@@ -3495,6 +3647,19 @@
             "description": "A database version: its as_of is where the data ends. Default: now",
             "title": "Data Version Id"
           },
+          "draft_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the spec was drafted from a question: the `source` of the draft response, saved with the spec",
+            "title": "Draft Source"
+          },
           "yaml": {
             "description": "The task spec as YAML (docs/task_spec.md)",
             "title": "Yaml",
@@ -3548,6 +3713,19 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "draft_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How it was drafted from a question: question, decision_mode, LLM calls",
+            "title": "Draft Source"
           },
           "id": {
             "title": "Id",
@@ -6240,6 +6418,59 @@
           }
         },
         "summary": "Create Task Spec",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks/draft": {
+      "post": {
+        "description": "Turn a question such as \"which customers will stop ordering in the next 30 days?\" into a\ntask spec to read and confirm. A question that is too vague gets ``status: clarify`` and a\nquestion back, never a guess. The answer says whether a language model or the offline\nrule-based drafter wrote it (``decision_mode``). Nothing is saved or run.",
+        "operationId": "draft_task_spec_api_v1_projects__project_id__tasks_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Task Spec",
         "tags": [
           "tasks"
         ]
