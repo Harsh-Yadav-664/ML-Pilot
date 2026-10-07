@@ -147,12 +147,13 @@ jobs:
           mkdir -p "$MLPILOT_E2E_SCREENSHOT_DIR"
           npx playwright test --project=features --no-deps connect.spec.ts
       # A question in plain words becomes a task (#53): draft, label preview, confirm, on a DuckDB
-      # copy of the demo database the test generates (the offline stub, so the rules draft it).
-      - name: Ask-a-question UI test (Playwright, python start.py)
+      # copy of the demo database the test generates (the offline stub, so the rules draft it). The
+      # editor test (#99) builds the churn task by hand, changes the horizon and confirms.
+      - name: Ask-a-question and task editor UI tests (Playwright, python start.py)
         working-directory: frontend
         env:
           PYTHON: python
-        run: npx playwright test --project=features --no-deps task.spec.ts
+        run: npx playwright test --project=features --no-deps task.spec.ts editor.spec.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

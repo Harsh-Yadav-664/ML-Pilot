@@ -90,7 +90,8 @@ class BaselineService:
         if built.mode != "snapshot":
             raise HTTPException(422, "The baseline needs a snapshot data version, not a live one")
         connections = ConnectionService(self.db)
-        assert built.row.connection_id is not None  # _build_labels refuses a task without one
+        # _build_labels reads a saved task and refuses one without a connection
+        assert built.row is not None and built.row.connection_id is not None
         conn = await connections.get(project_id, built.row.connection_id)
         graph = await connections.schema_graph(conn)
         plan = TemporalSplitPlan.model_validate(run.split_plan)

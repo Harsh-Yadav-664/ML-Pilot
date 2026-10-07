@@ -700,6 +700,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/tasks/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Task Spec
+         * @description What the task editor shows on every change, in one call and without saving anything: the
+         *     spec's problems with their field paths, its canonical YAML (send ``spec`` or ``yaml``) and,
+         *     when it has no errors, the label counts per cutoff, the label SQL and the feasibility checks.
+         *     Labels are computed read-only; no label table is written.
+         */
+        post: operations["check_task_spec_api_v1_projects__project_id__tasks_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/tasks/draft": {
         parameters: {
             query?: never;
@@ -2156,6 +2179,60 @@ export interface components {
         SnapshotResponse: {
             job?: components["schemas"]["JobRead"] | null;
             version?: components["schemas"]["DbVersionRead"] | null;
+        };
+        /** SpecCheck */
+        SpecCheck: {
+            /** Issues */
+            issues: components["schemas"]["SpecIssueRead"][];
+            /** @description Set when the spec has no errors: the labels, counts and feasibility */
+            preview?: components["schemas"]["LabelPreview"] | null;
+            /**
+             * Preview Error
+             * @description Set when the spec is valid but its labels could not be built
+             */
+            preview_error?: string | null;
+            /**
+             * Spec
+             * @description The parsed spec, defaults filled in
+             */
+            spec?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Yaml
+             * @description The spec as canonical YAML, for the YAML tab
+             */
+            yaml?: string | null;
+        };
+        /**
+         * SpecCheckRequest
+         * @description A spec as the editor holds it. Give ``spec`` (the form's fields) or ``yaml`` (the YAML tab).
+         */
+        SpecCheckRequest: {
+            /**
+             * Connection Id
+             * @description The connection whose schema the spec is checked against
+             */
+            connection_id: string;
+            /**
+             * Data Version Id
+             * @description A database version: its as_of is where the data ends. Default: now
+             */
+            data_version_id?: string | null;
+            /**
+             * Spec
+             * @description The task spec as an object
+             */
+            spec?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Limits for the feasibility checks. Default: the standard limits */
+            thresholds?: components["schemas"]["Thresholds"] | null;
+            /**
+             * Yaml
+             * @description The task spec as YAML, used when spec is not given
+             */
+            yaml?: string | null;
         };
         /** SpecIssueRead */
         SpecIssueRead: {
@@ -4176,6 +4253,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskSpecRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_task_spec_api_v1_projects__project_id__tasks_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpecCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpecCheck"];
                 };
             };
             /** @description Validation Error */

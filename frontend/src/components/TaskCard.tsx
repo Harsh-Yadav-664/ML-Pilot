@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { describeError } from '../api';
 import { DbVersion, listDbVersions } from '../api/snapshots';
-import { LabelPreview, TaskDraft, TaskSpecRead, confirmTask, draftTask, previewLabels, saveTask } from '../api/tasks';
+import { LabelPreview, TaskDraft, TaskSpecRead, confirmTask, draftTask, previewLabels, saveTaskNamed } from '../api/tasks';
+import { goTasks } from '../route';
+import { setEditorSeed } from '../taskEditorSeed';
 import { Btn, CardHeader, Panel, Tag } from '../ui';
+import { LabelPreview as LabelPreviewTable } from './LabelPreview';
 
 const inputCls = 'w-full border border-line bg-ink px-3 py-2 font-mono text-[12px] text-bone placeholder:text-mute focus:border-copper focus:outline-none';
 
-const pct = (x: number | null | undefined) => (x == null ? '–' : `${(x * 100).toFixed(1)}%`);
 const day = (iso: string) => iso.slice(0, 10);
 
 /**
@@ -20,7 +22,6 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
   const [versionId, setVersionId] = useState<string>('');
   const [draft, setDraft] = useState<TaskDraft | null>(null);
   const [yamlText, setYamlText] = useState('');
-  const [editing, setEditing] = useState(false);
   const [task, setTask] = useState<TaskSpecRead | null>(null);
   const [preview, setPreview] = useState<LabelPreview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -37,7 +38,6 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
     setDraft(null);
     setTask(null);
     setPreview(null);
-    setEditing(false);
     setError(null);
   };
 
@@ -66,14 +66,13 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
   async function check() {
     if (!draft) return;
     const out = await run('Building labels', async () => {
-      const saved = await saveTask({ yaml: yamlText, connectionId, dataVersionId: version, draftSource: draft.source }, task?.id ?? null);
+      const saved = await saveTaskNamed({ yaml: yamlText, connectionId, dataVersionId: version, draftSource: draft.source }, String(draft.spec?.name ?? ''), task?.id ?? null);
       setTask(saved);
       return { saved, preview: await previewLabels(saved.id, version) };
     });
     if (out) {
       setPreview(out.preview);
-      setEditing(false);
-    }
+      }
   }
 
   async function confirm() {
@@ -173,63 +172,12 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
               </p>
             ))}
 
-            {editing ? (
-              <textarea className={`${inputCls} h-64`} value={yamlText} onChange={(e) => setYamlText(e.target.value)} aria-label="Task spec YAML" spellCheck={false} />
-            ) : (
-              <details>
-                <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-[0.1em] text-mute">The spec as YAML</summary>
-                <pre className="mt-2 overflow-x-auto border border-line p-3 font-mono text-[11px] text-bone-dim">{yamlText}</pre>
-              </details>
-            )}
+            <details>
+              <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-[0.1em] text-mute">The spec as YAML</summary>
+              <pre className="mt-2 overflow-x-auto border border-line p-3 font-mono text-[11px] text-bone-dim">{yamlText}</pre>
+            </details>
 
-            {preview && (
-              <div data-testid="task-preview" className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-mute">
-                    Labels: {preview.total_rows.toLocaleString()} rows, {preview.cutoffs.length} cutoffs
-                  </div>
-                  <Tag tone={preview.feasibility.status === 'block' ? 'clay' : preview.feasibility.status === 'warn' ? 'copper' : 'sage'}>
-                    feasibility: {preview.feasibility.status}
-                  </Tag>
-                </div>
-                {preview.feasibility.reasons.length > 0 && (
-                  <ul className="list-disc pl-5 text-[12px] text-bone-dim">
-                    {preview.feasibility.reasons.map((r) => (
-                      <li key={r}>{r}</li>
-                    ))}
-                  </ul>
-                )}
-                <div className="max-h-56 overflow-auto border border-line">
-                  <table className="w-full font-mono text-[11px]">
-                    <thead className="sticky top-0 bg-ink text-left text-mute">
-                      <tr>
-                        <th className="px-2 py-1">cutoff</th>
-                        <th className="px-2 py-1 text-right">eligible</th>
-                        <th className="px-2 py-1 text-right">{preview.cutoffs[0]?.mean_label != null ? 'mean label' : 'positives'}</th>
-                        <th className="px-2 py-1 text-right">{preview.cutoffs[0]?.mean_label != null ? '' : 'balance'}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.cutoffs.map((c) => (
-                        <tr key={c.cutoff} className="border-t border-line text-bone-dim">
-                          <td className="px-2 py-1">{day(c.cutoff)}</td>
-                          <td className="px-2 py-1 text-right">{c.eligible.toLocaleString()}</td>
-                          <td className="px-2 py-1 text-right">{c.mean_label != null ? c.mean_label.toFixed(2) : (c.positives ?? 0).toLocaleString()}</td>
-                          <td className="px-2 py-1 text-right">{c.mean_label != null ? '' : pct(c.base_rate)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {preview.dropped_cutoffs.length > 0 && (
-                  <p className="text-[12px] text-copper-2">{preview.dropped_cutoffs.length} cutoffs left out: their label window is not complete in the data.</p>
-                )}
-                <details>
-                  <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-[0.1em] text-mute">The label SQL</summary>
-                  <pre className="mt-2 overflow-x-auto border border-line p-3 font-mono text-[11px] text-bone-dim">{preview.sql}</pre>
-                </details>
-              </div>
-            )}
+            {preview && <LabelPreviewTable preview={preview} />}
 
             {task?.status === 'confirmed' ? (
               <p data-testid="task-confirmed" className="font-mono text-[12px] text-sage">
@@ -240,8 +188,15 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
                 <Btn onClick={() => void check()} disabled={busy !== null}>
                   {busy === 'Building labels' ? 'Building labels…' : preview ? 'Rebuild labels' : 'Check the labels'}
                 </Btn>
-                <Btn variant="ghost" onClick={() => setEditing((e) => !e)} disabled={busy !== null}>
-                  {editing ? 'Stop editing' : 'Edit the YAML'}
+                <Btn
+                  variant="ghost"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    setEditorSeed({ connectionId, dataVersionId: version, yaml: yamlText, taskId: task?.id ?? null, draftSource: draft.source });
+                    goTasks();
+                  }}
+                >
+                  Edit
                 </Btn>
                 <Btn onClick={() => void confirm()} disabled={busy !== null || !task || !preview || blocked || errors.length > 0}>
                   Confirm

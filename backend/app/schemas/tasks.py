@@ -267,3 +267,31 @@ class BaselineRead(BaseModel):
     dropped: list[BaselineDroppedRead]
     seconds: float
     notes: list[str]
+
+
+class SpecCheckRequest(BaseModel):
+    """A spec as the editor holds it. Give ``spec`` (the form's fields) or ``yaml`` (the YAML tab)."""
+
+    spec: dict[str, Any] | None = Field(None, description="The task spec as an object")
+    yaml: str | None = Field(None, description="The task spec as YAML, used when spec is not given")
+    connection_id: str = Field(
+        description="The connection whose schema the spec is checked against"
+    )
+    data_version_id: str | None = Field(
+        None, description="A database version: its as_of is where the data ends. Default: now"
+    )
+    thresholds: Thresholds | None = Field(
+        None, description="Limits for the feasibility checks. Default: the standard limits"
+    )
+
+
+class SpecCheck(BaseModel):
+    spec: dict[str, Any] | None = Field(None, description="The parsed spec, defaults filled in")
+    yaml: str | None = Field(None, description="The spec as canonical YAML, for the YAML tab")
+    issues: list[SpecIssueRead]
+    preview: LabelPreview | None = Field(
+        None, description="Set when the spec has no errors: the labels, counts and feasibility"
+    )
+    preview_error: str | None = Field(
+        None, description="Set when the spec is valid but its labels could not be built"
+    )

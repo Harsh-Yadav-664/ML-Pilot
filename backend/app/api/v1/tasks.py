@@ -13,6 +13,8 @@ from app.schemas.tasks import (
     LabelPreview,
     LabelPreviewRequest,
     RunStartRequest,
+    SpecCheck,
+    SpecCheckRequest,
     SplitPreview,
     SplitPreviewRequest,
     TaskDraft,
@@ -53,6 +55,17 @@ async def validate_task_spec(
     """Check a spec against a connection's schema without saving it. Every problem is returned
     with the path of its field; warnings do not block confirming."""
     return await TaskService(db).validate(project_id, data)
+
+
+@router.post("/check", response_model=SpecCheck)
+async def check_task_spec(
+    data: SpecCheckRequest, project_id: ProjectID, db: DBSession
+) -> SpecCheck:
+    """What the task editor shows on every change, in one call and without saving anything: the
+    spec's problems with their field paths, its canonical YAML (send ``spec`` or ``yaml``) and,
+    when it has no errors, the label counts per cutoff, the label SQL and the feasibility checks.
+    Labels are computed read-only; no label table is written."""
+    return await TaskService(db).check_draft(project_id, data)
 
 
 @router.post("/", response_model=TaskSpecRead, status_code=status.HTTP_201_CREATED)

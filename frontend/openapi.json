@@ -3088,6 +3088,133 @@
         "title": "SnapshotResponse",
         "type": "object"
       },
+      "SpecCheck": {
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/SpecIssueRead"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LabelPreview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the spec has no errors: the labels, counts and feasibility"
+          },
+          "preview_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the spec is valid but its labels could not be built",
+            "title": "Preview Error"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parsed spec, defaults filled in",
+            "title": "Spec"
+          },
+          "yaml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The spec as canonical YAML, for the YAML tab",
+            "title": "Yaml"
+          }
+        },
+        "required": [
+          "issues"
+        ],
+        "title": "SpecCheck",
+        "type": "object"
+      },
+      "SpecCheckRequest": {
+        "description": "A spec as the editor holds it. Give ``spec`` (the form's fields) or ``yaml`` (the YAML tab).",
+        "properties": {
+          "connection_id": {
+            "description": "The connection whose schema the spec is checked against",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "data_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A database version: its as_of is where the data ends. Default: now",
+            "title": "Data Version Id"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task spec as an object",
+            "title": "Spec"
+          },
+          "thresholds": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Thresholds"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Limits for the feasibility checks. Default: the standard limits"
+          },
+          "yaml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task spec as YAML, used when spec is not given",
+            "title": "Yaml"
+          }
+        },
+        "required": [
+          "connection_id"
+        ],
+        "title": "SpecCheckRequest",
+        "type": "object"
+      },
       "SpecIssueRead": {
         "properties": {
           "message": {
@@ -6620,6 +6747,59 @@
           }
         },
         "summary": "Create Task Spec",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks/check": {
+      "post": {
+        "description": "What the task editor shows on every change, in one call and without saving anything: the\nspec's problems with their field paths, its canonical YAML (send ``spec`` or ``yaml``) and,\nwhen it has no errors, the label counts per cutoff, the label SQL and the feasibility checks.\nLabels are computed read-only; no label table is written.",
+        "operationId": "check_task_spec_api_v1_projects__project_id__tasks_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpecCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Task Spec",
         "tags": [
           "tasks"
         ]
