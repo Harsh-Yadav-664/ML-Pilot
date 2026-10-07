@@ -1,0 +1,116 @@
+# What a model might answer, one proposal at a time, for the demo database's churn task (#56).
+# The tests feed these through a scripted gateway; the checks are real. Edges are written out as
+# the schema graph has them.
+good_refunds_14d:
+  name: refund_count_14d
+  rationale: A refund in the last two weeks often comes before a customer stops buying.
+  expected_direction: increase
+  tables_used: [refunds]
+  ir:
+    name: refund_count_14d
+    entity_table: customers
+    path: [{from_table: refunds, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
+    source_table: refunds
+    agg: count
+    window_days: 14
+
+good_cancelled_share:
+  name: cancelled_order_share_180d
+  rationale: Customers whose orders keep being cancelled are less likely to order again.
+  expected_direction: increase
+  tables_used: [orders]
+  ir:
+    name: cancelled_order_share_180d
+    entity_table: customers
+    path: [{from_table: orders, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
+    source_table: orders
+    agg: share
+    window_days: 180
+    filter: [{column: status, op: "=", value: cancelled}]
+
+good_ticket_recency:
+  name: days_since_last_ticket
+  rationale: A recent support ticket can be a sign of friction.
+  expected_direction: unknown
+  tables_used: [support_tickets]
+  ir:
+    name: days_since_last_ticket
+    entity_table: customers
+    path: [{from_table: support_tickets, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
+    source_table: support_tickets
+    agg: days_since_last
+
+# reads the 30 days after the cutoff: the label's own window
+leaky_sql:
+  name: orders_next_30_days
+  rationale: Orders placed soon show how engaged the customer is.
+  expected_direction: decrease
+  tables_used: [orders]
+  sql: >-
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l
+    LEFT JOIN orders o ON o.customer_id = l.entity_id
+      AND o.ordered_at < l.cutoff_time + INTERVAL '30 days'
+    GROUP BY l.entity_id, l.cutoff_time
+
+# the baseline already has this: count of orders in 30 days
+duplicate_ir:
+  name: my_order_count
+  rationale: How many orders the customer placed last month.
+  expected_direction: decrease
+  tables_used: [orders]
+  ir:
+    name: my_order_count
+    entity_table: customers
+    path: [{from_table: orders, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
+    source_table: orders
+    agg: count
+    window_days: 30
+
+# a window one day longer than a baseline feature: the values are almost the same
+near_duplicate_ir:
+  name: order_count_31d
+  rationale: Orders in the last month and a day.
+  expected_direction: decrease
+  tables_used: [orders]
+  ir:
+    name: order_count_31d
+    entity_table: customers
+    path: [{from_table: orders, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
+    source_table: orders
+    agg: count
+    window_days: 31
+
+# a sum over a text column
+wrong_column_ir:
+  name: total_status
+  rationale: Total of the order status.
+  expected_direction: unknown
+  tables_used: [orders]
+  ir:
+    name: total_status
+    entity_table: customers
+    path: [{from_table: orders, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
+    source_table: orders
+    agg: sum
+    column: status
+
+# no value in any row: a filter nothing passes
+constant_ir:
+  name: huge_orders_90d
+  rationale: Orders over a million.
+  expected_direction: unknown
+  tables_used: [orders]
+  ir:
+    name: huge_orders_90d
+    entity_table: customers
+    path: [{from_table: orders, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
+    source_table: orders
+    agg: count
+    window_days: 90
+    filter: [{column: total, op: ">", value: 1000000}]
+
+# neither ir nor sql
+shapeless:
+  name: something
+  rationale: A feature.

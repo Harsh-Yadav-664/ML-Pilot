@@ -15,7 +15,9 @@ DataVersionKind = Literal["file", "db_snapshot", "db_live"]
 TaskSpecStatus = Literal["draft", "confirmed"]
 RunStatus = Literal["created", "queued", "running", "completed", "failed", "cancelled"]
 FeatureKind = Literal["dfs", "llm_sql", "formula", "user"]
-FeatureStatus = Literal["proposed", "rejected_guard", "rejected_gain", "accepted"]
+FeatureStatus = Literal[
+    "proposed", "rejected_guard", "rejected_duplicate", "rejected_gain", "accepted"
+]
 DecisionMode = Literal["llm", "fallback", "rule"]
 
 
