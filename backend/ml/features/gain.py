@@ -93,6 +93,8 @@ def compare(
 ) -> GainResult:
     """Apply the paired rule to scores of two feature sets on the same folds."""
     rule = {**DEFAULT_RULE, **(rule or {})}
+    rule.pop("n_splits", None)  # the folds are the temporal ones, not repeated K-fold
+    rule.pop("n_repeats", None)
     if len(base_scores) != len(candidate_scores):
         raise ValueError("both feature sets need a score on every fold")
     diffs = np.array(candidate_scores) - np.array(base_scores)

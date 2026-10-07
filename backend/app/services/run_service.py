@@ -341,7 +341,7 @@ async def _finish(
             change_description=f"{len(outcome.champion.names)} features; stopped: {outcome.stop_reason}",
             model_name="LGBMClassifier",
             feature_set=outcome.champion.names,
-            metrics=outcome.test or outcome.champion.metrics,
+            metrics=outcome.test,  # None if the test rows could not be scored
             val_metrics=outcome.champion.metrics,
             test_metrics=outcome.test,
             status="completed",

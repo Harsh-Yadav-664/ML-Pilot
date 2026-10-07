@@ -123,7 +123,7 @@ If no real model answers (the offline stub, or every provider failing), the resu
 
 The queries run in a DuckDB with no file or network access, but the engine does not read the SQL: it expects queries that already passed the point-in-time guard (the proposer and the baseline both do that first).
 
-Not built yet: running against a live Postgres through the SQL guard (snapshots only), the refit on the full table, and the run loop that ties the baseline, the proposer and the budget together (#58).
+Not built yet: running against a live Postgres through the SQL guard (snapshots only), and the refit on the full table.
 
 ## The run loop: `ml/agents/run_loop.py`
 
@@ -138,6 +138,8 @@ Not built yet: running against a live Postgres through the SQL guard (snapshots 
 At the end, the champion is refit on the training and validation rows and **the test rows are scored once**, by one function (`score_test`) that a test spies on. A run that is cancelled is never scored. A run stopped by a budget (`stopped`) is scored, since it has a champion. Without a real model nothing is proposed (`no_llm`) and the baseline is the result.
 
 What is recorded: every proposal is a `Feature` row (`llm_sql`, with its SQL, the stage that stopped it or its paired gain, `accepted` or `rejected_gain`); each accepted feature and the final model are `Experiment` rows; `GET /runs/{run}` gives the status, stop reason, budget used, validation metrics of the champion and the test metrics; `GET /runs/{run}/features` lists the features.
+
+Honest limits: the folds are the same for every candidate of a run and a run can make up to 20 proposals, so by chance alone a useless feature is sometimes accepted, and the fold scores of the champion drift upward (optimistic) as features are added; the test score is unaffected. The champion's validation metrics are optimistic too: the validation rows stop the training early, and the final refit on train and validation uses that stopping point as its number of trees. Two runs of the same task can each report test metrics; choosing between runs on them would be tuning on the test set.
 
 Not built yet: several independent proposal histories (`rollouts`), resuming an interrupted run from its last champion (the champion is on record after every accepted feature, but nothing restarts from it), the same loop for single-table CSV tasks (they keep the older formula loop), and a UI for a run (#101).
 
