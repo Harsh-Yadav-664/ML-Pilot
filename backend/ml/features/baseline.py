@@ -87,6 +87,11 @@ class BaselineResult:
     engine_version: str
     seconds: float
     model: Any = field(repr=False, default=None)
+    # what a proposer needs to compare a new feature with the kept ones, on the same rows
+    frame: pd.DataFrame | None = field(repr=False, default=None)  # kept features, label row order
+    labels: pd.DataFrame | None = field(repr=False, default=None)  # entity_id, cutoff_time, label
+    train: np.ndarray | None = field(repr=False, default=None)  # positional training rows
+    graph: SchemaGraph | None = field(repr=False, default=None)  # keyed by bare table name
 
     def dropped_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -176,7 +181,8 @@ def _frame_column(values: pd.Series) -> pd.Series:
     return values.astype("string").astype("category")
 
 
-def _same_column(a: pd.Series, b: pd.Series) -> str | None:
+def same_column(a: pd.Series, b: pd.Series, threshold: float = DUPLICATE_CORRELATION) -> str | None:
+    """Why ``a`` duplicates ``b`` ("equal", or the correlation), or None if it does not."""
     if isinstance(a.dtype, pd.CategoricalDtype) or isinstance(b.dtype, pd.CategoricalDtype):
         equal = (
             a.astype("string").fillna("\0").to_numpy() == b.astype("string").fillna("\0").to_numpy()
@@ -191,7 +197,7 @@ def _same_column(a: pd.Series, b: pd.Series) -> str | None:
     if x[both].std() == 0 or y[both].std() == 0:
         return None
     r = float(np.corrcoef(x[both], y[both])[0, 1])
-    return f"correlation {r:.3f}" if abs(r) > DUPLICATE_CORRELATION else None
+    return f"correlation {r:.3f}" if abs(r) > threshold else None
 
 
 def _degenerate(values: pd.Series) -> str | None:
@@ -265,7 +271,7 @@ def build_baseline(
             (
                 (name, why)
                 for name, other in kept.items()
-                if (why := _same_column(column.iloc[sample], other.iloc[sample]))
+                if (why := same_column(column.iloc[sample], other.iloc[sample]))
             ),
             None,
         )
@@ -311,6 +317,10 @@ def build_baseline(
         engine_version=lgb.__version__,
         seconds=time.monotonic() - started,
         model=model,
+        frame=features,
+        labels=frame[[ENTITY, CUTOFF, "label"]],
+        train=split.train,
+        graph=graph,
     )
 
 
