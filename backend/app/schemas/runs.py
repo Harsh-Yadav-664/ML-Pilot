@@ -30,6 +30,9 @@ class RunLoopRequest(BaseModel):
     feature_timeout_seconds: float = Field(
         120.0, gt=0, le=3600, description="One feature's query may run this long"
     )
+    rollouts: int = Field(
+        1, ge=1, le=10, description="Number of independent proposal histories to run. The best champion on validation is picked."
+    )
     approval_mode: Literal["auto", "confirm_task", "approve_each_feature"] = Field(
         "confirm_task",
         description="approve_each_feature: the run waits for you to approve or veto every "

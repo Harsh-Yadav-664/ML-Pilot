@@ -197,7 +197,7 @@ async def run_loop(
     assert baseline.labels is not None and baseline.temporal is not None
     y = baseline.labels["label"].astype(int).to_numpy()
     split = baseline.temporal
-    tracker = BudgetTracker(config.budget)
+    tracker = state.tracker if state.tracker is not None else BudgetTracker(config.budget)
     state.tracker = tracker
     stop_reason = "max_rounds"
     since_accept = 0
