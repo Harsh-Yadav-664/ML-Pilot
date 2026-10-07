@@ -8,6 +8,7 @@ import {
   RunState,
   SplitPreview,
   cancelRun,
+  openReport,
   getCheckpoints,
   getNarration,
   getRun,
@@ -262,7 +263,18 @@ export function RunView() {
                   </p>
                 ))}
                 <div className="flex flex-wrap gap-2">
-                  {['Evidence report', 'Export bundle', 'Scoring script'].map((l) => (
+                  {(['html', 'markdown'] as const).map((f) => (
+                    <Btn
+                      key={f}
+                      variant="ghost"
+                      size="sm"
+                      data-testid={`report-${f}`}
+                      onClick={() => void openReport(run.id, f).catch((e) => setError(describeError(e)))}
+                    >
+                      Evidence report ({f === 'html' ? 'HTML' : 'Markdown'})
+                    </Btn>
+                  ))}
+                  {['Export bundle', 'Scoring script'].map((l) => (
                     <Btn key={l} variant="ghost" size="sm" disabled title="Not available yet">
                       {l} (not available yet)
                     </Btn>

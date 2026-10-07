@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ report.title }}</title>
+<style>
+:root { --fg:#1c2330; --muted:#5b6678; --line:#d9dee7; --bg:#fff; --soft:#f4f6fa; --train:#c9d6ea; --val:#e9c46a; --test:#2a9d8f; --kept:#2a9d8f; --not-kept:#9aa3b2; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e9ef; --muted:#9aa3b2; --line:#2e3646; --bg:#12161d; --soft:#1a202b; --train:#3a4a66; --val:#b08a2a; --test:#2a9d8f; --not-kept:#6b7485; } }
+body { font: 15px/1.55 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin-bottom: .2rem; }
+h2 { font-size: 1.15rem; margin-top: 2.2rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+.meta { color: var(--muted); font-size: .85rem; word-break: break-all; }
+table { border-collapse: collapse; width: 100%; font-size: .85rem; display: block; overflow-x: auto; }
+th, td { border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+pre { background: var(--soft); padding: 10px 12px; overflow-x: auto; font-size: .8rem; border-radius: 4px; }
+.chart { width: 100%; height: auto; font: 11px system-ui, sans-serif; fill: var(--fg); margin: 8px 0; }
+.chart .train { fill: var(--train); } .chart .val { fill: var(--val); } .chart .test { fill: var(--test); }
+.chart .tick { stroke: var(--bg); stroke-width: 1; } .chart .zero { stroke: var(--muted); stroke-width: 1; }
+.chart .ci { stroke-width: 2; } .chart .ci.kept, .chart .dot.kept { stroke: var(--kept); fill: var(--kept); }
+.chart .ci.not-kept, .chart .dot.not-kept { stroke: var(--not-kept); fill: var(--not-kept); }
+.chart .margin { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 2 2; }
+.caption { color: var(--muted); font-size: .8rem; margin: 0; }
+</style>
+</head>
+<body>
+<h1>{{ report.title }}</h1>
+<p class="meta">{{ report.meta | join(" · ") }}</p>
+{% for section in report.sections %}
+<h2 id="{{ section.id }}">{{ section.title }}</h2>
+{% for block in section.blocks %}
+{% if block is string_block %}
+<p>{{ block }}</p>
+{% elif block is table_block %}
+<table>
+<thead><tr>{% for h in block.headers %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+<tbody>
+{% for row in block.rows %}
+<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+{% endfor %}
+</tbody>
+</table>
+{% elif block is code_block %}
+<pre><code>{{ block.text }}</code></pre>
+{% elif block is chart_block %}
+{{ chart(block) }}
+<p class="caption">{{ block.title }}</p>
+{% else %}
+<ul>
+{% for item in block.items %}
+<li>{{ item }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% endfor %}
+{% endfor %}
+</body>
+</html>

@@ -135,3 +135,26 @@ export async function previewLabels(taskId: string, dataVersionId: string | null
     )
   ).data;
 }
+
+export type ReportFormat = 'markdown' | 'html';
+
+/** The run's evidence report (backend #60). The API needs the access token, so a plain link would not work: fetch it, then open or save it. */
+export async function openReport(runId: string, format: ReportFormat): Promise<void> {
+  const res = await api.get<string>(`${await runs(runId)}/report`, {
+    params: { format },
+    responseType: 'text',
+    transformResponse: (x) => x,
+    timeout: 300_000,
+  });
+  const type = format === 'html' ? 'text/html' : 'text/markdown';
+  const url = URL.createObjectURL(new Blob([res.data], { type: `${type};charset=utf-8` }));
+  if (format === 'html') {
+    window.open(url, '_blank', 'noopener');
+  } else {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `report-${runId.slice(0, 8)}.md`;
+    a.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
