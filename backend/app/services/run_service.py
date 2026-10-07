@@ -15,6 +15,7 @@ or interrupted always has its last champion on record:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from dataclasses import replace
@@ -35,14 +36,15 @@ from app.db.models import (
     Run,
     RunCheckpoint,
     RunSuggestion,
+    TaskSpec,
 )
 from app.jobs import runner
 from app.jobs.runner import JobCancelled, JobContext
-from app.schemas.domain import FeatureRead
 from app.schemas.runs import (
     CheckpointDecision,
     CheckpointRead,
     NarrationItem,
+    RunFeatureRead,
     RunFeaturesRead,
     RunLoopRequest,
     RunLoopStarted,
@@ -65,6 +67,7 @@ from ml.data.profiling.db_stats import TableStats
 from ml.data.workspace import workspace_for
 from ml.features.baseline import BaselineError, build_baseline, flatten_graph, typed_times
 from ml.features.engine import Budget, FeatureEngine
+from ml.features.ir import FeatureIR, describe
 from ml.features.llm_sql import FeatureProposer
 from ml.tasks import labels
 from ml.validation.splits import SplitError, TemporalSplitPlan
@@ -131,11 +134,24 @@ class RunService:
             if run.champion_experiment_id
             else None
         )
-        info = run.manifest.get("run_loop", {}) if run.manifest else {}
+        manifest = run.manifest or {}
+        info = manifest.get("run_loop", {})
+        job_id = await self.db.scalar(
+            select(Job.id).where(Job.run_id == run_id).order_by(Job.created_at.desc()).limit(1)
+        )
+        spec = await self.db.get(TaskSpec, run.task_spec_id)
+        draft = (spec.draft_source or {}) if spec is not None else {}
+        as_of = manifest.get("as_of")
         return RunStateRead(
             id=run.id,
             task_id=run.task_spec_id,
+            task_name=spec.name if spec is not None else None,
+            question=draft.get("question"),
             data_version_id=run.data_version_id,
+            as_of=datetime.fromisoformat(as_of) if as_of else None,
+            split_plan=run.split_plan or {},
+            feasibility=manifest.get("feasibility"),
+            job_id=job_id,
             status=run.status,  # type: ignore[arg-type]
             stop_reason=info.get("stop_reason"),
             budget=run.budget or {},
@@ -157,9 +173,17 @@ class RunService:
         rows = await self.db.scalars(
             select(Feature).where(Feature.run_id == run_id).order_by(Feature.created_at)
         )
-        return RunFeaturesRead(
-            run_id=run_id, features=[FeatureRead.model_validate(f) for f in rows.all()]
-        )
+        return RunFeaturesRead(run_id=run_id, features=[_feature_read(f) for f in rows.all()])
+
+
+def _feature_read(f: Feature) -> RunFeatureRead:
+    description = f.rationale
+    if f.ir:
+        with contextlib.suppress(ValueError):  # a spec the schema no longer reads: the rationale
+            description = describe(FeatureIR.model_validate(f.ir))
+    out = RunFeatureRead.model_validate(f)
+    out.description = description
+    return out
 
 
 def _checkpoint_read(c: RunCheckpoint) -> CheckpointRead:

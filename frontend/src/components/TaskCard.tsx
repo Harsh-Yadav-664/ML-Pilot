@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { describeError } from '../api';
 import { DbVersion, listDbVersions } from '../api/snapshots';
 import { LabelPreview, TaskDraft, TaskSpecRead, confirmTask, draftTask, previewLabels, saveTaskNamed } from '../api/tasks';
-import { goTasks } from '../route';
+import { startRun } from '../api/runs';
+import { goRun, goTasks } from '../route';
 import { setEditorSeed } from '../taskEditorSeed';
 import { Btn, CardHeader, Panel, Tag } from '../ui';
 import { LabelPreview as LabelPreviewTable } from './LabelPreview';
@@ -25,6 +26,7 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
   const [task, setTask] = useState<TaskSpecRead | null>(null);
   const [preview, setPreview] = useState<LabelPreview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [step, setStep] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,6 +75,13 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
     if (out) {
       setPreview(out.preview);
       }
+  }
+
+  async function start() {
+    if (!task) return;
+    const reuse = version && versions.find((v) => v.id === version)?.mode === 'snapshot' ? version : null;
+    const id = await run('Starting', () => startRun(task, connectionId, reuse, 'confirm_task', setStep));
+    if (id) goRun(id);
   }
 
   async function confirm() {
@@ -180,9 +189,19 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
             {preview && <LabelPreviewTable preview={preview} />}
 
             {task?.status === 'confirmed' ? (
-              <p data-testid="task-confirmed" className="font-mono text-[12px] text-sage">
-                Confirmed as {task.name} (version {task.version}) by {task.confirmed_by}. Nothing has been trained: running it comes with the training step.
-              </p>
+              <div className="space-y-2">
+                <p data-testid="task-confirmed" className="font-mono text-[12px] text-sage">
+                  Confirmed as {task.name} (version {task.version}) by {task.confirmed_by}. Nothing has been trained yet.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Btn onClick={() => void start()} disabled={busy !== null}>
+                    {busy === 'Starting' ? 'Starting…' : 'Start a run'}
+                  </Btn>
+                  <span className="text-[12px] text-mute" data-testid="run-start-step">
+                    {busy === 'Starting' ? step : 'Takes a snapshot of the database, builds the baseline, then asks the model for features.'}
+                  </span>
+                </div>
+              </div>
             ) : (
               <div className="flex flex-wrap gap-2">
                 <Btn onClick={() => void check()} disabled={busy !== null}>

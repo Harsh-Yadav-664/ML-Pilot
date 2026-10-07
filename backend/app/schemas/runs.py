@@ -57,7 +57,17 @@ class RunStateRead(BaseModel):
 
     id: str
     task_id: str | None
+    task_name: str | None = Field(None, description="The confirmed task's name")
+    question: str | None = Field(
+        None, description="The question the task was drafted from, if it was drafted from one"
+    )
     data_version_id: str | None
+    as_of: datetime | None = Field(None, description="Where the data of the run ends")
+    split_plan: dict[str, Any] = Field(default_factory=dict, description="val_from and test_from")
+    feasibility: dict[str, Any] | None = Field(
+        None, description="The feasibility report the run was started with"
+    )
+    job_id: str | None = Field(None, description="The latest job of the run; cancel it there")
     status: RunStatus
     stop_reason: str | None = Field(
         None, description="max_rounds, patience, budget:cost, budget:time, budget:proposals, no_llm"
@@ -78,9 +88,15 @@ class RunStateRead(BaseModel):
     finished_at: datetime | None
 
 
+class RunFeatureRead(FeatureRead):
+    description: str | None = Field(
+        None, description="The feature in one English sentence: from its spec, else its rationale"
+    )
+
+
 class RunFeaturesRead(BaseModel):
     run_id: str
-    features: list[FeatureRead]
+    features: list[RunFeatureRead]
 
 
 class CheckpointRead(BaseModel):
