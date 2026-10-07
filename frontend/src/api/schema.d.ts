@@ -695,6 +695,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}/checkpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Checkpoints
+         * @description The questions the run asked: a pending one is waiting for an answer.
+         */
+        get: operations["list_checkpoints_api_v1_projects__project_id__runs__run_id__checkpoints_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/checkpoints/{checkpoint_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer Checkpoint
+         * @description Approve or veto the proposal the run is waiting on. A veto keeps the feature out of the
+         *     model without testing it. Answered once: a second answer is a 409.
+         */
+        post: operations["answer_checkpoint_api_v1_projects__project_id__runs__run_id__checkpoints__checkpoint_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/runs/{run_id}/features": {
         parameters: {
             query?: never;
@@ -709,6 +750,68 @@ export interface paths {
         get: operations["get_run_features_api_v1_projects__project_id__runs__run_id__features_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/narration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Narration
+         * @description The run's events in words. Each sentence is filled from its event, so every number in it
+         *     is one the run recorded; the event is returned with it.
+         */
+        get: operations["get_run_narration_api_v1_projects__project_id__runs__run_id__narration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Settings
+         * @description Read a sentence such as 'budget $1' and say what it would change. Changes nothing.
+         */
+        post: operations["preview_settings_api_v1_projects__project_id__runs__run_id__settings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/settings/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Settings
+         * @description Apply what the sentence says to a queued or running run, after the person has seen the
+         *     preview. The run reads its settings before every round.
+         */
+        post: operations["apply_settings_api_v1_projects__project_id__runs__run_id__settings_apply_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -733,6 +836,28 @@ export interface paths {
          *     ``POST .../tasks/{task}/runs`` on a snapshot. Cancel through the job.
          */
         post: operations["start_run_api_v1_projects__project_id__runs__run_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Suggestions */
+        get: operations["list_suggestions_api_v1_projects__project_id__runs__run_id__suggestions_get"];
+        put?: never;
+        /**
+         * Add Suggestion
+         * @description Tell the run a feature idea. The model sees it in its next round; whatever it proposes
+         *     is checked and tested like any other proposal.
+         */
+        post: operations["add_suggestion_api_v1_projects__project_id__runs__run_id__suggestions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1131,6 +1256,56 @@ export interface components {
         Body_upload_dataset_api_v1_projects__project_id__datasets_upload_post: {
             /** File */
             file: string;
+        };
+        /** CheckpointDecision */
+        CheckpointDecision: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "veto";
+            /** Note */
+            note?: string | null;
+        };
+        /** CheckpointRead */
+        CheckpointRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at?: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Payload
+             * @description What to look at: the proposal and its query
+             */
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Recommended
+             * @description What a timeout does
+             * @enum {string}
+             */
+            recommended: "approve" | "veto";
+            /** Round */
+            round: number;
+            /** Run Id */
+            run_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "approved" | "vetoed" | "timeout";
+            /** Timeout Seconds */
+            timeout_seconds: number;
         };
         /** Column */
         Column: {
@@ -1802,7 +1977,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "proposed" | "rejected_guard" | "rejected_duplicate" | "rejected_gain" | "accepted";
+            status: "proposed" | "rejected_guard" | "rejected_duplicate" | "rejected_gain" | "accepted" | "vetoed";
         };
         /** FeatureSuggestion */
         FeatureSuggestion: {
@@ -2070,6 +2245,27 @@ export interface components {
              */
             severity: "low" | "medium" | "high";
         };
+        /** NarrationItem */
+        NarrationItem: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Payload
+             * @description The event the sentence was written from
+             */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Seq */
+            seq: number;
+            /** Text */
+            text: string;
+            /** Type */
+            type: string;
+        };
         /** PaginatedResponse[ProjectRead] */
         PaginatedResponse_ProjectRead_: {
             /** Has Next */
@@ -2197,6 +2393,19 @@ export interface components {
          */
         RunLoopRequest: {
             /**
+             * Approval Mode
+             * @description approve_each_feature: the run waits for you to approve or veto every proposal that passed the checks. The other two never pause it: the task spec was confirmed before the run
+             * @default confirm_task
+             * @enum {string}
+             */
+            approval_mode: "auto" | "confirm_task" | "approve_each_feature";
+            /**
+             * Checkpoint Timeout Seconds
+             * @description How long a question waits; with no answer the recommended action (approve) is taken and the run goes on
+             * @default 300
+             */
+            checkpoint_timeout_seconds: number;
+            /**
              * Feature Timeout Seconds
              * @description One feature's query may run this long
              * @default 120
@@ -2237,6 +2446,13 @@ export interface components {
              * @description Poll or stream /jobs/{job_id}/events; cancel with the jobs API
              */
             job_id: string;
+            /** Run Id */
+            run_id: string;
+        };
+        /** RunNarration */
+        RunNarration: {
+            /** Items */
+            items: components["schemas"]["NarrationItem"][];
             /** Run Id */
             run_id: string;
         };
@@ -2366,6 +2582,43 @@ export interface components {
             time_columns?: {
                 [key: string]: string | null;
             } | null;
+        };
+        /** SettingChange */
+        SettingChange: {
+            /** From */
+            from: unknown;
+            /** Setting */
+            setting: string;
+            /** To */
+            to: unknown;
+        };
+        /** SettingsMessage */
+        SettingsMessage: {
+            /**
+             * Message
+             * @description For example 'budget $1', 'at most 5 rounds', 'ask me before each feature'
+             */
+            message: string;
+        };
+        /**
+         * SettingsPreview
+         * @description What a sentence would change. Nothing is changed until it is applied.
+         */
+        SettingsPreview: {
+            /**
+             * Applied
+             * @description False for a preview; True once it was applied to the run
+             */
+            applied: boolean;
+            /** Changes */
+            changes: components["schemas"]["SettingChange"][];
+            /** Summary */
+            summary: string;
+            /**
+             * Unrecognised
+             * @description Parts of the message that were not understood
+             */
+            unrecognised: string[];
         };
         /** SnapshotRequest */
         SnapshotRequest: {
@@ -2562,6 +2815,14 @@ export interface components {
             /** Query */
             query: string;
         };
+        /** SuggestionCreate */
+        SuggestionCreate: {
+            /**
+             * Text
+             * @description A feature idea in plain words. The model sees it in the next round; what it proposes from it goes through the same checks as any proposal
+             */
+            text: string;
+        };
         /** SuggestionIn */
         SuggestionIn: {
             /** Formula */
@@ -2570,6 +2831,27 @@ export interface components {
             name?: string | null;
             /** Reason */
             reason?: string | null;
+        };
+        /** SuggestionRead */
+        SuggestionRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "new" | "used";
+            /** Text */
+            text: string;
+            /** Used In Round */
+            used_in_round?: number | null;
         };
         /** Table */
         Table: {
@@ -4452,6 +4734,75 @@ export interface operations {
             };
         };
     };
+    list_checkpoints_api_v1_projects__project_id__runs__run_id__checkpoints_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckpointRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    answer_checkpoint_api_v1_projects__project_id__runs__run_id__checkpoints__checkpoint_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                checkpoint_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckpointDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckpointRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_run_features_api_v1_projects__project_id__runs__run_id__features_get: {
         parameters: {
             query?: never;
@@ -4471,6 +4822,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunFeaturesRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_narration_api_v1_projects__project_id__runs__run_id__narration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunNarration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_settings_api_v1_projects__project_id__runs__run_id__settings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsMessage"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_settings_api_v1_projects__project_id__runs__run_id__settings_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsMessage"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsPreview"];
                 };
             };
             /** @description Validation Error */
@@ -4507,6 +4962,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunLoopStarted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_suggestions_api_v1_projects__project_id__runs__run_id__suggestions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestionRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_suggestion_api_v1_projects__project_id__runs__run_id__suggestions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestionRead"];
                 };
             };
             /** @description Validation Error */

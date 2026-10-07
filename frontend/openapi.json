@@ -273,6 +273,125 @@
         "title": "Body_upload_dataset_api_v1_projects__project_id__datasets_upload_post",
         "type": "object"
       },
+      "CheckpointDecision": {
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "veto"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "CheckpointDecision",
+        "type": "object"
+      },
+      "CheckpointRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "What to look at: the proposal and its query",
+            "title": "Payload",
+            "type": "object"
+          },
+          "recommended": {
+            "description": "What a timeout does",
+            "enum": [
+              "approve",
+              "veto"
+            ],
+            "title": "Recommended",
+            "type": "string"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "vetoed",
+              "timeout"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "title": "Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "round",
+          "kind",
+          "state",
+          "recommended",
+          "payload",
+          "timeout_seconds",
+          "created_at"
+        ],
+        "title": "CheckpointRead",
+        "type": "object"
+      },
       "Column": {
         "properties": {
           "hint": {
@@ -2017,7 +2136,8 @@
               "rejected_guard",
               "rejected_duplicate",
               "rejected_gain",
-              "accepted"
+              "accepted",
+              "vetoed"
             ],
             "title": "Status",
             "type": "string"
@@ -2661,6 +2781,42 @@
         "title": "LeakageFinding",
         "type": "object"
       },
+      "NarrationItem": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "The event the sentence was written from",
+            "title": "Payload",
+            "type": "object"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "type",
+          "text",
+          "at",
+          "payload"
+        ],
+        "title": "NarrationItem",
+        "type": "object"
+      },
       "PaginatedResponse_ProjectRead_": {
         "properties": {
           "has_next": {
@@ -2975,6 +3131,25 @@
       "RunLoopRequest": {
         "description": "How long the run may go on. A limit that is not set does not apply.",
         "properties": {
+          "approval_mode": {
+            "default": "confirm_task",
+            "description": "approve_each_feature: the run waits for you to approve or veto every proposal that passed the checks. The other two never pause it: the task spec was confirmed before the run",
+            "enum": [
+              "auto",
+              "confirm_task",
+              "approve_each_feature"
+            ],
+            "title": "Approval Mode",
+            "type": "string"
+          },
+          "checkpoint_timeout_seconds": {
+            "default": 300.0,
+            "description": "How long a question waits; with no answer the recommended action (approve) is taken and the run goes on",
+            "exclusiveMinimum": 0.0,
+            "maximum": 86400.0,
+            "title": "Checkpoint Timeout Seconds",
+            "type": "number"
+          },
           "feature_timeout_seconds": {
             "default": 120.0,
             "description": "One feature's query may run this long",
@@ -3059,6 +3234,27 @@
           "job_id"
         ],
         "title": "RunLoopStarted",
+        "type": "object"
+      },
+      "RunNarration": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NarrationItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "items"
+        ],
+        "title": "RunNarration",
         "type": "object"
       },
       "RunStartRequest": {
@@ -3415,6 +3611,80 @@
           }
         },
         "title": "SchemaOverrides",
+        "type": "object"
+      },
+      "SettingChange": {
+        "properties": {
+          "from": {
+            "title": "From"
+          },
+          "setting": {
+            "title": "Setting",
+            "type": "string"
+          },
+          "to": {
+            "title": "To"
+          }
+        },
+        "required": [
+          "setting",
+          "from",
+          "to"
+        ],
+        "title": "SettingChange",
+        "type": "object"
+      },
+      "SettingsMessage": {
+        "properties": {
+          "message": {
+            "description": "For example 'budget $1', 'at most 5 rounds', 'ask me before each feature'",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "SettingsMessage",
+        "type": "object"
+      },
+      "SettingsPreview": {
+        "description": "What a sentence would change. Nothing is changed until it is applied.",
+        "properties": {
+          "applied": {
+            "description": "False for a preview; True once it was applied to the run",
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/SettingChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "unrecognised": {
+            "description": "Parts of the message that were not understood",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unrecognised",
+            "type": "array"
+          }
+        },
+        "required": [
+          "changes",
+          "unrecognised",
+          "summary",
+          "applied"
+        ],
+        "title": "SettingsPreview",
         "type": "object"
       },
       "SnapshotRequest": {
@@ -3839,6 +4109,22 @@
         "title": "SqlSnapshotRequest",
         "type": "object"
       },
+      "SuggestionCreate": {
+        "properties": {
+          "text": {
+            "description": "A feature idea in plain words. The model sees it in the next round; what it proposes from it goes through the same checks as any proposal",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "SuggestionCreate",
+        "type": "object"
+      },
       "SuggestionIn": {
         "properties": {
           "formula": {
@@ -3876,6 +4162,55 @@
           }
         },
         "title": "SuggestionIn",
+        "type": "object"
+      },
+      "SuggestionRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "new",
+              "used"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "used_in_round": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used In Round"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "text",
+          "state",
+          "created_at"
+        ],
+        "title": "SuggestionRead",
         "type": "object"
       },
       "Table": {
@@ -7115,6 +7450,133 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/runs/{run_id}/checkpoints": {
+      "get": {
+        "description": "The questions the run asked: a pending one is waiting for an answer.",
+        "operationId": "list_checkpoints_api_v1_projects__project_id__runs__run_id__checkpoints_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CheckpointRead"
+                  },
+                  "title": "Response List Checkpoints Api V1 Projects  Project Id  Runs  Run Id  Checkpoints Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Checkpoints",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/checkpoints/{checkpoint_id}": {
+      "post": {
+        "description": "Approve or veto the proposal the run is waiting on. A veto keeps the feature out of the\nmodel without testing it. Answered once: a second answer is a 409.",
+        "operationId": "answer_checkpoint_api_v1_projects__project_id__runs__run_id__checkpoints__checkpoint_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "checkpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Checkpoint Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckpointDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckpointRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer Checkpoint",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/runs/{run_id}/features": {
       "get": {
         "description": "Every feature of the run: the baseline's, and each proposal with its stage or gain.",
@@ -7162,6 +7624,182 @@
           }
         },
         "summary": "Get Run Features",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/narration": {
+      "get": {
+        "description": "The run's events in words. Each sentence is filled from its event, so every number in it\nis one the run recorded; the event is returned with it.",
+        "operationId": "get_run_narration_api_v1_projects__project_id__runs__run_id__narration_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunNarration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Narration",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/settings": {
+      "post": {
+        "description": "Read a sentence such as 'budget $1' and say what it would change. Changes nothing.",
+        "operationId": "preview_settings_api_v1_projects__project_id__runs__run_id__settings_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Settings",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/settings/apply": {
+      "post": {
+        "description": "Apply what the sentence says to a queued or running run, after the person has seen the\npreview. The run reads its settings before every round.",
+        "operationId": "apply_settings_api_v1_projects__project_id__runs__run_id__settings_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Settings",
         "tags": [
           "runs"
         ]
@@ -7231,6 +7869,121 @@
           }
         },
         "summary": "Start Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/suggestions": {
+      "get": {
+        "operationId": "list_suggestions_api_v1_projects__project_id__runs__run_id__suggestions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SuggestionRead"
+                  },
+                  "title": "Response List Suggestions Api V1 Projects  Project Id  Runs  Run Id  Suggestions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Suggestions",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Tell the run a feature idea. The model sees it in its next round; whatever it proposes\nis checked and tested like any other proposal.",
+        "operationId": "add_suggestion_api_v1_projects__project_id__runs__run_id__suggestions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Suggestion",
         "tags": [
           "runs"
         ]

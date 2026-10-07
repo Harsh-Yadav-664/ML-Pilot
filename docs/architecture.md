@@ -125,7 +125,8 @@ The metadata database holds the tables below. `docs/experiment_schema.md` descri
 | `data_versions` | Immutable snapshots keyed by content hash |
 | `connections` | Saved read-only connections; only a `secret_ref`, never a password, and the `can_write` result of the last test |
 | `task_specs` | Versioned prediction task specs. The table exists; the feature is `planned (#49)` |
-| `runs` | One run of a task spec on a data version. The table exists; relational runs are `planned (#58)` |
+| `runs` | One run of a task spec on a data version. `budget` holds the settings a person can change while it goes on (#59); relational runs are started by `POST /runs/{id}/start` (#58) |
+| `run_checkpoints`, `run_suggestions` | A question the loop waits on (approve or veto a feature) and a feature idea from the user (#59) |
 | `experiments` | One trained candidate with its metrics, decision and run manifest |
 | `features` | Proposed features and their validated gain. The table exists; `planned (#56)` |
 | `llm_calls` | Every LLM call (provider, model, tokens, cost, decision mode, prompt hash). The table exists; logging all calls to it is `planned (#48)` |

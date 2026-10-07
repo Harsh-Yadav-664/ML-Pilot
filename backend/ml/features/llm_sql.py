@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -178,7 +179,13 @@ class FeatureProposer:
                 break
         return shown
 
-    def _prompt(self, index: int, remaining: int, repair: Attempt | None) -> PromptBuilder:
+    def _prompt(
+        self,
+        index: int,
+        remaining: int,
+        repair: Attempt | None,
+        hints: Sequence[str] = (),
+    ) -> PromptBuilder:
         b: PromptBuilder = (
             self.builder.prompt("features.propose", prompts.system_prompt())
             .text("Prediction task", describe_spec(self.spec))
@@ -194,6 +201,10 @@ class FeatureProposer:
             .facts("Budget", {"proposal_number": index, "proposals_left": remaining})
             .facts("Feature spec JSON Schema", answer_schema())
         )
+        if hints:
+            b = b.facts(
+                "Suggestions from the user (try these first; the same checks apply)", list(hints)
+            )
         if repair is not None:
             b = b.text(
                 "Your last proposal was rejected",
@@ -293,11 +304,11 @@ class FeatureProposer:
         ), attempt
 
     # -- the loop -----------------------------------------------------------------------------
-    async def propose(self, remaining: int = 1) -> ProposalRecord:
+    async def propose(self, remaining: int = 1, hints: Sequence[str] = ()) -> ProposalRecord:
         """One feature: ask, check, and if a check fails ask once more with the reason."""
         number = len(self.records) + 1
         first = await self.gateway.complete_structured_result(
-            TaskType.SQL, self._prompt(number, remaining, None).build(), answer_schema()
+            TaskType.SQL, self._prompt(number, remaining, None, hints).build(), answer_schema()
         )
         if first.decision_mode == "fallback":
             record = ProposalRecord(
@@ -310,7 +321,9 @@ class FeatureProposer:
         record.llm = [first.meta()]
         if record.status not in ("proposed", "no_llm"):
             again = await self.gateway.complete_structured_result(
-                TaskType.SQL, self._prompt(number, remaining, attempt).build(), answer_schema()
+                TaskType.SQL,
+                self._prompt(number, remaining, attempt, hints).build(),
+                answer_schema(),
             )
             second, _ = await asyncio.to_thread(self._evaluate, again.structured)
             second.repaired = True
@@ -347,11 +360,12 @@ class FeatureProposer:
         description = describe(p.ir) if p.ir is not None else p.rationale
         self.views.append(("llm", description, importance))
 
-    def reject_for_gain(self, record: ProposalRecord, reason: str) -> None:
-        """A proposal passed every check but did not help: later prompts hear why."""
+    def reject_for_gain(self, record: ProposalRecord, reason: str, stage: str = "gain") -> None:
+        """A proposal passed every check but was not kept (no gain, or the user said no):
+        later prompts hear why, and it is not proposed again."""
         p = record.proposal
         if p is not None:
-            self.rejected.append({"name": p.name, "stage": "gain", "reason": _clip(reason)})
+            self.rejected.append({"name": p.name, "stage": stage, "reason": _clip(reason)})
 
     async def run(self, count: int) -> list[ProposalRecord]:
         """Up to ``count`` proposals; stops at once if no real LLM is answering."""

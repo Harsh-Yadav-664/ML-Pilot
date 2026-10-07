@@ -40,11 +40,15 @@ from ml.features.baseline import (
 )
 from ml.features.engine import Budget, BudgetTracker
 from ml.features.gain import FoldScorer, compare
+from ml.features.ir import describe
 from ml.features.llm_sql import FeatureProposer, ProposalRecord
 from ml.metrics.ranking import ranking_metrics
 from ml.validation.splits import SplitError
 
 RunStatus = Literal["completed", "stopped", "cancelled"]
+
+
+ApprovalMode = Literal["auto", "confirm_task", "approve_each_feature"]
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,9 @@ class RunConfig:
     budget: Budget = field(default_factory=Budget)
     rule: dict[str, Any] | None = None  # overrides of ml.experiments.acceptance.DEFAULT_RULE
     seed: int = 42
+    # auto and confirm_task never pause the loop (the task was confirmed before the run);
+    # approve_each_feature asks the person before every proposal that passed the checks
+    approval_mode: ApprovalMode = "confirm_task"
 
 
 @dataclass
@@ -77,6 +84,8 @@ class Round:
     accepted: bool = False
     champion_metrics: dict[str, float] | None = None  # validation metrics, set when accepted
     seconds: float = 0.0
+    vetoed: bool = False  # the person said no at a checkpoint: it never reached the gain test
+    checkpoint: dict[str, Any] | None = None  # how the question was answered
 
 
 @dataclass
@@ -101,6 +110,28 @@ class RunOutcome:
     @property
     def accepted(self) -> list[Round]:
         return [r for r in self.rounds if r.accepted]
+
+
+@dataclass(frozen=True)
+class Answer:
+    decision: Literal["approve", "veto"]
+    how: Literal["reply", "timeout"]  # a timeout continues with the recommended action
+
+
+class Control(Protocol):
+    """What a person can do to a running loop: change its settings, suggest, approve or veto.
+
+    The loop only asks; the answers come from the database (``app/services/run_service.py``).
+    """
+
+    async def settings(self) -> RunConfig | None:
+        """The settings as they are now, read before every round (None: unchanged)."""
+
+    async def hints(self, number: int) -> list[str]:
+        """Suggestions not yet used; they are marked as used in round ``number``."""
+
+    async def approve(self, number: int, summary: dict[str, Any]) -> Answer:
+        """Wait for the person to approve or veto the proposal (or for the timeout)."""
 
 
 class Sink(Protocol):
@@ -154,6 +185,7 @@ async def run_loop(
     sink: Sink | None = None,
     state: LoopState | None = None,
     scorer: FoldScorer | None = None,
+    control: Control | None = None,
 ) -> RunOutcome:
     """Run the rounds, then score the test rows once. See the module docstring."""
     hooks = hooks or NoHooks()
@@ -170,8 +202,15 @@ async def run_loop(
     stop_reason = "max_rounds"
     since_accept = 0
     await hooks.step("Starting from the baseline", 0.0, champion=state.champion.metrics)
-    for number in range(1, config.max_rounds + 1):
+    number = 0
+    while True:
+        number += 1
         await hooks.check_cancelled()
+        if control is not None:  # settings may have changed since the last round
+            config = await control.settings() or config
+            tracker.budget = config.budget
+        if number > config.max_rounds:
+            break
         why = tracker.exceeded()
         if why:
             stop_reason = f"budget:{why}"
@@ -181,7 +220,8 @@ async def run_loop(
             break
         started = time.monotonic()
         await hooks.step(f"Round {number}: asking for a feature", (number - 1) / config.max_rounds)
-        record = await proposer.propose(config.max_rounds - number + 1)
+        hints = await control.hints(number) if control is not None else []
+        record = await proposer.propose(config.max_rounds - number + 1, hints=hints)
         tracker.proposals += 1
         cost = sum(float(c.get("cost_usd") or 0.0) for c in record.llm)
         tracker.charge(cost)
@@ -192,7 +232,14 @@ async def run_loop(
             break
         rnd = Round(number, record)
         if record.status == "proposed" and record.proposal is not None:
-            await _decide(rnd, state, scorer, proposer, y, split, config)
+            if control is not None and config.approval_mode == "approve_each_feature":
+                answer = await control.approve(number, _summary(record))
+                rnd.checkpoint = {"decision": answer.decision, "how": answer.how}
+                if answer.decision == "veto":
+                    rnd.vetoed = True
+                    proposer.reject_for_gain(record, "vetoed by the user", stage="vetoed")
+            if not rnd.vetoed:
+                await _decide(rnd, state, scorer, proposer, y, split, config)
         since_accept = 0 if rnd.accepted else since_accept + 1
         rnd.seconds = time.monotonic() - started
         state.rounds.append(rnd)
@@ -243,6 +290,20 @@ async def _decide(
     proposer.adopt(record, shares.get(name, 0.0))
 
 
+def _summary(record: ProposalRecord) -> dict[str, Any]:
+    """What a person needs to approve a proposal: what it means, how it is computed, why."""
+    p = record.proposal
+    assert p is not None
+    return {
+        "name": p.name,
+        "description": describe(p.ir) if p.ir is not None else p.rationale,
+        "rationale": p.rationale,
+        "expected_direction": p.expected_direction,
+        "sql": record.sql,
+        "ir": p.ir.model_dump(mode="json") if p.ir is not None else None,
+    }
+
+
 def _event(rnd: Round, champion: Champion, tracker: BudgetTracker, cost: float) -> dict[str, Any]:
     p = rnd.record.proposal
     out: dict[str, Any] = {
@@ -252,6 +313,7 @@ def _event(rnd: Round, champion: Champion, tracker: BudgetTracker, cost: float) 
         "stage": rnd.record.stage,
         "reasons": rnd.record.reasons[:3],
         "accepted": rnd.accepted,
+        "vetoed": rnd.vetoed,
         "cost_usd": round(cost, 6),
         "champion_val_pr_auc": champion.metrics.get("pr_auc"),
         "budget_used": tracker.used(),

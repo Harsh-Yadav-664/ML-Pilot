@@ -15,26 +15,50 @@ or interrupted always has its last champion on record:
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.gateway import AIGateway
 from app.core import datasets
-from app.db.models import Experiment, Feature, Run
+from app.db.models import (
+    Experiment,
+    Feature,
+    Job,
+    JobEvent,
+    Run,
+    RunCheckpoint,
+    RunSuggestion,
+)
 from app.jobs import runner
 from app.jobs.runner import JobCancelled, JobContext
 from app.schemas.domain import FeatureRead
-from app.schemas.runs import RunFeaturesRead, RunLoopRequest, RunLoopStarted, RunStateRead
+from app.schemas.runs import (
+    CheckpointDecision,
+    CheckpointRead,
+    NarrationItem,
+    RunFeaturesRead,
+    RunLoopRequest,
+    RunLoopStarted,
+    RunNarration,
+    RunStateRead,
+    SettingChange,
+    SettingsPreview,
+    SuggestionCreate,
+    SuggestionRead,
+)
 from app.services.baseline_service import BaselineService, load_world
 from app.services.connection_service import ConnectionService
 from app.services.feature_proposals import feature_row
 from app.services.privacy_service import PrivacyService
 from app.services.task_service import TaskService
+from ml.agents import narration, settings_nl
 from ml.agents import run_loop as loop
 from ml.data.engine import EngineError
 from ml.data.profiling.db_stats import TableStats
@@ -47,6 +71,8 @@ from ml.validation.splits import SplitError, TemporalSplitPlan
 
 KIND = "relational_run"
 MAX_TABLES_PROFILED = 40
+POLL_SECONDS = 0.3  # how often a waiting checkpoint looks for the answer
+LIVE = ("queued", "running")  # a run in these states can still be steered
 
 NOTES = [
     (
@@ -92,6 +118,7 @@ class RunService:
         )
         job.run_id = run_id
         run.status = "queued"
+        run.budget = settings_of(body)  # steerable from now on (apply_settings)
         await self.db.flush()
         return RunLoopStarted(run_id=run_id, job_id=job.id)
 
@@ -135,6 +162,282 @@ class RunService:
         )
 
 
+def _checkpoint_read(c: RunCheckpoint) -> CheckpointRead:
+    return CheckpointRead(
+        id=c.id,
+        run_id=c.run_id,
+        round=c.round,
+        kind=c.kind,
+        state=c.state,  # type: ignore[arg-type]
+        recommended=c.recommended,  # type: ignore[arg-type]
+        payload=c.payload,
+        note=c.note,
+        timeout_seconds=c.timeout_seconds,
+        created_at=_aware(c.created_at),  # type: ignore[arg-type]
+        decided_at=_aware(c.decided_at),
+    )
+
+
+def _suggestion_read(s: RunSuggestion) -> SuggestionRead:
+    return SuggestionRead(
+        id=s.id,
+        run_id=s.run_id,
+        text=s.text,
+        state=s.state,  # type: ignore[arg-type]
+        created_at=_aware(s.created_at),  # type: ignore[arg-type]
+        used_in_round=s.used_in_round,
+    )
+
+
+class SteerService:
+    """What a person does to a run while it goes on (#59)."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def _live_run(self, project_id: str, run_id: str) -> Run:
+        run = await RunService(self.db)._run(project_id, run_id)
+        if run.status not in LIVE:
+            raise HTTPException(
+                409, f"The run is {run.status}; only a queued or running run can be steered"
+            )
+        return run
+
+    async def checkpoints(self, project_id: str, run_id: str) -> list[CheckpointRead]:
+        await RunService(self.db)._run(project_id, run_id)
+        rows = await self.db.scalars(
+            select(RunCheckpoint)
+            .where(RunCheckpoint.run_id == run_id)
+            .order_by(RunCheckpoint.created_at, RunCheckpoint.round)
+        )
+        return [_checkpoint_read(c) for c in rows.all()]
+
+    async def answer(
+        self, project_id: str, run_id: str, checkpoint_id: str, body: CheckpointDecision
+    ) -> CheckpointRead:
+        await RunService(self.db)._run(project_id, run_id)
+        row = await self.db.get(RunCheckpoint, checkpoint_id)
+        if row is None or row.run_id != run_id:
+            raise HTTPException(404, "Checkpoint not found in this run")
+        state = "approved" if body.decision == "approve" else "vetoed"
+        # only a pending question can be answered, and only once: the update says so atomically
+        result = await self.db.execute(
+            update(RunCheckpoint)
+            .where(RunCheckpoint.id == checkpoint_id, RunCheckpoint.state == "pending")
+            .values(state=state, note=body.note, decided_at=datetime.now(UTC))
+        )
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            raise HTTPException(409, f"This question was already answered ({row.state})")
+        await self.db.flush()
+        await self.db.refresh(row)
+        return _checkpoint_read(row)
+
+    async def suggestions(self, project_id: str, run_id: str) -> list[SuggestionRead]:
+        await RunService(self.db)._run(project_id, run_id)
+        rows = await self.db.scalars(
+            select(RunSuggestion)
+            .where(RunSuggestion.run_id == run_id)
+            .order_by(RunSuggestion.created_at)
+        )
+        return [_suggestion_read(s) for s in rows.all()]
+
+    async def suggest(self, project_id: str, run_id: str, body: SuggestionCreate) -> SuggestionRead:
+        await self._live_run(project_id, run_id)
+        row = RunSuggestion(id=str(uuid.uuid4()), run_id=run_id, text=body.text.strip())
+        self.db.add(row)
+        await self.db.flush()
+        await self.db.refresh(row)
+        return _suggestion_read(row)
+
+    async def preview_settings(self, project_id: str, run_id: str, message: str) -> SettingsPreview:
+        run = await RunService(self.db)._run(project_id, run_id)
+        return _preview(message, run.budget or {}, applied=False)
+
+    async def apply_settings(self, project_id: str, run_id: str, message: str) -> SettingsPreview:
+        """Read the sentence again, now, and write what it changes into the run. The loop
+        picks the new settings up before its next round."""
+        run = await self._live_run(project_id, run_id)
+        current = dict(run.budget or {})
+        diff = settings_nl.parse(message, current)
+        if diff.changes:
+            run.budget = {**current, **{k: v["to"] for k, v in diff.changes.items()}}
+            await self.db.flush()
+        return _preview(message, current, applied=True, diff=diff)
+
+    async def narration(self, project_id: str, run_id: str) -> RunNarration:
+        await RunService(self.db)._run(project_id, run_id)
+        rows = (
+            await self.db.execute(
+                select(JobEvent)
+                .join(Job, Job.id == JobEvent.job_id)
+                .where(Job.run_id == run_id)
+                .order_by(JobEvent.ts, JobEvent.seq)
+            )
+        ).scalars()
+        items: list[NarrationItem] = []
+        for e in rows:
+            text = narration.narrate(e.type, e.payload)
+            if text is not None:
+                items.append(
+                    NarrationItem(
+                        seq=e.seq,
+                        type=e.type,
+                        text=text,
+                        at=_aware(e.ts),
+                        payload=e.payload,  # type: ignore[arg-type]
+                    )
+                )
+        return RunNarration(run_id=run_id, items=items)
+
+
+def _preview(
+    message: str,
+    current: dict[str, Any],
+    *,
+    applied: bool,
+    diff: settings_nl.SettingsDiff | None = None,
+) -> SettingsPreview:
+    diff = diff or settings_nl.parse(message, current)
+    return SettingsPreview(
+        changes=[
+            SettingChange(setting=k, **{"from": v["from"], "to": v["to"]})
+            for k, v in diff.changes.items()
+        ],
+        unrecognised=diff.unrecognised,
+        summary=diff.summary(),
+        applied=applied and bool(diff.changes),
+    )
+
+
+def settings_of(request: RunLoopRequest) -> dict[str, Any]:
+    """Everything a person can change while the run goes on, as stored in ``Run.budget``."""
+    return {
+        **_budget(request).as_dict(),
+        "max_rounds": request.max_rounds,
+        "patience": request.patience,
+        "approval_mode": request.approval_mode,
+        "checkpoint_timeout_seconds": request.checkpoint_timeout_seconds,
+        "feature_timeout_seconds": request.feature_timeout_seconds,
+    }
+
+
+class DbControl:
+    """The loop's ``Control``, answered from the database. It emits the events itself: the job
+    owns its event numbers."""
+
+    def __init__(self, ctx: JobContext, run_id: str, config: loop.RunConfig) -> None:
+        self.ctx = ctx
+        self.run_id = run_id
+        self.config = config
+        self.checkpoint_timeout = 300.0
+
+    async def settings(self) -> loop.RunConfig | None:
+        async with runner.sessions()() as db:
+            run = await db.get(Run, self.run_id)
+            stored = dict(run.budget or {}) if run else {}
+        new = replace(
+            self.config,
+            budget=Budget(
+                stored.get("max_cost_usd"),
+                stored.get("max_seconds"),
+                stored.get("max_proposals"),
+            ),
+            max_rounds=int(stored.get("max_rounds", self.config.max_rounds)),
+            patience=int(stored.get("patience", self.config.patience)),
+            approval_mode=stored.get("approval_mode", self.config.approval_mode),
+        )
+        self.checkpoint_timeout = float(
+            stored.get("checkpoint_timeout_seconds", self.checkpoint_timeout)
+        )
+        changes = _changes(self.config, new)
+        self.config = new
+        if changes:
+            await self.ctx.emit("settings_changed", changes=changes)
+        return new
+
+    async def hints(self, number: int) -> list[str]:
+        async with runner.sessions()() as db:
+            rows = (
+                await db.scalars(
+                    select(RunSuggestion)
+                    .where(RunSuggestion.run_id == self.run_id, RunSuggestion.state == "new")
+                    .order_by(RunSuggestion.created_at)
+                )
+            ).all()
+            for row in rows:
+                row.state, row.used_in_round = "used", number
+            await db.commit()
+            texts = [r.text for r in rows]
+        for text in texts:
+            await self.ctx.emit("suggestion", round=number, text=text)
+        return texts
+
+    async def approve(self, number: int, summary: dict[str, Any]) -> loop.Answer:
+        checkpoint_id = str(uuid.uuid4())
+        timeout = self.checkpoint_timeout
+        async with runner.sessions()() as db:
+            db.add(
+                RunCheckpoint(
+                    id=checkpoint_id,
+                    run_id=self.run_id,
+                    round=number,
+                    kind="approve_feature",
+                    recommended="approve",
+                    payload=summary,
+                    timeout_seconds=timeout,
+                )
+            )
+            await db.commit()
+        await self.ctx.emit(
+            "checkpoint",
+            round=number,
+            checkpoint_id=checkpoint_id,
+            summary={"name": summary["name"], "description": summary["description"]},
+            timeout_seconds=timeout,
+            recommended="approve",
+        )
+        waited_from = time.monotonic()
+        while True:
+            await self.ctx.check_cancelled()
+            async with runner.sessions()() as db:
+                row = await db.get(RunCheckpoint, checkpoint_id)
+                assert row is not None
+                state = row.state
+            if state in ("approved", "vetoed"):
+                answer = loop.Answer("approve" if state == "approved" else "veto", "reply")
+                break
+            if time.monotonic() - waited_from >= timeout:
+                async with runner.sessions()() as db:
+                    # a reply that arrived in the last moment wins over the timeout
+                    result = await db.execute(
+                        update(RunCheckpoint)
+                        .where(RunCheckpoint.id == checkpoint_id, RunCheckpoint.state == "pending")
+                        .values(state="timeout", decided_at=datetime.now(UTC))
+                    )
+                    await db.commit()
+                if result.rowcount:  # type: ignore[attr-defined]
+                    answer = loop.Answer("approve", "timeout")
+                    break
+                continue
+            await asyncio.sleep(POLL_SECONDS)
+        await self.ctx.emit(
+            "checkpoint_answered", round=number, decision=answer.decision, how=answer.how
+        )
+        return answer
+
+
+def _changes(old: loop.RunConfig, new: loop.RunConfig) -> dict[str, dict[str, Any]]:
+    pairs = {
+        "max_cost_usd": (old.budget.max_cost_usd, new.budget.max_cost_usd),
+        "max_seconds": (old.budget.max_seconds, new.budget.max_seconds),
+        "max_proposals": (old.budget.max_proposals, new.budget.max_proposals),
+        "max_rounds": (old.max_rounds, new.max_rounds),
+        "patience": (old.patience, new.patience),
+        "approval_mode": (old.approval_mode, new.approval_mode),
+    }
+    return {k: {"from": a, "to": b} for k, (a, b) in pairs.items() if a != b}
+
+
 class _Sink:
     """Writes each round as it ends: the proposal, and for an accepted one the new champion."""
 
@@ -150,7 +453,7 @@ class _Sink:
         async with runner.sessions()() as db:
             run = await db.get(Run, self.run_id)
             assert run is not None
-            db.add(feature_row(self.run_id, rnd.record, self.position, rnd.gain))
+            db.add(feature_row(self.run_id, rnd.record, self.position, rnd.gain, rnd.vetoed))
             if rnd.accepted and rnd.gain is not None and rnd.record.proposal is not None:
                 exp = Experiment(
                     id=str(uuid.uuid4()),
@@ -252,7 +555,8 @@ async def _execute(
             stats[table.key] = (await connections.table_stats(conn, table.key)).stats
         builder = await PrivacyService(db).builder(project_id)
         run.status, run.started_at = "running", datetime.now(UTC)
-        run.budget = _budget(request).as_dict()
+        # what start() stored wins: a person may have changed it while the job waited
+        run.budget = {**settings_of(request), **(run.budget or {})}
         await db.commit()  # the prompt log writes on its own connection: hold no write
     spec = built.spec
     workspace = workspace_for(project_id, datasets.PROJECTS_DIR)
@@ -301,12 +605,22 @@ async def _execute(
         patience=request.patience,
         budget=_budget(request),
         seed=seed,
+        approval_mode=request.approval_mode,
     )
+    control = DbControl(ctx, run_id, config)
+    control.checkpoint_timeout = request.checkpoint_timeout_seconds
     state, scorer = await asyncio.to_thread(loop.start_state, baseline, config)
     sink = _Sink(run_id, previous, spec.name, seed)
     try:
         outcome = await loop.run_loop(
-            baseline, proposer, config, hooks=ctx, sink=sink, state=state, scorer=scorer
+            baseline,
+            proposer,
+            config,
+            hooks=ctx,
+            sink=sink,
+            state=state,
+            scorer=scorer,
+            control=control,
         )
     finally:
         engine.close()

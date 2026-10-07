@@ -11,6 +11,7 @@ from app.db.models.llm_call import LLMCall
 from app.db.models.model_artifact import ModelArtifact
 from app.db.models.project import Project
 from app.db.models.run import Run
+from app.db.models.run_control import RunCheckpoint, RunSuggestion
 from app.db.models.table_stats import TableStatsCache
 from app.db.models.task_spec import TaskSpec
 from app.db.models.user import User
@@ -28,6 +29,8 @@ __all__ = [
     "ModelArtifact",
     "Project",
     "Run",
+    "RunCheckpoint",
+    "RunSuggestion",
     "TableStatsCache",
     "TaskSpec",
     "User",
