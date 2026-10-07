@@ -1,26 +1,11 @@
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { demoDuckdb } from './demoDb';
 
 /**
  * Ask a question, read the drafted task, check the labels, confirm (backend issue #53). Runs against
  * `python start.py` (offline stub provider, so the rule-based drafter answers and says so) and a DuckDB
  * copy of the demo database that the test generates itself.
  */
-const python = process.env.PYTHON ?? 'python';
-
-function demoDuckdb(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'mlpilot-task-'));
-  const path = join(dir, 'demo.duckdb');
-  execFileSync(
-    python,
-    ['-c', 'import sys; from pathlib import Path; from tests.fixtures.demo_db import demo_duckdb; demo_duckdb(Path(sys.argv[1]))', path],
-    { cwd: join(process.cwd(), '..', 'backend'), stdio: 'inherit' },
-  );
-  return path;
-}
 
 test('a question becomes a task: draft, check the labels, confirm', async ({ page }) => {
   const path = demoDuckdb();

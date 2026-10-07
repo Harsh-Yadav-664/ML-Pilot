@@ -21,7 +21,7 @@ import { TaskCard } from '../components/TaskCard';
 import { SchemaGraph, compact, describeEdge } from '../components/SchemaGraph';
 import { Btn, CardHeader, Eyebrow, Leader, Panel, Tag } from '../ui';
 import { cn } from '../utils/cn';
-import { leaveRoute } from '../route';
+import { goTasks, leaveRoute } from '../route';
 
 type Dialect = ConnectionCreate['dialect'];
 type SslMode = NonNullable<ConnectionCreate['ssl_mode']>;
@@ -416,7 +416,12 @@ export function ConnectView() {
         <Btn variant="ghost" size="sm" onClick={leaveRoute}>
           ← Back
         </Btn>
-        <Tag tone="copper">read-only</Tag>
+        <div className="flex items-center gap-3">
+          <Btn variant="ghost" size="sm" onClick={goTasks}>
+            Task editor
+          </Btn>
+          <Tag tone="copper">read-only</Tag>
+        </div>
       </header>
 
       <main className="mx-auto max-w-[1200px] space-y-8 px-6 pb-16">

@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 
 /** Pages that live outside the workspace store. Only the hash changes, so a reload keeps the page. */
-export type Route = 'connect' | null;
+export type Route = 'connect' | 'tasks' | null;
 
-const read = (): Route => (window.location.hash === '#/connect' ? 'connect' : null);
+const read = (): Route => {
+  if (window.location.hash === '#/connect') return 'connect';
+  if (window.location.hash === '#/tasks') return 'tasks';
+  return null;
+};
 
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(read);
@@ -17,6 +21,9 @@ export function useRoute(): Route {
 
 export const goConnect = () => {
   window.location.hash = '#/connect';
+};
+export const goTasks = () => {
+  window.location.hash = '#/tasks';
 };
 export const leaveRoute = () => {
   // Drop the hash without leaving a bare "#" in the URL.

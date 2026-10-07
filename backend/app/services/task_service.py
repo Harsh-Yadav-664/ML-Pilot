@@ -32,6 +32,8 @@ from app.schemas.tasks import (
     LabelPreview,
     LabelPreviewRequest,
     RunStartRequest,
+    SpecCheck,
+    SpecCheckRequest,
     SpecIssueRead,
     SplitPreview,
     SplitPreviewRequest,
@@ -57,6 +59,7 @@ from ml.tasks.spec import (
     SpecError,
     SpecIssue,
     TaskSpec,
+    from_dict,
     from_yaml,
     schema_fingerprint,
     to_yaml,
@@ -100,7 +103,7 @@ def parse(text: str) -> TaskSpec:
 
 @dataclass(frozen=True)
 class _BuiltLabels:
-    row: TaskSpecRow
+    row: TaskSpecRow | None
     spec: TaskSpec
     run: labels.LabelRun
     mode: str
@@ -270,16 +273,17 @@ class TaskService:
         return await self._read(row, issues)
 
     # -- labels -------------------------------------------------------------------------------
-    async def _build_labels(
-        self, project_id: str, task_id: str, request: LabelPreviewRequest
-    ) -> _BuiltLabels:
-        """Build the labels of a saved task (and read its coverage) on the data version asked for."""
-        row = await self.get_row(project_id, task_id)
-        if row.connection_id is None:
-            raise HTTPException(422, "The task has no connection to read the data from")
-        spec = from_yaml(row.yaml)
+    async def _run_labels(
+        self,
+        project_id: str,
+        spec: TaskSpec,
+        connection_id: str,
+        request: LabelPreviewRequest,
+        task_id: str,
+    ) -> tuple[labels.LabelRun, str, datetime, str | None]:
+        """Build the labels of a spec (and read its coverage) on the data version asked for."""
         connections = ConnectionService(self.db)
-        conn = await connections.get(project_id, row.connection_id)
+        conn = await connections.get(project_id, connection_id)
         graph = await connections.schema_graph(conn)
         description: DataDescription | None = None
         version_id = request.data_version_id
@@ -318,6 +322,19 @@ class TaskService:
             raise HTTPException(502, f"Could not read the database: {e}") from None
         except EngineError as e:
             raise HTTPException(422, str(e)) from None
+        return run, mode, as_of, version_id
+
+    async def _build_labels(
+        self, project_id: str, task_id: str, request: LabelPreviewRequest
+    ) -> _BuiltLabels:
+        """Build the labels of a saved task on the data version asked for."""
+        row = await self.get_row(project_id, task_id)
+        if row.connection_id is None:
+            raise HTTPException(422, "The task has no connection to read the data from")
+        spec = from_yaml(row.yaml)
+        run, mode, as_of, version_id = await self._run_labels(
+            project_id, spec, row.connection_id, request, task_id
+        )
         return _BuiltLabels(row, spec, run, mode, as_of, version_id)
 
     async def labels_for_run(
@@ -327,6 +344,41 @@ class TaskService:
         return await self._build_labels(
             project_id, task_id, LabelPreviewRequest(data_version_id=data_version_id)
         )
+
+    async def check_draft(self, project_id: str, data: SpecCheckRequest) -> SpecCheck:
+        """What the editor needs on every change, without saving anything: the spec's problems,
+        its canonical YAML and, if it has no errors, the label preview and feasibility report.
+        The labels are computed, never written (a snapshot's label table is not created)."""
+        try:
+            spec = from_dict(data.spec) if data.spec is not None else from_yaml(data.yaml or "")
+        except SpecError as e:
+            return SpecCheck(issues=[_read_issue(i) for i in e.issues])
+        graph = await self._graph(project_id, data.connection_id)
+        as_of = await self._as_of(project_id, data.data_version_id)
+        issues = validate_against(spec, graph, as_of)
+        out = SpecCheck(
+            yaml=to_yaml(spec),
+            spec=spec.model_dump(mode="json", exclude_none=True),
+            issues=[_read_issue(i) for i in issues],
+        )
+        if any(i.severity == "error" for i in issues):
+            return out
+        request = LabelPreviewRequest(
+            data_version_id=data.data_version_id, materialize=False, thresholds=data.thresholds
+        )
+        try:
+            run, mode, built_as_of, version_id = await self._run_labels(
+                project_id, spec, data.connection_id, request, "preview"
+            )
+        except HTTPException as e:
+            if e.status_code == 422:
+                out.preview_error = str(e.detail)
+                return out
+            raise
+        built = _BuiltLabels(None, spec, run, mode, built_as_of, version_id)
+        report = self._feasibility(built, data.thresholds)
+        out.preview = self._label_preview(run, mode, built_as_of, report)
+        return out
 
     async def preview_labels(
         self, project_id: str, task_id: str, request: LabelPreviewRequest
