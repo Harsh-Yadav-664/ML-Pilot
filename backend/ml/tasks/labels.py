@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -469,6 +469,88 @@ def describe(compiled: CompiledLabels) -> dict[str, Any]:
     }
 
 
+def coverage_select(
+    spec: TaskSpec,
+    graph: SchemaGraph,
+    compiled: CompiledLabels,
+    resolve: TableResolver,
+    held: dict[str, list[str]] | None = None,
+) -> tuple[exp.Select, list[str]] | None:
+    """One query: of the entities at the first cutoff, how many have rows in each related table.
+
+    A related table is any table with an event time and a direct foreign key to the entity table.
+    A row counts only if its event time is before the cutoff, so this reads no future data.
+    ``held`` (a snapshot's tables and columns) limits it to what the snapshot contains.
+    Returns the query and the table names in column order, or None if there is no related table.
+    """
+    entity = _table(graph, spec.entity.table)
+    first = compiled.kept[0].cutoff
+    cutoff_time = _col("l", "cutoff_time")
+    names: list[str] = []
+    selects: list[exp.Expr] = [exp.alias_(exp.Count(this=exp.Star()), "eligible")]
+    for table in graph.tables:
+        if table.key == entity.key or not table.time_column or table.is_static:
+            continue
+        edges = [e for e in graph.edges if e.from_table == table.key and e.to_table == entity.key]
+        if not edges:
+            continue
+        edge = edges[0]
+        if held is not None and not {edge.from_columns[0], table.time_column} <= set(
+            held.get(table.key, [])
+        ):
+            continue
+        inner = (
+            exp.select(exp.Literal.number(1))
+            .from_(exp.alias_(resolve(table.key), "x"))
+            .where(
+                exp.And(
+                    this=exp.EQ(
+                        this=_col("x", edge.from_columns[0]), expression=_col("l", "entity_id")
+                    ),
+                    expression=exp.LT(
+                        this=_time_expr(compiled.dialect, "x", table), expression=cutoff_time
+                    ),
+                )
+            )
+        )
+        case = exp.Case(
+            ifs=[exp.If(this=exp.Exists(this=inner), true=exp.Literal.number(1))],
+            default=exp.Literal.number(0),
+        )
+        selects.append(exp.alias_(exp.Sum(this=case), f"covered_{len(names)}"))
+        names.append(table.name)
+    if not names:
+        return None
+    sub = exp.alias_(exp.Subquery(this=compiled.select.copy()), "l")
+    query = (
+        exp.select(*selects)
+        .from_(sub)
+        .where(exp.EQ(this=cutoff_time, expression=_stamp(compiled.dialect, first, tz=False)))
+    )
+    return query, names
+
+
+def _read_coverage(
+    spec: TaskSpec,
+    graph: SchemaGraph,
+    compiled: CompiledLabels,
+    resolve: TableResolver,
+    query: Callable[[str], Any],
+    held: dict[str, list[str]] | None = None,
+) -> list[TableCoverage]:
+    built = coverage_select(spec, graph, compiled, resolve, held)
+    if built is None:
+        return []
+    select, names = built
+    frame = arrow_to_pandas(query(select.sql(compiled.dialect)))
+    row = frame.iloc[0]
+    eligible = int(row["eligible"])
+    return [
+        TableCoverage(name, eligible, int(row[f"covered_{i}"]) if eligible else 0)
+        for i, name in enumerate(names)
+    ]
+
+
 # -- running the labels -----------------------------------------------------------------------
 
 COUNT_LIMIT = 10_000  # one row per cutoff, at most MAX_CUTOFFS
@@ -486,11 +568,25 @@ class CutoffCount:
 
 
 @dataclass(frozen=True)
+class TableCoverage:
+    """How many of the entities at the first cutoff have any row in a related table before it."""
+
+    table: str
+    eligible: int
+    covered: int
+
+    @property
+    def share(self) -> float:
+        return self.covered / self.eligible if self.eligible else 0.0
+
+
+@dataclass(frozen=True)
 class LabelRun:
     compiled: CompiledLabels
     dialect: str
     counts: list[CutoffCount]
     table: TableRef | None  # where the labels were materialized, if they were
+    coverage: list[TableCoverage] = field(default_factory=list)
 
     @property
     def total_rows(self) -> int:
@@ -589,7 +685,9 @@ def run_on_snapshot(
             f"CREATE OR REPLACE TABLE {quote_ident(table.schema)}.{quote_ident(table.name)} AS "
             f"{compiled.sql}"
         )
-    return LabelRun(compiled, "duckdb", counts, table)
+    held = {key: list(t.columns) for key, t in description.tables.items()}
+    coverage = _read_coverage(spec, graph, compiled, resolve, query, held)
+    return LabelRun(compiled, "duckdb", counts, table, coverage)
 
 
 def run_on_source(
@@ -610,5 +708,9 @@ def run_on_source(
         return sql_guard.execute(source, q, limit=COUNT_LIMIT, timeout_s=QUERY_TIMEOUT_S)
 
     return LabelRun(
-        compiled, source.dialect, _read_counts(compiled, spec.target.type == "binary", query), None
+        compiled,
+        source.dialect,
+        _read_counts(compiled, spec.target.type == "binary", query),
+        None,
+        _read_coverage(spec, graph, compiled, resolve, query),
     )

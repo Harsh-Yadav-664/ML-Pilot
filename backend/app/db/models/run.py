@@ -25,6 +25,8 @@ class Run(Base):
     engine: Mapped[str] = mapped_column(String(100), nullable=False)
     seed: Mapped[int] = mapped_column(Integer, default=42, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="created", nullable=False)
+    # What the run was started with: task version, split, feasibility report, any override (#98).
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False, server_default="{}")
     budget: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     budget_used: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     # experiments.run_id points back here, so this side is created after both tables exist.

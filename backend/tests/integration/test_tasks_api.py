@@ -423,3 +423,121 @@ async def test_preview_split_of_an_unknown_task_is_404(
 ) -> None:
     resp = await client.post(url(project_id, f"{uuid.uuid4()}/preview-split"), json={})
     assert resp.status_code == 404
+
+
+# -- feasibility checks and starting a run (#98) ----------------------------------------------
+
+RARE = CHURN.replace('compare: "= 0"', 'compare: ">= 50"').replace("churn_30d", "fifty_orders")
+
+
+async def confirmed_task(
+    client: httpx.AsyncClient, project_id: str, connection: str, text: str, version: str
+) -> str:
+    created = await client.post(url(project_id), json=body(connection, text, version))
+    assert created.status_code == 201, created.text
+    task_id = str(created.json()["id"])
+    done = await client.post(
+        url(project_id, f"{task_id}/confirm"), json={"data_version_id": version}
+    )
+    assert done.status_code == 200, done.text
+    return task_id
+
+
+async def test_the_label_preview_carries_the_feasibility_report(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z")
+    task = await saved_task(client, project_id, connection)
+    resp = await client.post(
+        url(project_id, f"{task}/preview-labels"), json={"data_version_id": version}
+    )
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["feasibility"]
+    assert report["status"] in ("ok", "warn") and report["blocked"] is False
+    codes = [c["code"] for c in report["checks"]]
+    assert codes == [
+        "positives_per_split",
+        "base_rate_per_cutoff",
+        "eligible_per_cutoff",
+        "class_imbalance",
+        "coverage",
+        "horizon_vs_data",
+    ]
+    assert report["thresholds"]["min_train_positives"] == 50
+    print("\nfeasibility of the demo churn task:")
+    for c in report["checks"]:
+        print(f"  {c['status']:5} {c['code']:22} {c['message']}")
+
+
+async def test_a_blocked_task_cannot_start_a_run_without_an_override(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z")
+    task = await confirmed_task(client, project_id, connection, RARE, version)
+    start = url(project_id, f"{task}/runs")
+
+    blocked = await client.post(start, json={"data_version_id": version})
+    assert blocked.status_code == 422, blocked.text
+    detail = blocked.json()["detail"]
+    assert detail["reasons"] and "Too few positives" in detail["reasons"][0]
+    assert detail["feasibility"]["blocked"] is True
+    print(f"\nHTTP 422 without override: {detail['reasons'][0]}")
+
+    started = await client.post(
+        start,
+        json={"data_version_id": version, "override": True, "override_reason": "pilot, accepted"},
+    )
+    assert started.status_code == 201, started.text
+    run = started.json()
+    assert run["status"] == "created" and run["data_version_id"] == version
+    override = run["manifest"]["override"]
+    assert override["used"] is True and override["reason"] == "pilot, accepted"
+    assert override["blocked_by"] == detail["reasons"]
+    assert run["manifest"]["feasibility"]["status"] == "block"
+    assert run["manifest"]["task"]["name"] == "fifty_orders"
+    print(f"HTTP 201 with override: manifest.override = {override}")
+
+    # The run is stored, and the confirmed task now counts it.
+    assert (await client.get(url(project_id, task))).json()["used_by_runs"] == 1
+
+
+async def test_a_task_that_passes_starts_a_run_and_records_no_override(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z")
+    task = await confirmed_task(client, project_id, connection, CHURN, version)
+    resp = await client.post(url(project_id, f"{task}/runs"), json={"data_version_id": version})
+    assert resp.status_code == 201, resp.text
+    manifest = resp.json()["manifest"]
+    assert manifest["override"] == {"used": False}
+    assert resp.json()["split_plan"]["val_from"].startswith("2024-04-01")
+    # Overriding a task that is not blocked records nothing.
+    again = await client.post(
+        url(project_id, f"{task}/runs"), json={"data_version_id": version, "override": True}
+    )
+    assert again.json()["manifest"]["override"] == {"used": False}
+
+
+async def test_thresholds_in_the_request_change_what_blocks(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z")
+    task = await confirmed_task(client, project_id, connection, CHURN, version)
+    strict = {"data_version_id": version, "thresholds": {"min_train_positives": 10**6}}
+    resp = await client.post(url(project_id, f"{task}/runs"), json=strict)
+    assert resp.status_code == 422, resp.text
+
+
+async def test_a_draft_task_cannot_start_a_run(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    task = await saved_task(client, project_id, connection)
+    resp = await client.post(url(project_id, f"{task}/runs"), json={})
+    assert resp.status_code == 409
+
+
+async def test_starting_a_run_of_an_unknown_task_is_404(
+    client: httpx.AsyncClient, project_id: str
+) -> None:
+    resp = await client.post(url(project_id, f"{uuid.uuid4()}/runs"), json={})
+    assert resp.status_code == 404

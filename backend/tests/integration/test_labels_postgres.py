@@ -28,5 +28,6 @@ def test_postgres_labels_match_the_same_data_in_duckdb(demo_pg, tmp_path: Path) 
 
     assert on_pg.dialect == "postgres" and on_duck.dialect == "duckdb"
     assert on_pg.counts == on_duck.counts
+    assert on_pg.coverage == on_duck.coverage and len(on_pg.coverage) >= 5  # the feasibility check
     assert on_pg.total_rows > 1000
     print(f"\npostgres == duckdb: {len(on_pg.counts)} cutoffs, {on_pg.total_rows} label rows")
