@@ -7,7 +7,14 @@ from typing import Any
 from fastapi import APIRouter, status
 
 from app.api.deps import DBSession, ProjectID
-from app.schemas.tasks import ConfirmRequest, TaskSpecInput, TaskSpecRead, TaskSpecValidation
+from app.schemas.tasks import (
+    ConfirmRequest,
+    LabelPreview,
+    LabelPreviewRequest,
+    TaskSpecInput,
+    TaskSpecRead,
+    TaskSpecValidation,
+)
 from app.services.task_service import TaskService
 from ml.tasks.spec import json_schema
 
@@ -68,3 +75,17 @@ async def confirm_task_spec(
     return await TaskService(db).confirm(
         project_id, task_id, body.data_version_id if body else None
     )
+
+
+@router.post("/{task_id}/preview-labels", response_model=LabelPreview)
+async def preview_labels(
+    task_id: str,
+    project_id: ProjectID,
+    db: DBSession,
+    body: LabelPreviewRequest | None = None,
+) -> LabelPreview:
+    """Build the labels of a task at its cutoff dates: the generated SQL, eligible entities,
+    positives and base rate per cutoff, and the cutoffs left out because their label window is
+    not complete. With a snapshot the labels are also written to the project's DuckDB file;
+    without one they are computed read-only on the database through the SQL guard."""
+    return await TaskService(db).preview_labels(project_id, task_id, body or LabelPreviewRequest())

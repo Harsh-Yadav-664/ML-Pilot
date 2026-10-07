@@ -53,3 +53,43 @@ class TaskSpecRead(BaseModel):
 
 class ConfirmRequest(BaseModel):
     data_version_id: str | None = None
+
+
+class LabelPreviewRequest(BaseModel):
+    data_version_id: str | None = Field(
+        None,
+        description="A database snapshot to build the labels from (and write them into the "
+        "project's DuckDB file), or a live version. Default: the live database as of now",
+    )
+    materialize: bool = Field(
+        True, description="Snapshots only: also write the labels as a table in the project"
+    )
+
+
+class CutoffCountRead(BaseModel):
+    cutoff: datetime
+    window_end: datetime
+    eligible: int = Field(description="Entities that are eligible at this cutoff")
+    positives: int | None = Field(None, description="Binary tasks: entities with label 1")
+    base_rate: float | None = Field(None, description="Binary tasks: positives / eligible")
+    mean_label: float | None = Field(None, description="Regression tasks")
+
+
+class DroppedCutoffRead(BaseModel):
+    cutoff: datetime
+    window_end: datetime
+    reason: str
+
+
+class LabelPreview(BaseModel):
+    sql: str = Field(description="The generated query, for reading and review")
+    dialect: Literal["duckdb", "postgres"]
+    mode: Literal["snapshot", "live"]
+    as_of: datetime
+    cutoffs: list[CutoffCountRead]
+    dropped_cutoffs: list[DroppedCutoffRead] = Field(
+        description="Cutoffs whose label window ends after the data does: left out"
+    )
+    total_rows: int
+    table: str | None = Field(None, description="Where the labels were written, if they were")
+    note: str | None = None

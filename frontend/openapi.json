@@ -824,6 +824,68 @@
         "title": "ConnectionUpdate",
         "type": "object"
       },
+      "CutoffCountRead": {
+        "properties": {
+          "base_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Binary tasks: positives / eligible",
+            "title": "Base Rate"
+          },
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "eligible": {
+            "description": "Entities that are eligible at this cutoff",
+            "title": "Eligible",
+            "type": "integer"
+          },
+          "mean_label": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Regression tasks",
+            "title": "Mean Label"
+          },
+          "positives": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Binary tasks: entities with label 1",
+            "title": "Positives"
+          },
+          "window_end": {
+            "format": "date-time",
+            "title": "Window End",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cutoff",
+          "window_end",
+          "eligible"
+        ],
+        "title": "CutoffCountRead",
+        "type": "object"
+      },
       "DataMetrics": {
         "properties": {
           "duplicate_rows": {
@@ -1033,6 +1095,31 @@
           "importance_method"
         ],
         "title": "Debrief",
+        "type": "object"
+      },
+      "DroppedCutoffRead": {
+        "properties": {
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "window_end": {
+            "format": "date-time",
+            "title": "Window End",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cutoff",
+          "window_end",
+          "reason"
+        ],
+        "title": "DroppedCutoffRead",
         "type": "object"
       },
       "Edge": {
@@ -1950,6 +2037,113 @@
           "error"
         ],
         "title": "LLMCallRead",
+        "type": "object"
+      },
+      "LabelPreview": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "cutoffs": {
+            "items": {
+              "$ref": "#/components/schemas/CutoffCountRead"
+            },
+            "title": "Cutoffs",
+            "type": "array"
+          },
+          "dialect": {
+            "enum": [
+              "duckdb",
+              "postgres"
+            ],
+            "title": "Dialect",
+            "type": "string"
+          },
+          "dropped_cutoffs": {
+            "description": "Cutoffs whose label window ends after the data does: left out",
+            "items": {
+              "$ref": "#/components/schemas/DroppedCutoffRead"
+            },
+            "title": "Dropped Cutoffs",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "snapshot",
+              "live"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "sql": {
+            "description": "The generated query, for reading and review",
+            "title": "Sql",
+            "type": "string"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the labels were written, if they were",
+            "title": "Table"
+          },
+          "total_rows": {
+            "title": "Total Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sql",
+          "dialect",
+          "mode",
+          "as_of",
+          "cutoffs",
+          "dropped_cutoffs",
+          "total_rows"
+        ],
+        "title": "LabelPreview",
+        "type": "object"
+      },
+      "LabelPreviewRequest": {
+        "properties": {
+          "data_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A database snapshot to build the labels from (and write them into the project's DuckDB file), or a live version. Default: the live database as of now",
+            "title": "Data Version Id"
+          },
+          "materialize": {
+            "default": true,
+            "description": "Snapshots only: also write the labels as a table in the project",
+            "title": "Materialize",
+            "type": "boolean"
+          }
+        },
+        "title": "LabelPreviewRequest",
         "type": "object"
       },
       "LeakageFinding": {
@@ -5831,6 +6025,75 @@
           }
         },
         "summary": "Confirm Task Spec",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks/{task_id}/preview-labels": {
+      "post": {
+        "description": "Build the labels of a task at its cutoff dates: the generated SQL, eligible entities,\npositives and base rate per cutoff, and the cutoffs left out because their label window is\nnot complete. With a snapshot the labels are also written to the project's DuckDB file;\nwithout one they are computed read-only on the database through the SQL guard.",
+        "operationId": "preview_labels_api_v1_projects__project_id__tasks__task_id__preview_labels_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LabelPreviewRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Labels",
         "tags": [
           "tasks"
         ]

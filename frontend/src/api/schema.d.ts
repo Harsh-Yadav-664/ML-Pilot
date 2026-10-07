@@ -784,6 +784,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/tasks/{task_id}/preview-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Labels
+         * @description Build the labels of a task at its cutoff dates: the generated SQL, eligible entities,
+         *     positives and base rate per cutoff, and the cutoffs left out because their label window is
+         *     not complete. With a snapshot the labels are also written to the project's DuckDB file;
+         *     without one they are computed read-only on the database through the SQL guard.
+         */
+        post: operations["preview_labels_api_v1_projects__project_id__tasks__task_id__preview_labels_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1076,6 +1099,39 @@ export interface components {
             /** Username */
             username?: string | null;
         };
+        /** CutoffCountRead */
+        CutoffCountRead: {
+            /**
+             * Base Rate
+             * @description Binary tasks: positives / eligible
+             */
+            base_rate?: number | null;
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /**
+             * Eligible
+             * @description Entities that are eligible at this cutoff
+             */
+            eligible: number;
+            /**
+             * Mean Label
+             * @description Regression tasks
+             */
+            mean_label?: number | null;
+            /**
+             * Positives
+             * @description Binary tasks: entities with label 1
+             */
+            positives?: number | null;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+        };
         /** DataMetrics */
         DataMetrics: {
             /** Duplicate Rows */
@@ -1165,6 +1221,21 @@ export interface components {
             };
             /** Importance Method */
             importance_method: string;
+        };
+        /** DroppedCutoffRead */
+        DroppedCutoffRead: {
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
         };
         /** Edge */
         Edge: {
@@ -1538,6 +1609,59 @@ export interface components {
             tokens_in: number;
             /** Tokens Out */
             tokens_out: number;
+        };
+        /** LabelPreview */
+        LabelPreview: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Cutoffs */
+            cutoffs: components["schemas"]["CutoffCountRead"][];
+            /**
+             * Dialect
+             * @enum {string}
+             */
+            dialect: "duckdb" | "postgres";
+            /**
+             * Dropped Cutoffs
+             * @description Cutoffs whose label window ends after the data does: left out
+             */
+            dropped_cutoffs: components["schemas"]["DroppedCutoffRead"][];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "snapshot" | "live";
+            /** Note */
+            note?: string | null;
+            /**
+             * Sql
+             * @description The generated query, for reading and review
+             */
+            sql: string;
+            /**
+             * Table
+             * @description Where the labels were written, if they were
+             */
+            table?: string | null;
+            /** Total Rows */
+            total_rows: number;
+        };
+        /** LabelPreviewRequest */
+        LabelPreviewRequest: {
+            /**
+             * Data Version Id
+             * @description A database snapshot to build the labels from (and write them into the project's DuckDB file), or a live version. Default: the live database as of now
+             */
+            data_version_id?: string | null;
+            /**
+             * Materialize
+             * @description Snapshots only: also write the labels as a table in the project
+             * @default true
+             */
+            materialize: boolean;
         };
         /** LeakageFinding */
         LeakageFinding: {
@@ -3684,6 +3808,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskSpecRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_labels_api_v1_projects__project_id__tasks__task_id__preview_labels_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LabelPreviewRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelPreview"];
                 };
             };
             /** @description Validation Error */

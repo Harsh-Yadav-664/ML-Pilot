@@ -14,6 +14,7 @@ import app.db.session as db_session
 from app.db.models import Run
 from tests.fixtures.api import API
 from tests.fixtures.demo_db import demo_sqlite
+from tests.integration.test_snapshots_api import finish
 from tests.unit.test_task_spec import CHURN, REFUND, SPEND, changed
 
 
@@ -250,3 +251,121 @@ async def test_without_a_data_version_the_data_is_taken_to_end_now(
     assert datetime.now(UTC).year >= 2025
     resp = await client.post(url(project_id, "validate"), json=body(connection, CHURN))
     assert [i for i in resp.json()["issues"] if i["severity"] == "error"] == []
+
+
+# -- labels (#50) ---------------------------------------------------------------------------
+
+
+async def take_snapshot(
+    client: httpx.AsyncClient,
+    project_id: str,
+    connection: str,
+    as_of: str,
+    tables: list[str] | None = None,
+) -> str:
+    resp = await client.post(
+        f"{API}/projects/{project_id}/connections/{connection}/snapshots",
+        json={"mode": "snapshot", "tables": tables or ["customers", "orders"], "as_of": as_of},
+    )
+    assert resp.status_code == 202, resp.text
+    job = await finish(client, project_id, resp.json()["job"]["id"])
+    assert job["status"] == "succeeded", job
+    return str(job["result"]["data_version_id"])
+
+
+async def saved_task(client: httpx.AsyncClient, project_id: str, connection: str) -> str:
+    resp = await client.post(url(project_id), json=body(connection, CHURN))
+    assert resp.status_code == 201, resp.text
+    return str(resp.json()["id"])
+
+
+async def test_preview_labels_on_a_snapshot_counts_per_cutoff_and_writes_the_table(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z")
+    task = await saved_task(client, project_id, connection)
+    resp = await client.post(
+        url(project_id, f"{task}/preview-labels"), json={"data_version_id": version}
+    )
+    assert resp.status_code == 200, resp.text
+    first = resp.json()
+    assert first["mode"] == "snapshot" and first["dialect"] == "duckdb"
+    assert first["dropped_cutoffs"] == []
+    assert len(first["cutoffs"]) == 19  # 2023-04-01 to 2024-10-01, monthly
+    assert "WITH" in first["sql"] and "LEFT JOIN" in first["sql"]
+    for c in first["cutoffs"]:
+        assert 0 <= c["positives"] <= c["eligible"]
+        assert c["eligible"] == 0 or c["base_rate"] == c["positives"] / c["eligible"]
+    assert first["total_rows"] == sum(c["eligible"] for c in first["cutoffs"]) > 1000
+    assert first["table"].startswith("mlpilot.labels_")
+    print(
+        f"\npreview: {len(first['cutoffs'])} cutoffs, {first['total_rows']} rows, "
+        f"base rate {first['cutoffs'][0]['base_rate']:.3f} at {first['cutoffs'][0]['cutoff'][:10]}"
+    )
+
+    # The same task on the same data is the same table with the same rows; asking again is safe.
+    again = (
+        await client.post(
+            url(project_id, f"{task}/preview-labels"), json={"data_version_id": version}
+        )
+    ).json()
+    assert again["table"] == first["table"] and again["cutoffs"] == first["cutoffs"]
+
+    # Not writing the table is an option.
+    no_table = (
+        await client.post(
+            url(project_id, f"{task}/preview-labels"),
+            json={"data_version_id": version, "materialize": False},
+        )
+    ).json()
+    assert no_table["table"] is None and no_table["cutoffs"] == first["cutoffs"]
+
+
+async def test_preview_labels_reports_the_cutoffs_with_incomplete_windows(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(client, project_id, connection, "2024-08-15T00:00:00Z")
+    task = await saved_task(client, project_id, connection)
+    resp = await client.post(
+        url(project_id, f"{task}/preview-labels"), json={"data_version_id": version}
+    )
+    assert resp.status_code == 200, resp.text
+    out = resp.json()
+    # A 30 day window from 2024-08-01 ends 2024-08-31, after the data does.
+    assert [c["cutoff"][:10] for c in out["dropped_cutoffs"]] == [
+        "2024-08-01",
+        "2024-09-01",
+        "2024-10-01",
+    ]
+    assert out["cutoffs"][-1]["cutoff"][:10] == "2024-07-01"
+    print(f"\ndropped: {[c['cutoff'][:10] for c in out['dropped_cutoffs']]}")
+
+
+async def test_preview_labels_says_what_a_snapshot_is_missing(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(
+        client, project_id, connection, "2025-01-01T00:00:00Z", tables=["customers"]
+    )
+    task = await saved_task(client, project_id, connection)
+    resp = await client.post(
+        url(project_id, f"{task}/preview-labels"), json={"data_version_id": version}
+    )
+    assert resp.status_code == 422
+    assert "orders.customer_id" in resp.json()["detail"]
+
+
+async def test_preview_labels_on_a_sqlite_source_asks_for_a_snapshot(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    task = await saved_task(client, project_id, connection)
+    resp = await client.post(url(project_id, f"{task}/preview-labels"), json={})
+    assert resp.status_code == 422
+    assert "snapshot" in resp.json()["detail"]
+
+
+async def test_preview_labels_of_an_unknown_task_is_404(
+    client: httpx.AsyncClient, project_id: str
+) -> None:
+    resp = await client.post(url(project_id, f"{uuid.uuid4()}/preview-labels"), json={})
+    assert resp.status_code == 404
