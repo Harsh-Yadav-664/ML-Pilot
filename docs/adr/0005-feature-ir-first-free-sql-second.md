@@ -1,6 +1,6 @@
 # 0005. A typed feature spec first, free SQL second
 
-**Status:** Accepted. `planned (#100, #55, #56)`.
+**Status:** Accepted. The spec, its validation and its compiler are implemented (#100, [reference](../features.md), `test_feature_ir.py`). The baseline generator (#55) and the LLM proposer (#56) are `planned`.
 
 ## Context
 
