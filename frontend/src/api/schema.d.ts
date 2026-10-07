@@ -2575,7 +2575,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "created" | "queued" | "running" | "completed" | "failed" | "cancelled";
+            status: "created" | "queued" | "running" | "completed" | "failed" | "cancelled" | "stopped";
             /** Task Id */
             task_id: string;
         };

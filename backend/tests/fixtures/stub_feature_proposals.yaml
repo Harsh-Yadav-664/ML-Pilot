@@ -28,17 +28,18 @@ good_cancelled_share:
     window_days: 180
     filter: [{column: status, op: "=", value: cancelled}]
 
-good_ticket_recency:
-  name: days_since_last_ticket
-  rationale: A recent support ticket can be a sign of friction.
-  expected_direction: unknown
+good_ticket_count_60d:
+  name: ticket_count_60d
+  rationale: A burst of support tickets over two months can be a sign of friction.
+  expected_direction: increase
   tables_used: [support_tickets]
   ir:
-    name: days_since_last_ticket
+    name: ticket_count_60d
     entity_table: customers
     path: [{from_table: support_tickets, from_columns: [customer_id], to_table: customers, to_columns: [customer_id]}]
     source_table: support_tickets
-    agg: days_since_last
+    agg: count
+    window_days: 60
 
 # reads the 30 days after the cutoff: the label's own window
 leaky_sql:

@@ -12,7 +12,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Feature
+from app.db.models import Feature, Run
+from ml.features.engine import Budget, BudgetedRun
 from ml.features.llm_sql import ProposalRecord
 
 # the proposer's last answer is the feature; a proposal that never parsed has no name of its own
@@ -62,3 +63,18 @@ async def record_proposals(
     db.add_all(rows)
     await db.flush()
     return rows
+
+
+async def stop_run_at_budget(
+    db: AsyncSession, run: Run, budgeted: BudgetedRun, budget: Budget
+) -> None:
+    """Record the budget and what was used on the run; a reached budget makes it ``stopped``.
+
+    The champion stays what it was: stopping at a budget never discards the best model so far.
+    """
+    run.budget = budget.as_dict()
+    run.budget_used = {**budgeted.used, "stopped": budgeted.stopped}
+    if budgeted.stopped is not None:
+        run.status = "stopped"
+        run.error = f"stopped: budget ({budgeted.stopped}) reached; the champion is kept"
+    await db.flush()

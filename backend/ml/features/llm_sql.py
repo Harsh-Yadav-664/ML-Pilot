@@ -24,17 +24,13 @@ When no real LLM answered (the offline stub, or every provider failed) nothing i
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import duckdb
 import pandas as pd
 import pyarrow as pa
-import sqlglot
 from pydantic import BaseModel, Field, ValidationError, model_validator
-from sqlglot.errors import SqlglotError
 
 from ai.context_builder import ContextBuilder, PromptBuilder
 from ai.context_inputs import dataset_from_graph
@@ -50,10 +46,10 @@ from ml.features.baseline import (
     typed_times,
 )
 from ml.features.compile import compile
+from ml.features.engine import FeatureEngine, sql_hash
 from ml.features.ir import NAME, FeatureIR, FeatureIRError, validate
 from ml.tasks.nl_to_spec import describe_spec
-from ml.tasks.pit_guard import CUTOFF, ENTITY, check
-from ml.tasks.pit_verify import ContractError, run_feature
+from ml.tasks.pit_guard import check
 from ml.tasks.spec import TaskSpec
 
 CORRELATION_DUPLICATE = 0.98
@@ -112,16 +108,6 @@ def _clip(text: str) -> str:
     return text if len(text) <= MAX_REASON else text[: MAX_REASON - 1] + "…"
 
 
-def sql_hash(sql: str, dialect: str = "duckdb") -> str:
-    """A hash of the query with its text normalised (case, spacing, quoting)."""
-    try:
-        tree = sqlglot.parse_one(sql, read=dialect)
-        text = tree.sql(dialect=dialect, normalize=True)
-    except SqlglotError:
-        text = " ".join(sql.lower().split())
-    return hashlib.sha256(text.encode()).hexdigest()[:16]
-
-
 def ir_key(ir: FeatureIR) -> str:
     return ir.model_dump_json(exclude={"name"})
 
@@ -140,6 +126,7 @@ class FeatureProposer:
         builder: ContextBuilder,
         stats: dict[str, TableStats] | None = None,
         allow_free_sql: bool = False,
+        engine: FeatureEngine | None = None,
     ) -> None:
         if baseline.frame is None or baseline.labels is None or baseline.train is None:
             raise ValueError("the baseline result must carry its feature frame and labels")
@@ -151,8 +138,15 @@ class FeatureProposer:
         self.stats = stats
         self.allow_free_sql = allow_free_sql
         self.labels = baseline.labels
-        self.keys = baseline.labels[[ENTITY, CUTOFF]]
-        self.index = pd.MultiIndex.from_frame(self.keys)
+        self.engine = engine or FeatureEngine(
+            self.graph,
+            self.tables,
+            baseline.labels,
+            data_version_id="unsaved",
+            label_version="unsaved",
+        )
+        if len(self.engine.labels) != len(baseline.labels):
+            raise ValueError("the feature engine must run over the same label rows as the baseline")
         self.train = baseline.train
         self.sample = self.train[:: max(1, len(self.train) // 5000)]
         self.columns: dict[str, pd.Series] = {
@@ -249,14 +243,10 @@ class FeatureProposer:
         return None, [], sql
 
     def _execute(self, sql: str) -> tuple[pd.Series | None, Stage | None, list[str]]:
-        try:
-            out = run_feature(sql, self.tables, self.keys, self.graph)
-        except ContractError as e:
-            return None, "execution", [f"the query breaks the contract: {e}"]
-        except (duckdb.Error, ValueError) as e:  # a query the checks let through can still fail
-            return None, "execution", [f"the query failed: {_clip(str(e))}"]
-        values = out.set_index([ENTITY, CUTOFF])["value"].reindex(self.index).reset_index(drop=True)
-        column = values if pd.api.types.is_numeric_dtype(values) else values.astype("float64")
+        done = self.engine.compute(sql)
+        if done.values is None:
+            return None, "execution", [f"the query failed: {done.reason}"]
+        column = done.values
         if column.iloc[self.train].nunique(dropna=False) <= 1:
             return None, "execution", ["the feature has one value on every training row"]
         for name, other in self.columns.items():
