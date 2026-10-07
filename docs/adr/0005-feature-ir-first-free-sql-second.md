@@ -1,6 +1,6 @@
 # 0005. A typed feature spec first, free SQL second
 
-**Status:** Accepted. The spec, its validation and its compiler are implemented (#100, [reference](../features.md), `test_feature_ir.py`). The baseline generator is implemented (#55, `test_dfs.py`). The LLM proposer (#56) is `planned`.
+**Status:** Accepted. The spec, its validation and its compiler are implemented (#100, [reference](../features.md), `test_feature_ir.py`). The baseline generator is implemented (#55, `test_dfs.py`). The LLM proposer is implemented (#56, `test_llm_sql.py`); how often a real model passes its checks is not measured yet.
 
 ## Context
 

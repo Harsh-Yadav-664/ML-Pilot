@@ -94,3 +94,22 @@ LightGBM stops early on the validation rows, so the validation score is slightly
 `POST /projects/{id}/tasks/{task}/runs/{run}/baseline` runs it for a run started on a snapshot, and records an experiment (the run's first champion), one `features` row per kept feature (SQL, spec, sentence, gain share) and a summary in the run's manifest. The SQL is compiled for DuckDB and run on the snapshot's copies of the tables; tables are keyed by bare name there.
 
 Limits: the "trend" feature is the recent share of a longer window (7 / 30 days, 30 / 90 days), not a ratio to the previous period, because a window is always measured back from the cutoff. Duplicate detection samples up to 5,000 training rows.
+
+## LLM-proposed features
+
+`ml/features/llm_sql.py` asks the model for one feature at a time. The prompt (built by the context builder, purpose `features.propose`) holds the task in words, the schema and column statistics, the strongest features already in use in plain English (per-category counts are described without their values), the names taken, the proposals rejected so far with the reason, and the JSON Schema of an answer. An answer is either an `ir` (the Feature IR above) or, if the project turned free SQL on, a `sql` string. No cell values are sent.
+
+Every answer goes through the same chain, and the first failing check stops it:
+
+1. **schema**: the answer parses, the name is new, the entity table is the task's, the IR validates against the schema graph (free SQL is refused unless enabled)
+2. **guard**: the IR compiles, or the free SQL passes the point-in-time guard
+3. **duplicate**: the same spec or the same normalised query is already in use
+4. **execution**: the query runs on the snapshot, keeps the label row contract, and is not constant on the training rows
+5. **duplicate_after_execution**: the values are not (almost) a copy of a feature in use (correlation above 0.98)
+
+A rejected answer is sent back once, with the stage and reasons; a second rejection is final. There is no third attempt. A proposal that passes everything is `proposed`: whether it helps is decided later, by validated gain (#58), never by the model.
+
+If no real model answers (the offline stub, or every provider failing), the result is `no_llm`: nothing is invented and the baseline stands. The tests use a scripted model (`tests/fixtures/stub_feature_proposals.yaml`) that stands for what a model might answer; it is a test double, not the stub provider.
+
+`app/services/feature_proposals.py` stores each proposal as a `Feature` row (`kind: llm_sql`) with the stage, reasons and attempts in `guard_results`. How many proposals from a real model pass is measured by `python -m scripts.feature_proposal_rate` (CI job `feature-proposals`, runs only with an API key secret); that number has not been measured yet.
+
