@@ -57,6 +57,208 @@
         "title": "AutoOptimizeRequest",
         "type": "object"
       },
+      "BaselineDroppedRead": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "description": "constant, near_constant, duplicate, leakage_scan or over_cap",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "group",
+          "reason",
+          "detail"
+        ],
+        "title": "BaselineDroppedRead",
+        "type": "object"
+      },
+      "BaselineFeatureRead": {
+        "properties": {
+          "description": {
+            "description": "The feature as one English sentence",
+            "title": "Description",
+            "type": "string"
+          },
+          "group": {
+            "description": "count, recency, trend, category, numeric, boolean or attribute",
+            "title": "Group",
+            "type": "string"
+          },
+          "importance": {
+            "description": "Share of the model's total gain",
+            "title": "Importance",
+            "type": "number"
+          },
+          "ir": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The feature spec it was compiled from; none for attributes of the entity row",
+            "title": "Ir"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sql": {
+            "description": "The feature query: reads __labels, returns entity_id, cutoff_time, value",
+            "title": "Sql",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "group",
+          "description",
+          "sql",
+          "ir",
+          "importance"
+        ],
+        "title": "BaselineFeatureRead",
+        "type": "object"
+      },
+      "BaselineRead": {
+        "properties": {
+          "candidates": {
+            "title": "Candidates",
+            "type": "integer"
+          },
+          "dropped": {
+            "items": {
+              "$ref": "#/components/schemas/BaselineDroppedRead"
+            },
+            "title": "Dropped",
+            "type": "array"
+          },
+          "dropped_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Dropped Counts",
+            "type": "object"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "experiment_id": {
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "features": {
+            "description": "Kept features, most important first",
+            "items": {
+              "$ref": "#/components/schemas/BaselineFeatureRead"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "kept": {
+            "title": "Kept",
+            "type": "integer"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Validation metrics: base rate, PR-AUC, precision, recall and lift at the top 1, 5 and 10% and top 100. The test rows are not scored here.",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "skipped_tables": {
+            "items": {
+              "$ref": "#/components/schemas/BaselineSkippedRead"
+            },
+            "title": "Skipped Tables",
+            "type": "array"
+          },
+          "split": {
+            "additionalProperties": true,
+            "title": "Split",
+            "type": "object"
+          }
+        },
+        "required": [
+          "run_id",
+          "experiment_id",
+          "engine",
+          "engine_version",
+          "seed",
+          "metrics",
+          "split",
+          "candidates",
+          "kept",
+          "dropped_counts",
+          "skipped_tables",
+          "features",
+          "dropped",
+          "seconds",
+          "notes"
+        ],
+        "title": "BaselineRead",
+        "type": "object"
+      },
+      "BaselineSkippedRead": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "table": {
+            "title": "Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table",
+          "reason"
+        ],
+        "title": "BaselineSkippedRead",
+        "type": "object"
+      },
       "Body_upload_dataset_api_v1_projects__project_id__datasets_upload_post": {
         "properties": {
           "file": {
@@ -6956,6 +7158,67 @@
           }
         },
         "summary": "Start Run",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}/baseline": {
+      "post": {
+        "description": "Build the baseline of a run: automatic aggregations over the tables related to the entity\n(counts and recency over several windows, sums and means of numeric columns, shares, counts\nper common category, attributes of the entity row), every one checked by the point-in-time\nguard; constant and duplicate features are dropped, then LightGBM is trained on the temporal\nsplit and scored on the validation rows. The result is recorded as the run's first champion.\nNeeds a snapshot data version. The test rows are not scored here.",
+        "operationId": "run_baseline_api_v1_projects__project_id__tasks__task_id__runs__run_id__baseline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaselineRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Baseline",
         "tags": [
           "tasks"
         ]

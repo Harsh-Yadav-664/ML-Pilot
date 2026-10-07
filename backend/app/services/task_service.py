@@ -320,6 +320,14 @@ class TaskService:
             raise HTTPException(422, str(e)) from None
         return _BuiltLabels(row, spec, run, mode, as_of, version_id)
 
+    async def labels_for_run(
+        self, project_id: str, task_id: str, data_version_id: str | None
+    ) -> _BuiltLabels:
+        """The labels of a task on a data version, written to the project's workspace."""
+        return await self._build_labels(
+            project_id, task_id, LabelPreviewRequest(data_version_id=data_version_id)
+        )
+
     async def preview_labels(
         self, project_id: str, task_id: str, request: LabelPreviewRequest
     ) -> LabelPreview:
