@@ -41,6 +41,7 @@ def feature_row(
     position: int,
     gain: GainResult | None = None,
     vetoed: bool = False,
+    rollout: int = 0,
 ) -> Feature:
     """A Feature row for one proposal. With ``gain`` the proposal reached the gain test: its
     status is then ``accepted`` or ``rejected_gain`` and the paired scores are stored. A
@@ -68,6 +69,7 @@ def feature_row(
         status="vetoed" if vetoed else _status(record, gain),
         guard_results=guard,
         gain=gain.to_dict() if gain is not None else None,
+        rollout=rollout,
     )
 
 

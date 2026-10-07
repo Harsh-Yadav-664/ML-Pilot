@@ -24,6 +24,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+import numpy as np
 
 from ai.gateway import AIGateway
 from app.core import datasets
@@ -65,7 +66,7 @@ from ml.data.engine import EngineError
 from ml.data.profiling.db_stats import TableStats
 from ml.data.workspace import workspace_for
 from ml.features.baseline import BaselineError, build_baseline, flatten_graph, typed_times
-from ml.features.engine import Budget, FeatureEngine
+from ml.features.engine import Budget, FeatureEngine, BudgetTracker
 from ml.features.llm_sql import FeatureProposer
 from ml.tasks import labels
 from ml.validation.splits import SplitError, TemporalSplitPlan
@@ -490,19 +491,20 @@ def _changes(old: loop.RunConfig, new: loop.RunConfig) -> dict[str, dict[str, An
 class _Sink:
     """Writes each round as it ends: the proposal, and for an accepted one the new champion."""
 
-    def __init__(self, run_id: str, previous_experiment: str, task_name: str, seed: int) -> None:
+    def __init__(self, run_id: str, previous_experiment: str, task_name: str, seed: int, rollout: int = 0) -> None:
         self.run_id = run_id
         self.parent = previous_experiment
         self.task_name = task_name
         self.seed = seed
         self.position = 0
+        self.rollout = rollout
 
     async def round_done(self, rnd: loop.Round, champion: loop.Champion) -> None:
         self.position += 1
         async with runner.sessions()() as db:
             run = await db.get(Run, self.run_id)
             assert run is not None
-            db.add(feature_row(self.run_id, rnd.record, self.position, rnd.gain, rnd.vetoed))
+            db.add(feature_row(self.run_id, rnd.record, self.position, rnd.gain, rnd.vetoed, rollout=self.rollout))
             if rnd.accepted and rnd.gain is not None and rnd.record.proposal is not None:
                 exp = Experiment(
                     id=str(uuid.uuid4()),
@@ -676,27 +678,76 @@ async def _execute(
             features = (await db.scalars(select(Feature).where(Feature.run_id == run_id).order_by(Feature.created_at))).all()
         await asyncio.to_thread(_restore_resume_state, proposer, engine, state, champion_exp, features)
         
-    sink = _Sink(run_id, previous, spec.name, seed)
+    N = request.rollouts if not is_resume else 1
+    shared_tracker = BudgetTracker(config.budget)
+    best_outcome = None
+    best_sink = None
+    best_val = -float("inf")
+
     try:
-        outcome = await loop.run_loop(
-            baseline,
-            proposer,
-            config,
-            hooks=ctx,
-            sink=sink,
-            state=state,
-            scorer=scorer,
-            control=control,
-        )
+        for i in range(N):
+            r_seed = seed + i
+            if i == 0 and not is_resume:
+                r_proposer, r_state, r_scorer = proposer, state, scorer
+                r_config = config
+            elif is_resume:
+                r_proposer, r_state, r_scorer = proposer, state, scorer
+                r_config = config
+                r_seed = seed
+            else:
+                r_proposer = FeatureProposer(
+                    spec=spec,
+                    graph=world.graph,
+                    tables=world.tables,
+                    baseline=baseline,
+                    gateway=gateway,
+                    builder=builder,
+                    stats=stats,
+                    engine=engine,
+                )
+                r_config = loop.RunConfig(
+                    max_rounds=config.max_rounds,
+                    patience=config.patience,
+                    budget=config.budget,
+                    seed=r_seed,
+                    approval_mode=config.approval_mode,
+                )
+                r_state, r_scorer = await asyncio.to_thread(loop.start_state, baseline, r_config)
+
+            r_state.tracker = shared_tracker
+            r_sink = _Sink(run_id, previous, spec.name, r_seed, rollout=i)
+            
+            outcome = await loop.run_loop(
+                baseline,
+                r_proposer,
+                r_config,
+                hooks=ctx,
+                sink=r_sink,
+                state=r_state,
+                scorer=r_scorer,
+                control=control,
+            )
+            
+            val = float(np.mean(outcome.champion.fold_scores)) if outcome.champion.fold_scores else -1.0
+            if val > best_val or best_outcome is None:
+                best_val = val
+                best_outcome = outcome
+                best_sink = r_sink
+                
+            if shared_tracker.exceeded():
+                break
     finally:
         engine.close()
-    await _finish(run_id, outcome, sink.parent, spec.name, engine, seed)
+
+    assert best_outcome is not None and best_sink is not None
+    await _finish(run_id, best_outcome, best_sink.parent, spec.name, engine, best_sink.seed, rollouts_run=min(N, i + 1))
     return {
         "run_id": run_id,
-        "status": outcome.status,
-        "stop_reason": outcome.stop_reason,
-        "accepted": len(outcome.accepted),
-        "rounds": len(outcome.rounds),
+        "status": best_outcome.status,
+        "stop_reason": best_outcome.stop_reason,
+        "accepted": len(best_outcome.accepted),
+        "rounds": len(best_outcome.rounds),
+        "rollouts": min(N, i + 1),
     }
 
 
@@ -707,6 +758,7 @@ async def _finish(
     task_name: str,
     engine: FeatureEngine,
     seed: int,
+    rollouts_run: int = 1,
 ) -> None:
     now = datetime.now(UTC)
     async with runner.sessions()() as db:
@@ -736,6 +788,7 @@ async def _finish(
                 "seed": seed,
                 "stop_reason": outcome.stop_reason,
                 "test_error": outcome.test_error,
+                "rollouts": rollouts_run,
             },
         )
         db.add(final)

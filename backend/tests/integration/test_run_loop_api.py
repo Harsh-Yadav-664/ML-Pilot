@@ -314,3 +314,80 @@ async def test_cannot_resume_completed_run(
     res = await client.post(runs_url(project_id, f"/{run_id}/resume"))
     assert res.status_code == 409
     assert "cannot be resumed" in res.json()["detail"]
+
+async def test_rollouts(
+    client: httpx.AsyncClient,
+    project_id: str,
+    connection: str,
+    test_calls: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(DEFAULT_RULE, "min_gain", -1.0)
+    monkeypatch.setitem(DEFAULT_RULE, "std_multiplier", -1e6)
+
+    # 3 rollouts, 2 rounds each.
+    # We will simulate 3 independent histories.
+    gateway = Costly([answer(k) for k in GOOD[:6]], cost=0.01)
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z", TABLES)
+    _, run_id = await started_run(client, project_id, connection, version)
+
+    ctx = FakeCtx(cancel_from_check=999)
+    res_execute = await run_service.execute(
+        ctx,
+        {"run_id": run_id, "request": {"max_rounds": 2, "patience": 2, "rollouts": 3}},
+        lambda: gateway,
+    )
+    assert res_execute["rollouts"] == 3
+
+    # Check test_calls (only 1 test scored, because test rows scored once for the best champion)
+    assert len(test_calls) == 1
+
+    # Check features have rollout IDs
+    async with db_session.AsyncSessionLocal() as db:
+        features = (await db.scalars(select(Feature).where(Feature.run_id == run_id))).all()
+        rollouts = {f.rollout for f in features}
+        assert 0 in rollouts
+        assert 1 in rollouts
+        assert 2 in rollouts
+
+    # Check that manifest has rollouts=3
+    async with db_session.AsyncSessionLocal() as db:
+        final_exp = await db.scalar(
+            select(Experiment).where(Experiment.run_id == run_id, Experiment.decision_mode == "auto").order_by(Experiment.created_at.desc())
+        )
+        assert final_exp is not None
+        assert final_exp.manifest.get("rollouts") == 3
+
+async def test_rollout_shared_budget(
+    client: httpx.AsyncClient,
+    project_id: str,
+    connection: str,
+    test_calls: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(DEFAULT_RULE, "min_gain", -1.0)
+    monkeypatch.setitem(DEFAULT_RULE, "std_multiplier", -1e6)
+
+    # Each API call costs 0.02. We set budget to 0.05.
+    # Rollout 0 does round 1 (0.02), round 2 (0.02) -> total 0.04.
+    # Rollout 1 does round 1 (0.02) -> total 0.06 -> exceeds budget and stops!
+    # Rollout 2 shouldn't even execute!
+    gateway = Costly([answer(k) for k in GOOD[:6]], cost=0.02)
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z", TABLES)
+    _, run_id = await started_run(client, project_id, connection, version)
+
+    ctx = FakeCtx(cancel_from_check=999)
+    res_execute = await run_service.execute(
+        ctx,
+        {"run_id": run_id, "request": {"max_rounds": 2, "patience": 2, "rollouts": 3, "max_cost_usd": 0.05}},
+        lambda: gateway,
+    )
+
+    # Check features have rollout IDs
+    async with db_session.AsyncSessionLocal() as db:
+        features = (await db.scalars(select(Feature).where(Feature.run_id == run_id))).all()
+        rollouts = {f.rollout for f in features}
+        # Rollout 2 should NOT have any features because budget was exhausted before or during rollout 1
+        assert 0 in rollouts
+        assert 1 in rollouts
+        assert 2 not in rollouts
