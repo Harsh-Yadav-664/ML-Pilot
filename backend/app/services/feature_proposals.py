@@ -26,10 +26,15 @@ def _name(record: ProposalRecord, position: int) -> str:
 
 
 def feature_row(
-    run_id: str, record: ProposalRecord, position: int, gain: GainResult | None = None
+    run_id: str,
+    record: ProposalRecord,
+    position: int,
+    gain: GainResult | None = None,
+    vetoed: bool = False,
 ) -> Feature:
     """A Feature row for one proposal. With ``gain`` the proposal reached the gain test: its
-    status is then ``accepted`` or ``rejected_gain`` and the paired scores are stored."""
+    status is then ``accepted`` or ``rejected_gain`` and the paired scores are stored. A
+    proposal the person vetoed has the status ``vetoed`` and no gain."""
     p = record.proposal
     guard: dict[str, Any] = {
         "status": record.status,
@@ -50,7 +55,7 @@ def feature_row(
         sql=record.sql,
         ir=p.ir.model_dump(mode="json") if p is not None and p.ir is not None else None,
         rationale=p.rationale if p is not None else None,
-        status=_status(record, gain),
+        status="vetoed" if vetoed else _status(record, gain),
         guard_results=guard,
         gain=gain.to_dict() if gain is not None else None,
     )

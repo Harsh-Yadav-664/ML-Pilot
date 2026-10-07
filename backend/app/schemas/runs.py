@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,19 @@ class RunLoopRequest(BaseModel):
     max_proposals: int | None = Field(None, ge=1, description="Stop after this many proposals")
     feature_timeout_seconds: float = Field(
         120.0, gt=0, le=3600, description="One feature's query may run this long"
+    )
+    approval_mode: Literal["auto", "confirm_task", "approve_each_feature"] = Field(
+        "confirm_task",
+        description="approve_each_feature: the run waits for you to approve or veto every "
+        "proposal that passed the checks. The other two never pause it: the task spec was "
+        "confirmed before the run",
+    )
+    checkpoint_timeout_seconds: float = Field(
+        300.0,
+        gt=0,
+        le=86400,
+        description="How long a question waits; with no answer the recommended action (approve) "
+        "is taken and the run goes on",
     )
 
 
@@ -68,3 +81,78 @@ class RunStateRead(BaseModel):
 class RunFeaturesRead(BaseModel):
     run_id: str
     features: list[FeatureRead]
+
+
+class CheckpointRead(BaseModel):
+    id: str
+    run_id: str
+    round: int
+    kind: str
+    state: Literal["pending", "approved", "vetoed", "timeout"]
+    recommended: Literal["approve", "veto"] = Field(description="What a timeout does")
+    payload: dict[str, Any] = Field(description="What to look at: the proposal and its query")
+    note: str | None = None
+    timeout_seconds: float
+    created_at: datetime
+    decided_at: datetime | None = None
+
+
+class CheckpointDecision(BaseModel):
+    decision: Literal["approve", "veto"]
+    note: str | None = Field(None, max_length=500)
+
+
+class SuggestionCreate(BaseModel):
+    text: str = Field(
+        min_length=1,
+        max_length=500,
+        description="A feature idea in plain words. The model sees it in the next round; what it "
+        "proposes from it goes through the same checks as any proposal",
+    )
+
+
+class SuggestionRead(BaseModel):
+    id: str
+    run_id: str
+    text: str
+    state: Literal["new", "used"]
+    created_at: datetime
+    used_in_round: int | None = None
+
+
+class SettingsMessage(BaseModel):
+    message: str = Field(
+        min_length=1,
+        max_length=300,
+        description="For example 'budget $1', 'at most 5 rounds', 'ask me before each feature'",
+    )
+
+
+class SettingChange(BaseModel):
+    setting: str
+    from_: Any = Field(alias="from")
+    to: Any
+
+    model_config = {"populate_by_name": True}
+
+
+class SettingsPreview(BaseModel):
+    """What a sentence would change. Nothing is changed until it is applied."""
+
+    changes: list[SettingChange]
+    unrecognised: list[str] = Field(description="Parts of the message that were not understood")
+    summary: str
+    applied: bool = Field(description="False for a preview; True once it was applied to the run")
+
+
+class NarrationItem(BaseModel):
+    seq: int
+    type: str
+    text: str
+    at: datetime
+    payload: dict[str, Any] = Field(description="The event the sentence was written from")
+
+
+class RunNarration(BaseModel):
+    run_id: str
+    items: list[NarrationItem]

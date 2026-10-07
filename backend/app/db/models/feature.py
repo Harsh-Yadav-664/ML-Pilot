@@ -21,7 +21,7 @@ class Feature(Base):
     formula: Mapped[str | None] = mapped_column(Text, nullable=True)
     ir: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # Feature IR (#100)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # proposed, rejected_guard, rejected_duplicate, rejected_gain, accepted
+    # proposed, rejected_guard, rejected_duplicate, rejected_gain, accepted, vetoed
     status: Mapped[str] = mapped_column(String(30), default="proposed", nullable=False)
     guard_results: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     gain: Mapped[dict | None] = mapped_column(JSON, nullable=True)
