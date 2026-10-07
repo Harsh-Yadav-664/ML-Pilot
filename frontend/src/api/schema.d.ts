@@ -678,6 +678,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/tasks/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Task Specs */
+        get: operations["list_task_specs_api_v1_projects__project_id__tasks__get"];
+        put?: never;
+        /**
+         * Create Task Spec
+         * @description Save a new task as a draft (version 1). A spec that is not valid YAML or breaks the
+         *     format is a 422; problems against the schema are returned in ``issues`` and block confirming.
+         */
+        post: operations["create_task_spec_api_v1_projects__project_id__tasks__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/tasks/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Task Spec Schema
+         * @description JSON Schema of the task spec, for the editor and for structured LLM output.
+         */
+        get: operations["get_task_spec_schema_api_v1_projects__project_id__tasks_schema_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/tasks/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate Task Spec
+         * @description Check a spec against a connection's schema without saving it. Every problem is returned
+         *     with the path of its field; warnings do not block confirming.
+         */
+        post: operations["validate_task_spec_api_v1_projects__project_id__tasks_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Task Spec */
+        get: operations["get_task_spec_api_v1_projects__project_id__tasks__task_id__get"];
+        /**
+         * Update Task Spec
+         * @description Edit a draft in place. Editing a confirmed spec saves the next version as a draft and
+         *     leaves the confirmed one, and every run that uses it, untouched.
+         */
+        put: operations["update_task_spec_api_v1_projects__project_id__tasks__task_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/tasks/{task_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Task Spec
+         * @description Confirm a draft: validated again, refused (422 with the issues) if any error remains.
+         *     The schema fingerprint it was checked against is stored.
+         */
+        post: operations["confirm_task_spec_api_v1_projects__project_id__tasks__task_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -818,6 +924,11 @@ export interface components {
             top_values?: components["schemas"]["TopValue"][];
             /** Type */
             type: string;
+        };
+        /** ConfirmRequest */
+        ConfirmRequest: {
+            /** Data Version Id */
+            data_version_id?: string | null;
         };
         /** ConnectionCreate */
         ConnectionCreate: {
@@ -1646,6 +1757,21 @@ export interface components {
             job?: components["schemas"]["JobRead"] | null;
             version?: components["schemas"]["DbVersionRead"] | null;
         };
+        /** SpecIssueRead */
+        SpecIssueRead: {
+            /** Message */
+            message: string;
+            /**
+             * Path
+             * @description Dotted path of the field, such as 'cutoffs.end' or 'eligibility[1]'
+             */
+            path: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "error" | "warning";
+        };
         /**
          * SqlSnapshotRequest
          * @description Run one read-only query and store the result as a data version.
@@ -1796,6 +1922,83 @@ export interface components {
              */
             computed_at: string;
             stats: components["schemas"]["TableStats"];
+        };
+        /** TaskSpecInput */
+        TaskSpecInput: {
+            /**
+             * Connection Id
+             * @description The connection whose schema the spec is checked against
+             */
+            connection_id: string;
+            /**
+             * Data Version Id
+             * @description A database version: its as_of is where the data ends. Default: now
+             */
+            data_version_id?: string | null;
+            /**
+             * Yaml
+             * @description The task spec as YAML (docs/task_spec.md)
+             */
+            yaml: string;
+        };
+        /** TaskSpecRead */
+        TaskSpecRead: {
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /** Confirmed By */
+            confirmed_by: string | null;
+            /** Connection Id */
+            connection_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /**
+             * Issues
+             * @description Problems found when it was saved or confirmed
+             */
+            issues?: components["schemas"]["SpecIssueRead"][];
+            /** Name */
+            name: string;
+            /** Project Id */
+            project_id: string;
+            /** Schema Fingerprint */
+            schema_fingerprint: string | null;
+            /** Spec */
+            spec: {
+                [key: string]: unknown;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "confirmed";
+            /**
+             * Used By Runs
+             * @description Runs that point at this exact version
+             */
+            used_by_runs: number;
+            /** Version */
+            version: number;
+            /** Yaml */
+            yaml: string;
+        };
+        /** TaskSpecValidation */
+        TaskSpecValidation: {
+            /** Issues */
+            issues: components["schemas"]["SpecIssueRead"][];
+            /** Schema Fingerprint */
+            schema_fingerprint?: string | null;
+            /**
+             * Spec
+             * @description The parsed spec, defaults filled in
+             */
+            spec?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * TaskType
@@ -3241,6 +3444,246 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrivacyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_task_specs_api_v1_projects__project_id__tasks__get: {
+        parameters: {
+            query?: {
+                latest_only?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSpecRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_task_spec_api_v1_projects__project_id__tasks__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskSpecInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSpecRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_task_spec_schema_api_v1_projects__project_id__tasks_schema_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_task_spec_api_v1_projects__project_id__tasks_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskSpecInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSpecValidation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_task_spec_api_v1_projects__project_id__tasks__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSpecRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_task_spec_api_v1_projects__project_id__tasks__task_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskSpecInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSpecRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_task_spec_api_v1_projects__project_id__tasks__task_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConfirmRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSpecRead"];
                 };
             };
             /** @description Validation Error */
