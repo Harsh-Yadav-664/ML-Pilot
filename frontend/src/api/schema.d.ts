@@ -554,6 +554,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/llm-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Llm Calls
+         * @description Every prompt sent for this project, newest first (no prompt text: see the detail).
+         */
+        get: operations["list_llm_calls_api_v1_projects__project_id__llm_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/llm-calls/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Llm Call
+         * @description One call with the full text of the prompt, its manifest and the response.
+         */
+        get: operations["get_llm_call_api_v1_projects__project_id__llm_calls__call_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/privacy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Privacy */
+        get: operations["get_privacy_api_v1_projects__project_id__privacy_get"];
+        /**
+         * Set Privacy
+         * @description Replace the level and the never-send list. Takes effect on the next prompt.
+         */
+        put: operations["set_privacy_api_v1_projects__project_id__privacy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1181,6 +1242,86 @@ export interface components {
              */
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         };
+        /** LLMCallDetail */
+        LLMCallDetail: {
+            /** Cost Usd */
+            cost_usd: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Decision Mode
+             * @description llm, fallback (offline stub), failed or pending
+             */
+            decision_mode: string;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Manifest */
+            manifest?: {
+                [key: string]: unknown;
+            };
+            /** Model */
+            model: string;
+            /** Privacy Level */
+            privacy_level: string | null;
+            /** Prompt */
+            prompt: string;
+            /** Prompt Chars */
+            prompt_chars: number;
+            /** Provider */
+            provider: string;
+            /** Purpose */
+            purpose: string;
+            /** Response */
+            response?: unknown;
+            /** System */
+            system: string;
+            /** Tokens In */
+            tokens_in: number;
+            /** Tokens Out */
+            tokens_out: number;
+        };
+        /** LLMCallRead */
+        LLMCallRead: {
+            /** Cost Usd */
+            cost_usd: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Decision Mode
+             * @description llm, fallback (offline stub), failed or pending
+             */
+            decision_mode: string;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Model */
+            model: string;
+            /** Privacy Level */
+            privacy_level: string | null;
+            /** Prompt Chars */
+            prompt_chars: number;
+            /** Provider */
+            provider: string;
+            /** Purpose */
+            purpose: string;
+            /** Tokens In */
+            tokens_in: number;
+            /** Tokens Out */
+            tokens_out: number;
+        };
         /** LeakageFinding */
         LeakageFinding: {
             /** Category */
@@ -1217,6 +1358,49 @@ export interface components {
             page_size: number;
             /** Total */
             total: number;
+        };
+        /**
+         * PrivacyLevel
+         * @enum {string}
+         */
+        PrivacyLevel: "schema_only" | "schema_and_stats" | "allow_category_labels" | "allow_sample_values";
+        /** PrivacyRead */
+        PrivacyRead: {
+            /**
+             * @description What the LLM may see of the data
+             * @default schema_and_stats
+             */
+            level: components["schemas"]["PrivacyLevel"];
+            /**
+             * Level Summaries
+             * @description One line per level, for the settings page
+             */
+            level_summaries: {
+                [key: string]: string;
+            };
+            /**
+             * Never Send
+             * @description Columns that are never sent: `column` (any table) or `table.column`
+             */
+            never_send?: string[];
+            /**
+             * Warning
+             * @description Set when the level can send cell values
+             */
+            warning?: string | null;
+        };
+        /** PrivacySettings */
+        PrivacySettings: {
+            /**
+             * @description What the LLM may see of the data
+             * @default schema_and_stats
+             */
+            level: components["schemas"]["PrivacyLevel"];
+            /**
+             * Never Send
+             * @description Columns that are never sent: `column` (any table) or `table.column`
+             */
+            never_send?: string[];
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -2650,6 +2834,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_llm_calls_api_v1_projects__project_id__llm_calls_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMCallRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_llm_call_api_v1_projects__project_id__llm_calls__call_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMCallDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_privacy_api_v1_projects__project_id__privacy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_privacy_api_v1_projects__project_id__privacy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivacySettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyRead"];
                 };
             };
             /** @description Validation Error */

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -15,6 +15,9 @@ class LLMCall(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("runs.id"), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("projects.id"), nullable=True, index=True
+    )
     purpose: Mapped[str] = mapped_column(String(100), nullable=False)
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     model: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -22,7 +25,13 @@ class LLMCall(Base):
     tokens_out: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    decision_mode: Mapped[str] = mapped_column(String(20), nullable=False)  # llm, fallback
+    # pending (sent, no answer yet), llm, fallback (the offline stub answered) or failed
+    decision_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    privacy_level: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    prompt_chars: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
     prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     prompt_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

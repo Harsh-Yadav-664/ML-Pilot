@@ -1634,6 +1634,216 @@
         "title": "JobRead",
         "type": "object"
       },
+      "LLMCallDetail": {
+        "properties": {
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_mode": {
+            "description": "llm, fallback (offline stub), failed or pending",
+            "title": "Decision Mode",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "privacy_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Privacy Level"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "prompt_chars": {
+            "title": "Prompt Chars",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "response": {
+            "title": "Response"
+          },
+          "system": {
+            "title": "System",
+            "type": "string"
+          },
+          "tokens_in": {
+            "title": "Tokens In",
+            "type": "integer"
+          },
+          "tokens_out": {
+            "title": "Tokens Out",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "purpose",
+          "provider",
+          "model",
+          "decision_mode",
+          "privacy_level",
+          "prompt_chars",
+          "tokens_in",
+          "tokens_out",
+          "cost_usd",
+          "latency_ms",
+          "error",
+          "system",
+          "prompt"
+        ],
+        "title": "LLMCallDetail",
+        "type": "object"
+      },
+      "LLMCallRead": {
+        "properties": {
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_mode": {
+            "description": "llm, fallback (offline stub), failed or pending",
+            "title": "Decision Mode",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "privacy_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Privacy Level"
+          },
+          "prompt_chars": {
+            "title": "Prompt Chars",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "tokens_in": {
+            "title": "Tokens In",
+            "type": "integer"
+          },
+          "tokens_out": {
+            "title": "Tokens Out",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "purpose",
+          "provider",
+          "model",
+          "decision_mode",
+          "privacy_level",
+          "prompt_chars",
+          "tokens_in",
+          "tokens_out",
+          "cost_usd",
+          "latency_ms",
+          "error"
+        ],
+        "title": "LLMCallRead",
+        "type": "object"
+      },
       "LeakageFinding": {
         "properties": {
           "category": {
@@ -1722,6 +1932,77 @@
           "has_prev"
         ],
         "title": "PaginatedResponse[ProjectRead]",
+        "type": "object"
+      },
+      "PrivacyLevel": {
+        "enum": [
+          "schema_only",
+          "schema_and_stats",
+          "allow_category_labels",
+          "allow_sample_values"
+        ],
+        "title": "PrivacyLevel",
+        "type": "string"
+      },
+      "PrivacyRead": {
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/PrivacyLevel",
+            "default": "schema_and_stats",
+            "description": "What the LLM may see of the data"
+          },
+          "level_summaries": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "One line per level, for the settings page",
+            "title": "Level Summaries",
+            "type": "object"
+          },
+          "never_send": {
+            "description": "Columns that are never sent: `column` (any table) or `table.column`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Never Send",
+            "type": "array"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the level can send cell values",
+            "title": "Warning"
+          }
+        },
+        "required": [
+          "level_summaries"
+        ],
+        "title": "PrivacyRead",
+        "type": "object"
+      },
+      "PrivacySettings": {
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/PrivacyLevel",
+            "default": "schema_and_stats",
+            "description": "What the LLM may see of the data"
+          },
+          "never_send": {
+            "description": "Columns that are never sent: `column` (any table) or `table.column`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Never Send",
+            "type": "array"
+          }
+        },
+        "title": "PrivacySettings",
         "type": "object"
       },
       "ProjectCreate": {
@@ -4302,6 +4583,221 @@
         "summary": "Stream Job Events",
         "tags": [
           "jobs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/llm-calls": {
+      "get": {
+        "description": "Every prompt sent for this project, newest first (no prompt text: see the detail).",
+        "operationId": "list_llm_calls_api_v1_projects__project_id__llm_calls_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LLMCallRead"
+                  },
+                  "title": "Response List Llm Calls Api V1 Projects  Project Id  Llm Calls Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Llm Calls",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/llm-calls/{call_id}": {
+      "get": {
+        "description": "One call with the full text of the prompt, its manifest and the response.",
+        "operationId": "get_llm_call_api_v1_projects__project_id__llm_calls__call_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "title": "Call Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMCallDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Llm Call",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/privacy": {
+      "get": {
+        "operationId": "get_privacy_api_v1_projects__project_id__privacy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Privacy",
+        "tags": [
+          "privacy"
+        ]
+      },
+      "put": {
+        "description": "Replace the level and the never-send list. Takes effect on the next prompt.",
+        "operationId": "set_privacy_api_v1_projects__project_id__privacy_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivacySettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Privacy",
+        "tags": [
+          "privacy"
         ]
       }
     },

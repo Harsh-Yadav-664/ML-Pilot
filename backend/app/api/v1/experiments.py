@@ -21,6 +21,7 @@ from app.schemas.experiment import ExperimentCreate, ExperimentRead
 from app.services import data_service
 from app.services.experiment_service import ExperimentService, champion_path
 from app.services.export_service import ExportNotAvailable, training_script
+from app.services.privacy_service import PrivacyService
 from ml.models.engines import DEFAULT_ENGINE, EngineNotAvailable, get_engine
 
 logger = logging.getLogger(__name__)
@@ -164,7 +165,7 @@ async def run_auto_clean(
     profile = DataProfiler().profile(df, target_column=request.target_column)
     try:
         prep_config = await DataCleaningAgent(gateway).generate_cleaning_strategy(
-            profile, request.target_column
+            profile, request.target_column, await PrivacyService(db).builder(project_id)
         )
     except CleaningStrategyError as e:
         raise HTTPException(status_code=502, detail=f"AI cleaning strategy failed: {e}") from e
@@ -233,13 +234,21 @@ async def debrief(
     importances = params.get("feature_importances") or {}
     method = params.get("importance_method", "not available: the run recorded no importances")
     if importances:
-        drivers = f"Feature importances ({method}): {importances}."
+        drivers = f"Feature importances ({method}) are listed above."
     else:
         drivers = f"Feature importances are {method}. Do not name any feature as a driver."
     prompt = (
-        f"Experiment {exp.id} used {exp.model_name}. Metrics: {exp.metrics}. {drivers} "
-        "Write a 3-sentence plain-language debrief. Only mention columns listed above, "
-        "and say that the importances are the model's built-in ones, not SHAP."
+        (await PrivacyService(db).builder(project_id))
+        .prompt("experiment.debrief")
+        .text("", f"Experiment {exp.id} used {exp.model_name}.")
+        .facts("Metrics", exp.metrics)
+        .facts("Feature importances", importances)
+        .text(
+            "",
+            f"{drivers} Write a 3-sentence plain-language debrief. Only mention columns "
+            "listed above, and say that the importances are the model's built-in ones, not SHAP.",
+        )
+        .build()
     )
     try:
         text = await gateway.complete(TaskType.REPORT, prompt)

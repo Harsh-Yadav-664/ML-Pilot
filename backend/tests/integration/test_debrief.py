@@ -81,7 +81,7 @@ async def test_debrief_mentions_only_real_columns(
     real_complete = gateway.complete
 
     async def capture(task_type, prompt, **kwargs):
-        prompts.append(prompt)
+        prompts.append(prompt.text)
         return await real_complete(task_type, prompt, **kwargs)
 
     monkeypatch.setattr(gateway, "complete", capture)
@@ -94,7 +94,7 @@ async def test_debrief_mentions_only_real_columns(
     assert "not SHAP" in body["importance_method"]
     # The prompt names the real top columns and none of the old fake ones.
     assert next(iter(importances)) in prompts[0]
-    for fake in ("'age'", "'balance'", "'is_active'"):
+    for fake in ('"age"', '"balance"', '"is_active"'):
         assert fake not in prompts[0]
 
 

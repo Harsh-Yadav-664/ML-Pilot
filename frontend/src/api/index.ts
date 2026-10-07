@@ -141,16 +141,22 @@ const versionBody = (d: ActiveDataset): S['DatasetTargetRequest'] => ({
   target_column: d.target_column,
 });
 
-export const loadSampleDataset = () =>
+/** The project path, waiting for the first project to exist if the page was clicked before it did. */
+async function readyProject(): Promise<string> {
+  if (!projectId) await ensureProject();
+  return project();
+}
+
+export const loadSampleDataset = async () =>
   api
-    .post<DatasetInfo>(`${project()}/datasets/sample`, { dataset_name: 'telecom_churn' } satisfies S['SampleDatasetRequest'])
+    .post<DatasetInfo>(`${await readyProject()}/datasets/sample`, { dataset_name: 'telecom_churn' } satisfies S['SampleDatasetRequest'])
     .then((r) => r.data);
 
-export const uploadDataset = (file: File) => {
+export const uploadDataset = async (file: File) => {
   const form = new FormData();
   form.append('file', file);
   return api
-    .post<DatasetInfo>(`${project()}/datasets/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
+    .post<DatasetInfo>(`${await readyProject()}/datasets/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
     .then((r) => r.data);
 };
 

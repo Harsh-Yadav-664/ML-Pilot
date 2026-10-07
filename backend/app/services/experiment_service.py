@@ -171,8 +171,8 @@ class ExperimentService:
         Raises ValueError if the dataset can't be loaded and RuntimeError if the
         planner fails.
         """
-        from ai.gateway import AIGateway
-        from app.core.config import settings
+        from app.services.llm_gateway import make_gateway
+        from app.services.privacy_service import builder_for
         from ml.data.profiling.profiler import DataProfiler
         from ml.experiments.planner import ExperimentPlanner
 
@@ -189,7 +189,9 @@ class ExperimentService:
 
         # The planner proposes one hypothesis at a time; feed earlier proposals
         # back as history so each new one is distinct.
-        planner = ExperimentPlanner(gateway or AIGateway(settings))
+        planner = ExperimentPlanner(
+            gateway or make_gateway(), await builder_for(project_id, self.db)
+        )
         hypotheses: list[dict] = []
         try:
             for _ in range(max_hypotheses):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ai.context_builder import BuiltPrompt, ContextBuilder
 from ai.gateway import AIGateway
 
 
@@ -20,3 +21,18 @@ def stub_gateway() -> AIGateway:
     gateway = AIGateway(config=StubOnlySettings())
     assert gateway.list_providers() == ["stub"]
     return gateway
+
+
+def prompt(text: str, system: str = "", purpose: str = "test") -> BuiltPrompt:
+    """A plain-text prompt for tests that exercise the gateway itself."""
+    return ContextBuilder().prompt(purpose, system).text("", text).build()
+
+
+def recording_gateway() -> AIGateway:
+    """The stub-only gateway with the prompt log, writing to the test database and projects dir."""
+    from app.services.llm_gateway import make_gateway
+
+    gateway = make_gateway()
+    stub = AIGateway(config=StubOnlySettings(), recorder=gateway.recorder)
+    assert stub.list_providers() == ["stub"]
+    return stub

@@ -20,6 +20,7 @@ from app.core import datasets
 from app.db.session import AsyncSessionLocal
 from app.schemas.experiment import ExperimentCreate
 from app.services.experiment_service import ExperimentService
+from app.services.privacy_service import builder_for
 from ml.data.profiling.profiler import DataProfiler
 from ml.data.workspace import workspace_for
 from ml.experiments.planner import ExperimentPlanner
@@ -77,7 +78,8 @@ class DecisionAgent:
         profiler = DataProfiler()
         profile = profiler.profile(df, target_column=target_column)
 
-        planner = ExperimentPlanner(self.gateway)
+        builder = await builder_for(project_id)
+        planner = ExperimentPlanner(self.gateway, builder)
 
         # Helper: create one experiment record in its own session
         async def create_experiment(create_data: ExperimentCreate) -> str:
@@ -244,12 +246,18 @@ class DecisionAgent:
             try:
                 explained = await self.gateway.complete_result(
                     task_type=TaskType.SUMMARIZE,
-                    prompt=(
-                        f"A candidate feature '{feature_name}' = {formula} was {decision}ed by a fixed "
-                        f"statistical rule. Facts: {rule_summary} In two sentences, explain this "
-                        "decision to a data analyst. Do not change or second-guess the decision."
-                    ),
-                    system="You explain ML experiment decisions plainly. Use only the facts given.",
+                    prompt=builder.prompt(
+                        "agent.explain_decision",
+                        "You explain ML experiment decisions plainly. Use only the facts given.",
+                    )
+                    .text(
+                        "",
+                        f"A candidate feature '{feature_name}' = {formula} was {decision}ed by a "
+                        f"fixed statistical rule. Facts: {rule_summary} In two sentences, explain "
+                        "this decision to a data analyst. Do not change or second-guess the "
+                        "decision.",
+                    )
+                    .build(),
                 )
                 explanation, explanation_mode = explained.text, explained.decision_mode
             except Exception as e:  # noqa: BLE001 - the rule decision stands; explanation_mode records 'fallback'
