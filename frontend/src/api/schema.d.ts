@@ -1937,48 +1937,6 @@ export interface components {
             suggested_metric?: string | null;
             thresholds: components["schemas"]["Thresholds"];
         };
-        /** FeatureRead */
-        FeatureRead: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Formula */
-            formula?: string | null;
-            /** Gain */
-            gain?: {
-                [key: string]: unknown;
-            } | null;
-            /** Guard Results */
-            guard_results?: {
-                [key: string]: unknown;
-            } | null;
-            /** Id */
-            id: string;
-            /** Ir */
-            ir?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "dfs" | "llm_sql" | "formula" | "user";
-            /** Name */
-            name: string;
-            /** Rationale */
-            rationale?: string | null;
-            /** Run Id */
-            run_id: string;
-            /** Sql */
-            sql?: string | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "proposed" | "rejected_guard" | "rejected_duplicate" | "rejected_gain" | "accepted" | "vetoed";
-        };
         /** FeatureSuggestion */
         FeatureSuggestion: {
             /**
@@ -2380,10 +2338,57 @@ export interface components {
             /** Target Column */
             target_column: string;
         };
+        /** RunFeatureRead */
+        RunFeatureRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Description
+             * @description The feature in one English sentence: from its spec, else its rationale
+             */
+            description?: string | null;
+            /** Formula */
+            formula?: string | null;
+            /** Gain */
+            gain?: {
+                [key: string]: unknown;
+            } | null;
+            /** Guard Results */
+            guard_results?: {
+                [key: string]: unknown;
+            } | null;
+            /** Id */
+            id: string;
+            /** Ir */
+            ir?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "dfs" | "llm_sql" | "formula" | "user";
+            /** Name */
+            name: string;
+            /** Rationale */
+            rationale?: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Sql */
+            sql?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "proposed" | "rejected_guard" | "rejected_duplicate" | "rejected_gain" | "accepted" | "vetoed";
+        };
         /** RunFeaturesRead */
         RunFeaturesRead: {
             /** Features */
-            features: components["schemas"]["FeatureRead"][];
+            features: components["schemas"]["RunFeatureRead"][];
             /** Run Id */
             run_id: string;
         };
@@ -2483,6 +2488,11 @@ export interface components {
              * @description Of those, kept because they helped
              */
             accepted: number;
+            /**
+             * As Of
+             * @description Where the data of the run ends
+             */
+            as_of?: string | null;
             /** Budget */
             budget: {
                 [key: string]: unknown;
@@ -2501,17 +2511,41 @@ export interface components {
             data_version_id: string | null;
             /** Error */
             error: string | null;
+            /**
+             * Feasibility
+             * @description The feasibility report the run was started with
+             */
+            feasibility?: {
+                [key: string]: unknown;
+            } | null;
             /** Finished At */
             finished_at: string | null;
             /** Id */
             id: string;
+            /**
+             * Job Id
+             * @description The latest job of the run; cancel it there
+             */
+            job_id?: string | null;
             /** Notes */
             notes: string[];
+            /**
+             * Question
+             * @description The question the task was drafted from, if it was drafted from one
+             */
+            question?: string | null;
             /**
              * Rounds
              * @description Proposals made so far
              */
             rounds: number;
+            /**
+             * Split Plan
+             * @description val_from and test_from
+             */
+            split_plan?: {
+                [key: string]: unknown;
+            };
             /** Started At */
             started_at: string | null;
             /**
@@ -2526,6 +2560,11 @@ export interface components {
             stop_reason?: string | null;
             /** Task Id */
             task_id: string | null;
+            /**
+             * Task Name
+             * @description The confirmed task's name
+             */
+            task_name?: string | null;
             /** Test Error */
             test_error?: string | null;
             /**

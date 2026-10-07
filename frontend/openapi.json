@@ -2032,128 +2032,6 @@
         "title": "FeasibilityRead",
         "type": "object"
       },
-      "FeatureRead": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "formula": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Formula"
-          },
-          "gain": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gain"
-          },
-          "guard_results": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Guard Results"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "ir": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ir"
-          },
-          "kind": {
-            "enum": [
-              "dfs",
-              "llm_sql",
-              "formula",
-              "user"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "rationale": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rationale"
-          },
-          "run_id": {
-            "title": "Run Id",
-            "type": "string"
-          },
-          "sql": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sql"
-          },
-          "status": {
-            "enum": [
-              "proposed",
-              "rejected_guard",
-              "rejected_duplicate",
-              "rejected_gain",
-              "accepted",
-              "vetoed"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "run_id",
-          "name",
-          "kind",
-          "id",
-          "status",
-          "created_at"
-        ],
-        "title": "FeatureRead",
-        "type": "object"
-      },
       "FeatureSuggestion": {
         "properties": {
           "availability_assumption": {
@@ -3107,11 +2985,145 @@
         "title": "RunExperimentRequest",
         "type": "object"
       },
+      "RunFeatureRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The feature in one English sentence: from its spec, else its rationale",
+            "title": "Description"
+          },
+          "formula": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formula"
+          },
+          "gain": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gain"
+          },
+          "guard_results": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guard Results"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "ir": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ir"
+          },
+          "kind": {
+            "enum": [
+              "dfs",
+              "llm_sql",
+              "formula",
+              "user"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "sql": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sql"
+          },
+          "status": {
+            "enum": [
+              "proposed",
+              "rejected_guard",
+              "rejected_duplicate",
+              "rejected_gain",
+              "accepted",
+              "vetoed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "name",
+          "kind",
+          "id",
+          "status",
+          "created_at"
+        ],
+        "title": "RunFeatureRead",
+        "type": "object"
+      },
       "RunFeaturesRead": {
         "properties": {
           "features": {
             "items": {
-              "$ref": "#/components/schemas/FeatureRead"
+              "$ref": "#/components/schemas/RunFeatureRead"
             },
             "title": "Features",
             "type": "array"
@@ -3311,6 +3323,19 @@
             "title": "Accepted",
             "type": "integer"
           },
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the data of the run ends",
+            "title": "As Of"
+          },
           "budget": {
             "additionalProperties": true,
             "title": "Budget",
@@ -3368,6 +3393,19 @@
             ],
             "title": "Error"
           },
+          "feasibility": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The feasibility report the run was started with",
+            "title": "Feasibility"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -3384,6 +3422,18 @@
             "title": "Id",
             "type": "string"
           },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest job of the run; cancel it there",
+            "title": "Job Id"
+          },
           "notes": {
             "items": {
               "type": "string"
@@ -3391,10 +3441,28 @@
             "title": "Notes",
             "type": "array"
           },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The question the task was drafted from, if it was drafted from one",
+            "title": "Question"
+          },
           "rounds": {
             "description": "Proposals made so far",
             "title": "Rounds",
             "type": "integer"
+          },
+          "split_plan": {
+            "additionalProperties": true,
+            "description": "val_from and test_from",
+            "title": "Split Plan",
+            "type": "object"
           },
           "started_at": {
             "anyOf": [
@@ -3443,6 +3511,18 @@
               }
             ],
             "title": "Task Id"
+          },
+          "task_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The confirmed task's name",
+            "title": "Task Name"
           },
           "test_error": {
             "anyOf": [

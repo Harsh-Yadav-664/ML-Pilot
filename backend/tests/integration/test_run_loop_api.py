@@ -76,6 +76,12 @@ async def test_a_full_run_with_the_offline_stub_completes_and_scores_the_test_ro
     assert state["test_metrics"] is not None and state["test_error"] is None
     assert state["champion_val_metrics"]["pr_auc"] > state["champion_val_metrics"]["base_rate"]
     assert len(test_calls) == 1 and test_calls[0] == state["test_metrics"]["n_test"]
+    # what the run view's header needs
+    assert state["task_name"] and state["job_id"] == started.json()["job_id"]
+    assert state["as_of"] and set(state["split_plan"]) >= {"val_from", "test_from"}
+    assert state["feasibility"]["status"] in ("ok", "warn")
+    feats = (await client.get(runs_url(project_id, f"/{run_id}/features"))).json()["features"]
+    assert feats and all(f["description"] for f in feats if f["kind"] == "dfs")
     print(
         f"\nrun {state['status']} ({state['stop_reason']}): validation PR-AUC "
         f"{state['champion_val_metrics']['pr_auc']:.4f}, test PR-AUC {state['test_metrics']['pr_auc']:.4f} "

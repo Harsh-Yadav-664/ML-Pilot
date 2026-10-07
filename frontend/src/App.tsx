@@ -14,6 +14,7 @@ import { CommandPalette, ConnectionBanner, StatusBar, Toasts } from './component
 import { Landing } from './Landing';
 import { ConnectView } from './views/Connect';
 import { TaskEditor } from './views/TaskEditor';
+import { RunView } from './views/RunView';
 import { useRoute } from './route';
 
 /** A coffee bean in a caramel block. */
@@ -43,6 +44,7 @@ function Shell() {
   const route = useRoute();
   if (route === 'connect') return <ConnectView />;
   if (route === 'tasks') return <TaskEditor />;
+  if (route === 'run') return <RunView />;
   if (!started) return <Landing />;
   return <Workspace />;
 }
