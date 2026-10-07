@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,9 +12,15 @@ from app.db.base import Base
 
 class TaskSpec(Base):
     __tablename__ = "task_specs"
+    __table_args__ = (UniqueConstraint("project_id", "name", "version"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    # The connection whose schema graph the spec is validated against (never a secret).
+    connection_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("connections.id"), nullable=True
+    )
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     yaml: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)  # confirmed

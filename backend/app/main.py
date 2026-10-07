@@ -23,6 +23,7 @@ from app.api.v1 import (
     privacy,
     projects,
     snapshots,
+    tasks,
 )
 from app.core import redaction
 from app.core.config import settings
@@ -100,6 +101,7 @@ app.include_router(chat.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(connections.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(privacy.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(snapshots.router, prefix=API_PREFIX, dependencies=AUTH)
+app.include_router(tasks.router, prefix=API_PREFIX, dependencies=AUTH)
 
 
 # Health
