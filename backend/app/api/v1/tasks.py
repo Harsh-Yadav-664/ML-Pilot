@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, status
 
-from app.api.deps import DBSession, ProjectID
+from app.api.deps import DBSession, Gateway, ProjectID
 from app.schemas.tasks import (
     ConfirmRequest,
     LabelPreview,
@@ -14,6 +14,8 @@ from app.schemas.tasks import (
     RunStartRequest,
     SplitPreview,
     SplitPreviewRequest,
+    TaskDraft,
+    TaskDraftRequest,
     TaskRunRead,
     TaskSpecInput,
     TaskSpecRead,
@@ -29,6 +31,17 @@ router = APIRouter(prefix="/projects/{project_id}/tasks", tags=["tasks"])
 async def get_task_spec_schema(project_id: ProjectID) -> dict[str, Any]:
     """JSON Schema of the task spec, for the editor and for structured LLM output."""
     return json_schema()
+
+
+@router.post("/draft", response_model=TaskDraft)
+async def draft_task_spec(
+    data: TaskDraftRequest, project_id: ProjectID, db: DBSession, gateway: Gateway
+) -> TaskDraft:
+    """Turn a question such as "which customers will stop ordering in the next 30 days?" into a
+    task spec to read and confirm. A question that is too vague gets ``status: clarify`` and a
+    question back, never a guess. The answer says whether a language model or the offline
+    rule-based drafter wrote it (``decision_mode``). Nothing is saved or run."""
+    return await TaskService(db).draft(project_id, data, gateway)
 
 
 @router.post("/validate", response_model=TaskSpecValidation)

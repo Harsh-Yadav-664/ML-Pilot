@@ -26,7 +26,7 @@ export default defineConfig({
     { name: 'smoke', testMatch: /smoke\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     {
       name: 'features',
-      testMatch: /(connect|privacy)\.spec\.ts/,
+      testMatch: /(connect|privacy|task)\.spec\.ts/,
       dependencies: ['smoke'],
       use: { ...devices['Desktop Chrome'] },
     },

@@ -32,6 +32,7 @@ TASK_TIER: dict[TaskType, str] = {
     TaskType.SYNTHESIZE: "reasoning",
     TaskType.DECIDE: "reasoning",
     TaskType.SQL: "sql",
+    TaskType.SPEC: "reasoning",
 }
 
 # Every provider the gateway knows how to register.

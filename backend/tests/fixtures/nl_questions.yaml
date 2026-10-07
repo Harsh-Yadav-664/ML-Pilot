@@ -1,0 +1,32 @@
+# Ten questions for the demo database and what each should become (#53).
+# `expect` is compared field by field with the drafted spec by tests/unit/test_nl_to_spec.py:
+# entity table, the table the label reads, binary or regression, aggregate, compare, horizon.
+# Wording is deliberately varied; none of these is the question the worked examples use.
+questions:
+  - q: Which customers will stop ordering in the next 30 days?
+    expect: {entity: customers, table: orders, type: binary, agg: count, compare: "= 0", horizon: 30d}
+  - q: Who is likely to churn over the next 60 days?
+    expect: {entity: customers, table: orders, type: binary, agg: count, compare: "= 0", horizon: 60d}
+  - q: Which customers will ask for a refund in the next 30 days?
+    expect: {entity: customers, table: refunds, type: binary, agg: count, compare: ">= 1", horizon: 30d}
+  - q: Which customers will open a support ticket within 2 weeks?
+    expect: {entity: customers, table: support_tickets, type: binary, agg: count, compare: ">= 1", horizon: 14d}
+  - q: Which customers will order again in the next 90 days?
+    expect: {entity: customers, table: orders, type: binary, agg: count, compare: ">= 1", horizon: 90d}
+  - q: How much will each customer spend in the next 30 days?
+    expect: {entity: customers, table: orders, type: regression, agg: sum, column: total, horizon: 30d}
+  - q: Which customers will complain in the next month?
+    expect: {entity: customers, table: support_tickets, type: binary, agg: count, compare: ">= 1", horizon: 30d}
+  - q: Will a customer request a refund within 7 days?
+    expect: {entity: customers, table: refunds, type: binary, agg: count, compare: ">= 1", horizon: 7d}
+  - q: Which customers will not buy anything in the next 3 months?
+    expect: {entity: customers, table: orders, type: binary, agg: count, compare: "= 0", horizon: 90d}
+  - q: What will each customer's total revenue be over the next 60 days?
+    expect: {entity: customers, table: orders, type: regression, agg: sum, column: total, horizon: 60d}
+
+# Too vague to draft: each must come back as a question, not a spec.
+vague:
+  - Predict customers
+  - What will happen next?
+  - Which customers will stop ordering?
+  - Tell me about refunds

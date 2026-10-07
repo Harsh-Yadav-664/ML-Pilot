@@ -700,6 +700,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/tasks/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft Task Spec
+         * @description Turn a question such as "which customers will stop ordering in the next 30 days?" into a
+         *     task spec to read and confirm. A question that is too vague gets ``status: clarify`` and a
+         *     question back, never a guess. The answer says whether a language model or the offline
+         *     rule-based drafter wrote it (``decision_mode``). Nothing is saved or run.
+         */
+        post: operations["draft_task_spec_api_v1_projects__project_id__tasks_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/tasks/schema": {
         parameters: {
             query?: never;
@@ -2247,6 +2270,83 @@ export interface components {
             computed_at: string;
             stats: components["schemas"]["TableStats"];
         };
+        /**
+         * TaskDraft
+         * @description A drafted spec to read and confirm, or the question to ask the user first. Nothing is
+         *     saved: save it with POST /tasks (pass ``source`` as ``draft_source``) and confirm it there.
+         */
+        TaskDraft: {
+            /**
+             * Assumptions
+             * @description The judgement calls the draft made
+             */
+            assumptions: string[];
+            /** Clarifying Question */
+            clarifying_question?: string | null;
+            /**
+             * Data Ends
+             * Format: date-time
+             * @description Where the data ends: cutoffs were chosen to fit it
+             */
+            data_ends: string;
+            /**
+             * Decision Mode
+             * @description fallback: no language model answered, the rule-based drafter did
+             * @enum {string}
+             */
+            decision_mode: "llm" | "fallback";
+            /**
+             * Description
+             * @description The spec in plain sentences
+             */
+            description?: string | null;
+            /** Issues */
+            issues: components["schemas"]["SpecIssueRead"][];
+            /** Question */
+            question: string;
+            /**
+             * Repaired
+             * @description The first answer had errors and a second try fixed them
+             */
+            repaired: boolean;
+            /**
+             * Source
+             * @description What to save with the spec: question, decision_mode, assumptions, LLM calls
+             */
+            source: {
+                [key: string]: unknown;
+            };
+            /** Spec */
+            spec?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Status
+             * @description spec: ready to preview and confirm. clarify: ask the user ``clarifying_question``. invalid: the draft still breaks the format or the schema
+             * @enum {string}
+             */
+            status: "spec" | "clarify" | "invalid";
+            /** Yaml */
+            yaml?: string | null;
+        };
+        /** TaskDraftRequest */
+        TaskDraftRequest: {
+            /**
+             * Connection Id
+             * @description The database the question is about
+             */
+            connection_id: string;
+            /**
+             * Data Version Id
+             * @description A database version: its as_of is where the data ends. Default: now
+             */
+            data_version_id?: string | null;
+            /**
+             * Question
+             * @description The prediction question, in plain words
+             */
+            question: string;
+        };
         /** TaskRunRead */
         TaskRunRead: {
             /**
@@ -2292,6 +2392,13 @@ export interface components {
              */
             data_version_id?: string | null;
             /**
+             * Draft Source
+             * @description Set when the spec was drafted from a question: the `source` of the draft response, saved with the spec
+             */
+            draft_source?: {
+                [key: string]: unknown;
+            } | null;
+            /**
              * Yaml
              * @description The task spec as YAML (docs/task_spec.md)
              */
@@ -2310,6 +2417,13 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Draft Source
+             * @description How it was drafted from a question: question, decision_mode, LLM calls
+             */
+            draft_source?: {
+                [key: string]: unknown;
+            } | null;
             /** Id */
             id: string;
             /**
@@ -3939,6 +4053,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskSpecRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_task_spec_api_v1_projects__project_id__tasks_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDraft"];
                 };
             };
             /** @description Validation Error */

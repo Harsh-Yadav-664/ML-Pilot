@@ -17,6 +17,7 @@ import {
 } from '../api/connections';
 import { PrivacyRead, getPrivacy, putPrivacy } from '../api/privacy';
 import { DataVersions } from '../components/DataVersions';
+import { TaskCard } from '../components/TaskCard';
 import { SchemaGraph, compact, describeEdge } from '../components/SchemaGraph';
 import { Btn, CardHeader, Eyebrow, Leader, Panel, Tag } from '../ui';
 import { cn } from '../utils/cn';
@@ -588,6 +589,7 @@ export function ConnectView() {
                     ))}
                   </ul>
                 )}
+                <TaskCard connectionId={saved.id} />
                 <DataVersions connectionId={saved.id} tables={graph.tables.map((t) => t.key)} />
                 {selected ? (
                   <TablePanel connectionId={saved.id} graph={graph} tableKey={selected} onGraph={setGraph} privacy={privacy} onNeverSend={(t, c, on) => void setNeverSend(t, c, on)} />

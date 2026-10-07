@@ -103,3 +103,15 @@ One row per (entity, cutoff): `entity_id, cutoff_time, label, label_window_end`.
 - A cutoff whose window ends after the data does is **dropped and reported** (`dropped_cutoffs`), never kept with an incomplete label. Saving or confirming a spec still treats that as an error; the preview only drops them so a spec written for newer data can be tried on an older snapshot.
 - Times are compared as UTC. A time-zone-aware column is converted; a column without a zone is taken to hold UTC; text times (SQLite) are parsed.
 - `target.expression_sql` is not compiled here: it needs the point-in-time guard (#51).
+
+## Drafting a spec from a question
+
+`POST /projects/{id}/tasks/draft` with `{question, connection_id, data_version_id?}` returns a draft and saves nothing:
+
+- `status: spec`: the spec (YAML and JSON), the same spec in sentences (`description`), the `assumptions` the drafter made, any warnings. Save it with `POST /tasks` passing `source` as `draft_source`, preview its labels, then confirm.
+- `status: clarify`: `clarifying_question` instead of a spec. Used when the question names no event, no horizon or no entity.
+- `status: invalid`: the draft still breaks the format or the schema after one repair round; `issues` says how.
+
+`decision_mode` is `llm` when a language model answered and `fallback` when none did (no API key, or every provider failed): then a rule-based drafter handles questions about stopping to order, refunds, support tickets, ordering again and spend, and asks a question for the rest. `data_ends` is where the data ends, read from the latest value of each event-time column's statistics and capped at the data version's `as_of` (or now); cutoffs are monthly over 18 months and the last one is the latest whose label window is complete, so the labels never run past the data. The prompt is built by the context builder (purpose `tasks.draft_spec`), so it follows the project's privacy level and is in the prompt log. The prompt text and worked examples are in `backend/ml/tasks/prompts/`.
+
+`python -m scripts.nl_accuracy` runs the 10 questions of `backend/tests/fixtures/nl_questions.yaml` through the configured models and prints how many produced the expected spec (entity, event table, binary or regression, aggregate, comparison, horizon). It needs an API key and is a measurement, not a gate.

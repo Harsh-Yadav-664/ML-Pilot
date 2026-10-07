@@ -27,6 +27,11 @@ class TaskSpecInput(BaseModel):
     data_version_id: str | None = Field(
         None, description="A database version: its as_of is where the data ends. Default: now"
     )
+    draft_source: dict[str, Any] | None = Field(
+        None,
+        description="Set when the spec was drafted from a question: the `source` of the draft "
+        "response, saved with the spec",
+    )
 
 
 class TaskSpecValidation(BaseModel):
@@ -47,6 +52,9 @@ class TaskSpecRead(BaseModel):
     schema_fingerprint: str | None
     confirmed_by: str | None
     confirmed_at: datetime | None
+    draft_source: dict[str, Any] | None = Field(
+        None, description="How it was drafted from a question: question, decision_mode, LLM calls"
+    )
     used_by_runs: int = Field(description="Runs that point at this exact version")
     created_at: datetime
     issues: list[SpecIssueRead] = Field(
@@ -178,3 +186,38 @@ class TaskRunRead(BaseModel):
         "and the override if there was one"
     )
     created_at: datetime
+
+
+class TaskDraftRequest(BaseModel):
+    question: str = Field(
+        min_length=1, max_length=2000, description="The prediction question, in plain words"
+    )
+    connection_id: str = Field(description="The database the question is about")
+    data_version_id: str | None = Field(
+        None, description="A database version: its as_of is where the data ends. Default: now"
+    )
+
+
+class TaskDraft(BaseModel):
+    """A drafted spec to read and confirm, or the question to ask the user first. Nothing is
+    saved: save it with POST /tasks (pass ``source`` as ``draft_source``) and confirm it there."""
+
+    status: Literal["spec", "clarify", "invalid"] = Field(
+        description="spec: ready to preview and confirm. clarify: ask the user "
+        "``clarifying_question``. invalid: the draft still breaks the format or the schema"
+    )
+    question: str
+    decision_mode: Literal["llm", "fallback"] = Field(
+        description="fallback: no language model answered, the rule-based drafter did"
+    )
+    clarifying_question: str | None = None
+    yaml: str | None = None
+    spec: dict[str, Any] | None = None
+    description: str | None = Field(None, description="The spec in plain sentences")
+    assumptions: list[str] = Field(description="The judgement calls the draft made")
+    issues: list[SpecIssueRead]
+    repaired: bool = Field(description="The first answer had errors and a second try fixed them")
+    data_ends: datetime = Field(description="Where the data ends: cutoffs were chosen to fit it")
+    source: dict[str, Any] = Field(
+        description="What to save with the spec: question, decision_mode, assumptions, LLM calls"
+    )
