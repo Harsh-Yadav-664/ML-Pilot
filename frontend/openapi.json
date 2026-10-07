@@ -3934,7 +3934,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "stopped"
             ],
             "title": "Status",
             "type": "string"

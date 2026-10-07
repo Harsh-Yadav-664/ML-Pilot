@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 DataVersionKind = Literal["file", "db_snapshot", "db_live"]
 TaskSpecStatus = Literal["draft", "confirmed"]
-RunStatus = Literal["created", "queued", "running", "completed", "failed", "cancelled"]
+RunStatus = Literal["created", "queued", "running", "completed", "failed", "cancelled", "stopped"]
 FeatureKind = Literal["dfs", "llm_sql", "formula", "user"]
 FeatureStatus = Literal[
     "proposed", "rejected_guard", "rejected_duplicate", "rejected_gain", "accepted"

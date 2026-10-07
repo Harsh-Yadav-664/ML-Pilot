@@ -113,3 +113,15 @@ If no real model answers (the offline stub, or every provider failing), the resu
 
 `app/services/feature_proposals.py` stores each proposal as a `Feature` row (`kind: llm_sql`) with the stage, reasons and attempts in `guard_results`. How many proposals from a real model pass is measured by `python -m scripts.feature_proposal_rate` (CI job `feature-proposals`, runs only with an API key secret); that number has not been measured yet.
 
+## Running features: `ml/features/engine.py`
+
+`FeatureEngine` loads the tables of a data version (a snapshot) and the label rows into one in-memory DuckDB, then runs a feature as **one query over every label row**, not one per row. Its values are cached as Parquet under a key made of the normalised query (the same query in other words hits the cache), the data version id, the label table version and the entity sample. A second run on the same data and labels reads the values back instead of computing them; a new data version or label version computes them again. A failed feature is never cached.
+
+- **Time limit:** each query has a limit (default 120 seconds). A query over it is interrupted and returned as `failed` with a reason starting `timeout:`; a result that breaks the `entity_id, cutoff_time, value` contract is `failed` with `contract:`. The engine stays usable and the caller goes on with the next feature. The proposer records such a feature as a rejected proposal with that reason.
+- **Sampling:** if entities x cutoffs is above `max_rows` (default 2,000,000) a fixed-seed sample of entities is kept, stratified by whether the entity ever has a positive label, and every cutoff of a kept entity is kept. The fraction, the seed and the counts are in `engine.sampling` so they can be recorded and shown. The model can be refit on the full table afterwards; that refit is not built yet.
+- **Budgets:** `Budget(max_cost_usd, max_seconds, max_proposals)` and `BudgetTracker`. `propose_within_budget` checks before each proposal and charges after it, so the step in progress always finishes and a run can go over a limit by at most one proposal. When a limit is reached the run is recorded as `stopped` (`runs.status`), with the limits and what was used in `runs.budget` / `runs.budget_used`, a message in `runs.error`, and the champion untouched. Progress and the stop are emitted as job events (`feature_proposal`, `budget_stop`).
+
+The queries run in a DuckDB with no file or network access, but the engine does not read the SQL: it expects queries that already passed the point-in-time guard (the proposer and the baseline both do that first).
+
+Not built yet: running against a live Postgres through the SQL guard (snapshots only), the refit on the full table, and the run loop that ties the baseline, the proposer and the budget together (#58).
+

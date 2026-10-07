@@ -16,9 +16,10 @@ in-memory copies of the data in a DuckDB connection with no access to files.
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Self
 
 import duckdb
 import pandas as pd
@@ -110,6 +111,72 @@ def _load(
         con.execute(f"CREATE VIEW {quote_ident(name)} AS SELECT * FROM {quote_ident(raw)}{where}")
 
 
+class FeatureTimeout(TimeoutError):
+    """The feature query ran longer than its time limit and was interrupted."""
+
+
+class FeatureSession:
+    """The tables and labels loaded once into an in-memory DuckDB; many feature queries run on it.
+
+    ``run`` checks the contract on every result (see ``run_feature``) and interrupts a query that
+    runs longer than ``timeout_s``.
+    """
+
+    def __init__(
+        self,
+        tables: dict[str, pa.Table],
+        labels: pd.DataFrame,
+        graph: SchemaGraph,
+        *,
+        cutoff: datetime | None = None,
+    ) -> None:
+        self.frame = _labels_frame(labels)
+        self._keys = set(zip(self.frame[ENTITY], self.frame[CUTOFF], strict=True))
+        self._con = _connect()
+        try:
+            _load(self._con, tables, graph, cutoff)
+            self._con.register(LABELS, self.frame)
+        except Exception:
+            self._con.close()
+            raise
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._con.close()
+
+    def run(self, sql: str, *, timeout_s: float | None = None) -> pd.DataFrame:
+        timer = None
+        if timeout_s is not None:
+            timer = threading.Timer(timeout_s, self._con.interrupt)
+            timer.start()
+        try:
+            out = self._con.execute(sql).fetch_df()
+        except duckdb.InterruptException as e:
+            raise FeatureTimeout(f"the query ran longer than {timeout_s:g} seconds") from e
+        finally:
+            if timer is not None:
+                timer.cancel()
+        if tuple(c.lower() for c in out.columns) != OUTPUT_COLUMNS:
+            raise ContractError(
+                f"the query returned {list(out.columns)}, not {list(OUTPUT_COLUMNS)} in that order"
+            )
+        out.columns = list(OUTPUT_COLUMNS)
+        out[CUTOFF] = pd.to_datetime(out[CUTOFF])
+        if out.duplicated([ENTITY, CUTOFF]).any():
+            raise ContractError("the query returns more than one row for a label row")
+        extra = [k for k in zip(out[ENTITY], out[CUTOFF], strict=True) if k not in self._keys]
+        if extra:
+            raise ContractError(
+                f"the query returns rows that are not label rows, such as {extra[0]}"
+            )
+        return out
+
+
 def run_feature(
     sql: str,
     tables: dict[str, pa.Table],
@@ -117,34 +184,16 @@ def run_feature(
     graph: SchemaGraph,
     *,
     cutoff: datetime | None = None,
+    timeout_s: float | None = None,
 ) -> pd.DataFrame:
     """Run a feature query over ``tables``, with ``labels`` as ``__labels``.
 
     With ``cutoff``, rows at or after it are deleted from every table that has an event time.
     Raises ``ContractError`` if the result is not ``entity_id, cutoff_time, value`` with unique
-    keys that all belong to the labels.
+    keys that all belong to the labels, and ``FeatureTimeout`` after ``timeout_s`` seconds.
     """
-    frame = _labels_frame(labels)
-    con = _connect()
-    try:
-        _load(con, tables, graph, cutoff)
-        con.register(LABELS, frame)
-        out = con.execute(sql).fetch_df()
-    finally:
-        con.close()
-    if tuple(c.lower() for c in out.columns) != OUTPUT_COLUMNS:
-        raise ContractError(
-            f"the query returned {list(out.columns)}, not {list(OUTPUT_COLUMNS)} in that order"
-        )
-    out.columns = list(OUTPUT_COLUMNS)
-    out[CUTOFF] = pd.to_datetime(out[CUTOFF])
-    if out.duplicated([ENTITY, CUTOFF]).any():
-        raise ContractError("the query returns more than one row for a label row")
-    keys = set(zip(frame[ENTITY], frame[CUTOFF], strict=True))
-    extra = [k for k in zip(out[ENTITY], out[CUTOFF], strict=True) if k not in keys]
-    if extra:
-        raise ContractError(f"the query returns rows that are not label rows, such as {extra[0]}")
-    return out
+    with FeatureSession(tables, labels, graph, cutoff=cutoff) as session:
+        return session.run(sql, timeout_s=timeout_s)
 
 
 def _same(a: Any, b: Any) -> bool:

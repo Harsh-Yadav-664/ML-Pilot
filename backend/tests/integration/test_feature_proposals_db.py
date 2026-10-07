@@ -9,8 +9,9 @@ from sqlalchemy import select
 
 import app.db.session as db_session
 from app.db.models import Feature, Run
-from app.services.feature_proposals import record_proposals
+from app.services.feature_proposals import record_proposals, stop_run_at_budget
 from ml.data.schema_graph import EdgeRef
+from ml.features.engine import Budget, BudgetedRun
 from ml.features.ir import FeatureIR
 from ml.features.llm_sql import Attempt, Proposal, ProposalRecord
 
@@ -85,3 +86,28 @@ async def test_every_proposal_is_stored_with_its_stage_and_reasons(
     invalid = by_name["unnamed_proposal_4"]
     assert invalid.status == "rejected_guard" and invalid.guard_results["status"] == "invalid"  # type: ignore[index]
     assert invalid.sql is None and invalid.ir is None
+
+
+async def test_a_run_that_reaches_its_budget_is_stopped_and_says_which(
+    client: httpx.AsyncClient, project_id: str
+) -> None:
+    stopped_id, finished_id = str(uuid.uuid4()), str(uuid.uuid4())
+    budget = Budget(max_cost_usd=0.05)
+    async with db_session.AsyncSessionLocal() as db:
+        for run_id in (stopped_id, finished_id):
+            db.add(Run(id=run_id, project_id=project_id, task_spec_id=None, engine="lightgbm"))
+        await db.flush()
+        hit = BudgetedRun([], "cost", {"cost_usd": 0.06, "seconds": 3.2, "proposals": 3})
+        within = BudgetedRun([], None, {"cost_usd": 0.02, "seconds": 1.0, "proposals": 1})
+        await stop_run_at_budget(db, await db.get(Run, stopped_id), hit, budget)  # type: ignore[arg-type]
+        await stop_run_at_budget(db, await db.get(Run, finished_id), within, budget)  # type: ignore[arg-type]
+        await db.commit()
+    async with db_session.AsyncSessionLocal() as db:
+        stopped = await db.get(Run, stopped_id)
+        finished = await db.get(Run, finished_id)
+    assert stopped is not None and finished is not None
+    assert stopped.status == "stopped" and "budget (cost)" in (stopped.error or "")
+    assert stopped.budget == {"max_cost_usd": 0.05, "max_seconds": None, "max_proposals": None}
+    assert stopped.budget_used["stopped"] == "cost" and stopped.budget_used["cost_usd"] == 0.06
+    assert finished.status == "created" and finished.error is None
+    assert finished.budget_used["stopped"] is None
