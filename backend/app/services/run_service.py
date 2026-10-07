@@ -767,13 +767,18 @@ def _restore_resume_state(
 ) -> None:
     """Rebuild the champion frame and the proposer's history from the run's saved features."""
     from ml.features.llm_sql import sql_hash, ir_key
+    from ml.features.ir import FeatureIR
     
     accepted_sqls = {}
     for f in features:
         if f.status == "accepted":
             proposer.names.add(f.name)
             if f.ir:
-                proposer.irs.add(ir_key(f.ir))
+                try:
+                    ir_model = FeatureIR.model_validate(f.ir) if isinstance(f.ir, dict) else f.ir
+                    proposer.irs.add(ir_key(ir_model))
+                except Exception:
+                    pass
             if f.sql:
                 proposer.hashes.add(sql_hash(f.sql))
             accepted_sqls[f.name] = f.sql
