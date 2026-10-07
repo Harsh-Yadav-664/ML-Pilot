@@ -11,6 +11,8 @@ from app.schemas.tasks import (
     ConfirmRequest,
     LabelPreview,
     LabelPreviewRequest,
+    SplitPreview,
+    SplitPreviewRequest,
     TaskSpecInput,
     TaskSpecRead,
     TaskSpecValidation,
@@ -89,3 +91,16 @@ async def preview_labels(
     not complete. With a snapshot the labels are also written to the project's DuckDB file;
     without one they are computed read-only on the database through the SQL guard."""
     return await TaskService(db).preview_labels(project_id, task_id, body or LabelPreviewRequest())
+
+
+@router.post("/{task_id}/preview-split", response_model=SplitPreview)
+async def preview_split(
+    task_id: str,
+    project_id: ProjectID,
+    db: DBSession,
+    body: SplitPreviewRequest | None = None,
+) -> SplitPreview:
+    """The temporal split of a task, by cutoff: which cutoffs train, validate and test, which
+    rows are left out because their label window crosses a boundary, and the expanding-window
+    folds over the training cutoffs. Relational tasks have no other kind of split."""
+    return await TaskService(db).preview_split(project_id, task_id, body or SplitPreviewRequest())

@@ -1666,6 +1666,36 @@
         "title": "FeatureSuggestion",
         "type": "object"
       },
+      "FoldRead": {
+        "properties": {
+          "n_train": {
+            "title": "N Train",
+            "type": "integer"
+          },
+          "n_val": {
+            "title": "N Val",
+            "type": "integer"
+          },
+          "val_from": {
+            "format": "date-time",
+            "title": "Val From",
+            "type": "string"
+          },
+          "val_to": {
+            "format": "date-time",
+            "title": "Val To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "n_train",
+          "n_val",
+          "val_from",
+          "val_to"
+        ],
+        "title": "FoldRead",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2725,6 +2755,135 @@
         "title": "SpecIssueRead",
         "type": "object"
       },
+      "SplitPreview": {
+        "properties": {
+          "dropped_cutoffs": {
+            "items": {
+              "$ref": "#/components/schemas/DroppedCutoffRead"
+            },
+            "title": "Dropped Cutoffs",
+            "type": "array"
+          },
+          "folds": {
+            "items": {
+              "$ref": "#/components/schemas/FoldRead"
+            },
+            "title": "Folds",
+            "type": "array"
+          },
+          "max_train_window_end": {
+            "description": "At or before val_from",
+            "format": "date-time",
+            "title": "Max Train Window End",
+            "type": "string"
+          },
+          "max_val_window_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At or before test_from",
+            "title": "Max Val Window End"
+          },
+          "n_purged_train": {
+            "description": "Rows whose label window crosses val_from: left out",
+            "title": "N Purged Train",
+            "type": "integer"
+          },
+          "n_purged_val": {
+            "description": "Rows whose label window crosses test_from: left out",
+            "title": "N Purged Val",
+            "type": "integer"
+          },
+          "n_test": {
+            "title": "N Test",
+            "type": "integer"
+          },
+          "n_train": {
+            "title": "N Train",
+            "type": "integer"
+          },
+          "n_val": {
+            "title": "N Val",
+            "type": "integer"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "test_from": {
+            "format": "date-time",
+            "title": "Test From",
+            "type": "string"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            },
+            "title": "Timeline",
+            "type": "array"
+          },
+          "val_from": {
+            "format": "date-time",
+            "title": "Val From",
+            "type": "string"
+          }
+        },
+        "required": [
+          "val_from",
+          "test_from",
+          "timeline",
+          "n_train",
+          "n_val",
+          "n_test",
+          "n_purged_train",
+          "n_purged_val",
+          "max_train_window_end",
+          "max_val_window_end",
+          "folds",
+          "dropped_cutoffs",
+          "note"
+        ],
+        "title": "SplitPreview",
+        "type": "object"
+      },
+      "SplitPreviewRequest": {
+        "properties": {
+          "data_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A database snapshot to build the labels from (and write them into the project's DuckDB file), or a live version. Default: the live database as of now",
+            "title": "Data Version Id"
+          },
+          "folds": {
+            "default": 3,
+            "description": "Expanding-window folds over the training cutoffs",
+            "maximum": 10.0,
+            "minimum": 2.0,
+            "title": "Folds",
+            "type": "integer"
+          },
+          "materialize": {
+            "default": true,
+            "description": "Snapshots only: also write the labels as a table in the project",
+            "title": "Materialize",
+            "type": "boolean"
+          }
+        },
+        "title": "SplitPreviewRequest",
+        "type": "object"
+      },
       "SqlSnapshotRequest": {
         "description": "Run one read-only query and store the result as a data version.\n\nName a saved connection (``connection_id``, see /connections) or, until the UI moves to\nthose, pass a ``connection_string`` (never stored or echoed). Exactly one of the two.",
         "properties": {
@@ -3277,6 +3436,44 @@
         ],
         "title": "TaskType",
         "type": "string"
+      },
+      "TimelineEntry": {
+        "properties": {
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "part": {
+            "enum": [
+              "train",
+              "val",
+              "test",
+              "purged_train",
+              "purged_val"
+            ],
+            "title": "Part",
+            "type": "string"
+          },
+          "rows": {
+            "description": "Label rows (eligible entities) at this cutoff",
+            "title": "Rows",
+            "type": "integer"
+          },
+          "window_end": {
+            "format": "date-time",
+            "title": "Window End",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cutoff",
+          "window_end",
+          "part",
+          "rows"
+        ],
+        "title": "TimelineEntry",
+        "type": "object"
       },
       "TopValue": {
         "properties": {
@@ -6094,6 +6291,75 @@
           }
         },
         "summary": "Preview Labels",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks/{task_id}/preview-split": {
+      "post": {
+        "description": "The temporal split of a task, by cutoff: which cutoffs train, validate and test, which\nrows are left out because their label window crosses a boundary, and the expanding-window\nfolds over the training cutoffs. Relational tasks have no other kind of split.",
+        "operationId": "preview_split_api_v1_projects__project_id__tasks__task_id__preview_split_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SplitPreviewRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SplitPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Split",
         "tags": [
           "tasks"
         ]
