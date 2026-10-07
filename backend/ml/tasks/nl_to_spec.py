@@ -27,7 +27,7 @@ from typing import Any, Literal
 
 import yaml
 
-from ai.context_builder import BuiltPrompt, ContextBuilder
+from ai.context_builder import ContextBuilder, PromptBuilder
 from ai.context_inputs import dataset_from_graph
 from ai.gateway import AIGateway
 from ai.router import TaskType
@@ -123,14 +123,14 @@ def answer_schema() -> dict[str, Any]:
     return schema
 
 
-def _prompt(
+def _compose(
     builder: ContextBuilder,
     question: str,
     graph: SchemaGraph,
     stats: dict[str, TableStats] | None,
     as_of: datetime,
     extra: str | None = None,
-) -> BuiltPrompt:
+) -> PromptBuilder:
     examples: list[dict[str, Any]] = [
         {
             "question": e["question"],
@@ -150,7 +150,7 @@ def _prompt(
     )
     if extra:
         b = b.text("Your previous answer had problems", extra)
-    return b.build()
+    return b
 
 
 # -- the pipeline -----------------------------------------------------------------------------
@@ -170,7 +170,7 @@ async def draft_spec(
     if not question:
         raise ValueError("Ask a question, such as: " + CLARIFY_EXAMPLE)
     schema = answer_schema()
-    prompt = _prompt(builder, question, graph, stats, as_of)
+    prompt = _compose(builder, question, graph, stats, as_of).build()
     result = await gateway.complete_structured_result(TaskType.SPEC, prompt, schema)
     if result.decision_mode == "fallback":
         # No real LLM answered: the offline stub, or every provider failed. Say so, and use rules.
@@ -183,7 +183,7 @@ async def draft_spec(
         problems = _problems_text(draft)
         again = await gateway.complete_structured_result(
             TaskType.SPEC,
-            _prompt(builder, question, graph, stats, as_of, extra=problems),
+            _compose(builder, question, graph, stats, as_of, extra=problems).build(),
             schema,
         )
         second = _interpret(question, again.structured, graph, as_of)
