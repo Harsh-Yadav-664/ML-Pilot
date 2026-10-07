@@ -22,6 +22,7 @@ from app.api.v1 import (
     jobs,
     privacy,
     projects,
+    runs,
     snapshots,
     tasks,
 )
@@ -102,6 +103,7 @@ app.include_router(connections.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(privacy.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(snapshots.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(tasks.router, prefix=API_PREFIX, dependencies=AUTH)
+app.include_router(runs.router, prefix=API_PREFIX, dependencies=AUTH)
 
 
 # Health

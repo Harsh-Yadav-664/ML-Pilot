@@ -1913,6 +1913,127 @@
         "title": "FeasibilityRead",
         "type": "object"
       },
+      "FeatureRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "formula": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formula"
+          },
+          "gain": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gain"
+          },
+          "guard_results": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guard Results"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "ir": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ir"
+          },
+          "kind": {
+            "enum": [
+              "dfs",
+              "llm_sql",
+              "formula",
+              "user"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "sql": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sql"
+          },
+          "status": {
+            "enum": [
+              "proposed",
+              "rejected_guard",
+              "rejected_duplicate",
+              "rejected_gain",
+              "accepted"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "name",
+          "kind",
+          "id",
+          "status",
+          "created_at"
+        ],
+        "title": "FeatureRead",
+        "type": "object"
+      },
       "FeatureSuggestion": {
         "properties": {
           "availability_assumption": {
@@ -2830,6 +2951,116 @@
         "title": "RunExperimentRequest",
         "type": "object"
       },
+      "RunFeaturesRead": {
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureRead"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "features"
+        ],
+        "title": "RunFeaturesRead",
+        "type": "object"
+      },
+      "RunLoopRequest": {
+        "description": "How long the run may go on. A limit that is not set does not apply.",
+        "properties": {
+          "feature_timeout_seconds": {
+            "default": 120.0,
+            "description": "One feature's query may run this long",
+            "exclusiveMinimum": 0.0,
+            "maximum": 3600.0,
+            "title": "Feature Timeout Seconds",
+            "type": "number"
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stop when the language model has cost this much",
+            "title": "Max Cost Usd"
+          },
+          "max_proposals": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stop after this many proposals",
+            "title": "Max Proposals"
+          },
+          "max_rounds": {
+            "default": 20,
+            "description": "Features the model is asked for, at most",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Max Rounds",
+            "type": "integer"
+          },
+          "max_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stop after this much wall time",
+            "title": "Max Seconds"
+          },
+          "patience": {
+            "default": 5,
+            "description": "Stop after this many rounds in a row without an accepted feature",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Patience",
+            "type": "integer"
+          }
+        },
+        "title": "RunLoopRequest",
+        "type": "object"
+      },
+      "RunLoopStarted": {
+        "properties": {
+          "job_id": {
+            "description": "Poll or stream /jobs/{job_id}/events; cancel with the jobs API",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "job_id"
+        ],
+        "title": "RunLoopStarted",
+        "type": "object"
+      },
       "RunStartRequest": {
         "properties": {
           "data_version_id": {
@@ -2874,6 +3105,193 @@
           }
         },
         "title": "RunStartRequest",
+        "type": "object"
+      },
+      "RunStateRead": {
+        "description": "Where a run stands, from what the loop has recorded so far.",
+        "properties": {
+          "accepted": {
+            "description": "Of those, kept because they helped",
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "budget": {
+            "additionalProperties": true,
+            "title": "Budget",
+            "type": "object"
+          },
+          "budget_used": {
+            "additionalProperties": true,
+            "title": "Budget Used",
+            "type": "object"
+          },
+          "champion_experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Champion Experiment Id"
+          },
+          "champion_val_metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Champion Val Metrics"
+          },
+          "data_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Version Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "rounds": {
+            "description": "Proposals made so far",
+            "title": "Rounds",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled",
+              "stopped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "max_rounds, patience, budget:cost, budget:time, budget:proposals, no_llm",
+            "title": "Stop Reason"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "test_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Error"
+          },
+          "test_metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scored once, when the run ends. Empty while it runs and after a cancel",
+            "title": "Test Metrics"
+          }
+        },
+        "required": [
+          "id",
+          "task_id",
+          "data_version_id",
+          "status",
+          "budget",
+          "budget_used",
+          "champion_experiment_id",
+          "champion_val_metrics",
+          "rounds",
+          "accepted",
+          "error",
+          "notes",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "RunStateRead",
         "type": "object"
       },
       "SampleDatasetRequest": {
@@ -6643,6 +7061,178 @@
         "summary": "Set Privacy",
         "tags": [
           "privacy"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_api_v1_projects__project_id__runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/features": {
+      "get": {
+        "description": "Every feature of the run: the baseline's, and each proposal with its stage or gain.",
+        "operationId": "get_run_features_api_v1_projects__project_id__runs__run_id__features_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFeaturesRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Features",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/start": {
+      "post": {
+        "description": "Start the run as a background job: the baseline, then one proposed feature per round,\neach kept only if its paired gain on time-ordered folds of the training rows beats the\nmargin, until a budget is reached, the rounds are used up or no feature has helped for\n``patience`` rounds. The test rows are scored once, at the end. Needs a run made with\n``POST .../tasks/{task}/runs`` on a snapshot. Cancel through the job.",
+        "operationId": "start_run_api_v1_projects__project_id__runs__run_id__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RunLoopRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunLoopStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Run",
+        "tags": [
+          "runs"
         ]
       }
     },

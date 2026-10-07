@@ -53,6 +53,14 @@ async def run_auto_optimize(ctx: JobContext, params: dict[str, Any]) -> dict[str
     )
 
 
+@handler("relational_run")
+async def run_relational(ctx: JobContext, params: dict[str, Any]) -> dict[str, Any]:
+    """A relational run (#58): baseline, then the proposer loop with acceptance by gain."""
+    from app.services import run_service
+
+    return await run_service.execute(ctx, params, make_gateway)
+
+
 @handler("snapshot")
 async def run_snapshot(ctx: JobContext, params: dict[str, Any]) -> dict[str, Any]:
     """Copy the wanted tables of a connected database into the project (#97)."""

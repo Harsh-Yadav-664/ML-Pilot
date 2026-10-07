@@ -92,6 +92,7 @@ class BaselineResult:
     labels: pd.DataFrame | None = field(repr=False, default=None)  # entity_id, cutoff_time, label
     train: np.ndarray | None = field(repr=False, default=None)  # positional training rows
     graph: SchemaGraph | None = field(repr=False, default=None)  # keyed by bare table name
+    temporal: TemporalSplit | None = field(repr=False, default=None)  # the split, as row indices
 
     def dropped_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -286,30 +287,14 @@ def build_baseline(
         raise BaselineError("no feature survived the filters")
 
     features = pd.DataFrame(kept)
-    model = lgb.LGBMClassifier(
-        **LGBM_PARAMS, random_state=seed, deterministic=True, force_row_wise=True, verbose=-1
-    )
-    model.fit(
-        features.iloc[split.train],
-        y[split.train],
-        eval_set=[(features.iloc[split.val], y[split.val])],
-        eval_metric="average_precision",
-        callbacks=[lgb.early_stopping(EARLY_STOPPING_ROUNDS, verbose=False)],
-    )
-    score = np.asarray(model.predict_proba(features.iloc[split.val]))[:, 1]
-    metrics = ranking_metrics(y[split.val], score, absolute_k=(100,))
-    metrics["n_train"] = float(len(split.train))
-    metrics["n_val"] = float(len(split.val))
-    metrics["best_iteration"] = float(model.best_iteration_ or LGBM_PARAMS["n_estimators"])
-    gain = model.booster_.feature_importance(importance_type="gain").astype("float64")
-    total = float(gain.sum()) or 1.0
-    ranked = sorted(zip(features.columns, gain / total, strict=True), key=lambda p: -p[1])
+    model, metrics, shares = fit_validated(features, y, split.train, split.val, seed)
+    ranked = sorted(shares.items(), key=lambda p: -p[1])
     return BaselineResult(
         features=[KeptFeature(by_name[name], float(share)) for name, share in ranked],
         dropped=dropped,
         skipped_tables=generated.skipped,
         candidates=len(generated.candidates),
-        metrics={k: float(v) for k, v in metrics.items()},
+        metrics=metrics,
         split=split.summary(),
         params={**LGBM_PARAMS, "early_stopping_rounds": EARLY_STOPPING_ROUNDS},
         seed=seed,
@@ -321,7 +306,36 @@ def build_baseline(
         labels=frame[[ENTITY, CUTOFF, "label"]],
         train=split.train,
         graph=graph,
+        temporal=split,
     )
+
+
+def fit_validated(
+    features: pd.DataFrame, y: np.ndarray, train: np.ndarray, val: np.ndarray, seed: int = SEED
+) -> tuple[Any, dict[str, float], dict[str, float]]:
+    """LightGBM on the training rows, stopped early on the validation rows, scored on them.
+
+    Returns the model, the validation metrics, and each feature's share of the total gain.
+    """
+    model = lgb.LGBMClassifier(
+        **LGBM_PARAMS, random_state=seed, deterministic=True, force_row_wise=True, verbose=-1
+    )
+    model.fit(
+        features.iloc[train],
+        y[train],
+        eval_set=[(features.iloc[val], y[val])],
+        eval_metric="average_precision",
+        callbacks=[lgb.early_stopping(EARLY_STOPPING_ROUNDS, verbose=False)],
+    )
+    score = np.asarray(model.predict_proba(features.iloc[val]))[:, 1]
+    metrics = ranking_metrics(y[val], score, absolute_k=(100,))
+    metrics["n_train"] = float(len(train))
+    metrics["n_val"] = float(len(val))
+    metrics["best_iteration"] = float(model.best_iteration_ or LGBM_PARAMS["n_estimators"])
+    gain = model.booster_.feature_importance(importance_type="gain").astype("float64")
+    total = float(gain.sum()) or 1.0
+    shares = {str(c): float(g / total) for c, g in zip(features.columns, gain, strict=True)}
+    return model, {k: float(v) for k, v in metrics.items()}, shares
 
 
 def _drop_leaky_attributes(

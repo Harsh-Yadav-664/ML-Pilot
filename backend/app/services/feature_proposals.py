@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Feature, Run
+from ml.experiments.acceptance import GainResult
 from ml.features.engine import Budget, BudgetedRun
 from ml.features.llm_sql import ProposalRecord
 
@@ -24,7 +25,11 @@ def _name(record: ProposalRecord, position: int) -> str:
     return record.proposal.name if record.proposal else f"{UNNAMED}_{position}"
 
 
-def feature_row(run_id: str, record: ProposalRecord, position: int) -> Feature:
+def feature_row(
+    run_id: str, record: ProposalRecord, position: int, gain: GainResult | None = None
+) -> Feature:
+    """A Feature row for one proposal. With ``gain`` the proposal reached the gain test: its
+    status is then ``accepted`` or ``rejected_gain`` and the paired scores are stored."""
     p = record.proposal
     guard: dict[str, Any] = {
         "status": record.status,
@@ -45,12 +50,19 @@ def feature_row(run_id: str, record: ProposalRecord, position: int) -> Feature:
         sql=record.sql,
         ir=p.ir.model_dump(mode="json") if p is not None and p.ir is not None else None,
         rationale=p.rationale if p is not None else None,
-        status=record.status if record.status in _STORED else "rejected_guard",
+        status=_status(record, gain),
         guard_results=guard,
+        gain=gain.to_dict() if gain is not None else None,
     )
 
 
 _STORED = {"proposed", "rejected_guard", "rejected_duplicate"}
+
+
+def _status(record: ProposalRecord, gain: GainResult | None) -> str:
+    if gain is not None:
+        return "accepted" if gain.accepted else "rejected_gain"
+    return record.status if record.status in _STORED else "rejected_guard"
 
 
 async def record_proposals(
