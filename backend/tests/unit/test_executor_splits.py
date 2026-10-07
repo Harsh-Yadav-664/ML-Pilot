@@ -9,7 +9,7 @@ from sklearn.datasets import make_classification
 
 from ml.experiments.executor import LocalExperimentExecutor
 from ml.experiments.schema import ExperimentSpec
-from ml.validation.splits import SMALL_DATA_ROWS, SplitPlan, make_splits
+from ml.validation.splits import SMALL_DATA_ROWS, SplitError, SplitPlan, make_splits
 
 
 def _target(n: int, seed: int = 0) -> pd.Series:
@@ -53,7 +53,8 @@ def test_old_config_keys_are_still_understood():
 
 
 def test_temporal_split_is_not_faked():
-    with pytest.raises(NotImplementedError):
+    """make_splits has no cutoff times, so it refuses a temporal plan instead of splitting at random."""
+    with pytest.raises(SplitError, match="make_temporal_splits"):
         make_splits(_target(100), SplitPlan(strategy="temporal"))
 
 
