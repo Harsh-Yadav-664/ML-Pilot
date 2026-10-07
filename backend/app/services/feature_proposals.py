@@ -7,6 +7,7 @@ check is stored as ``proposed``, and only the validated gain (#58) can accept it
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from typing import Any
 
@@ -15,10 +16,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Feature, Run
 from ml.experiments.acceptance import GainResult
 from ml.features.engine import Budget, BudgetedRun
+from ml.features.ir import FeatureIR, describe
 from ml.features.llm_sql import ProposalRecord
 
 # the proposer's last answer is the feature; a proposal that never parsed has no name of its own
 UNNAMED = "unnamed_proposal"
+
+
+def feature_description(f: Feature) -> str | None:
+    """The feature in one English sentence: from its spec, else the rationale it came with."""
+    if f.ir:
+        with contextlib.suppress(ValueError):  # a spec the schema no longer reads: the rationale
+            return describe(FeatureIR.model_validate(f.ir))
+    return f.rationale
 
 
 def _name(record: ProposalRecord, position: int) -> str:

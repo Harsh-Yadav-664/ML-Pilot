@@ -7985,6 +7985,85 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/runs/{run_id}/report": {
+      "get": {
+        "description": "The run's evidence report: the question, the data, the split, every feature with its gain\nand SQL, the safety findings, the limits, and the cost. Every number in it is read from what\nthe run stored. Works while a run is going or after it ended, for what has been stored.",
+        "operationId": "get_run_report_api_v1_projects__project_id__runs__run_id__report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "markdown, html (one file, no external requests) or json (the records and the number log)",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "markdown",
+              "description": "markdown, html (one file, no external requests) or json (the records and the number log)",
+              "enum": [
+                "markdown",
+                "html",
+                "json"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Send it as a file to save",
+            "in": "query",
+            "name": "download",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Send it as a file to save",
+              "title": "Download",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {},
+              "text/html": {},
+              "text/markdown": {}
+            },
+            "description": "The evidence report in the format asked for"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Report",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/runs/{run_id}/settings": {
       "post": {
         "description": "Read a sentence such as 'budget $1' and say what it would change. Changes nothing.",

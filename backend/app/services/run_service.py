@@ -15,7 +15,6 @@ or interrupted always has its last champion on record:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 import uuid
 from dataclasses import replace
@@ -57,7 +56,7 @@ from app.schemas.runs import (
 )
 from app.services.baseline_service import BaselineService, load_world
 from app.services.connection_service import ConnectionService
-from app.services.feature_proposals import feature_row
+from app.services.feature_proposals import feature_description, feature_row
 from app.services.privacy_service import PrivacyService
 from app.services.task_service import TaskService
 from ml.agents import narration, settings_nl
@@ -67,7 +66,6 @@ from ml.data.profiling.db_stats import TableStats
 from ml.data.workspace import workspace_for
 from ml.features.baseline import BaselineError, build_baseline, flatten_graph, typed_times
 from ml.features.engine import Budget, FeatureEngine
-from ml.features.ir import FeatureIR, describe
 from ml.features.llm_sql import FeatureProposer
 from ml.tasks import labels
 from ml.validation.splits import SplitError, TemporalSplitPlan
@@ -177,12 +175,8 @@ class RunService:
 
 
 def _feature_read(f: Feature) -> RunFeatureRead:
-    description = f.rationale
-    if f.ir:
-        with contextlib.suppress(ValueError):  # a spec the schema no longer reads: the rationale
-            description = describe(FeatureIR.model_validate(f.ir))
     out = RunFeatureRead.model_validate(f)
-    out.description = description
+    out.description = feature_description(f)
     return out
 
 

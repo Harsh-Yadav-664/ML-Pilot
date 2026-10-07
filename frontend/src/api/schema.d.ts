@@ -800,6 +800,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Report
+         * @description The run's evidence report: the question, the data, the split, every feature with its gain
+         *     and SQL, the safety findings, the limits, and the cost. Every number in it is read from what
+         *     the run stored. Works while a run is going or after it ended, for what has been stored.
+         */
+        get: operations["get_run_report_api_v1_projects__project_id__runs__run_id__report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/runs/{run_id}/settings": {
         parameters: {
             query?: never;
@@ -5031,6 +5053,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunNarration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_report_api_v1_projects__project_id__runs__run_id__report_get: {
+        parameters: {
+            query?: {
+                /** @description markdown, html (one file, no external requests) or json (the records and the number log) */
+                format?: "markdown" | "html" | "json";
+                /** @description Send it as a file to save */
+                download?: boolean;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The evidence report in the format asked for */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "text/html": unknown;
+                    "text/markdown": unknown;
                 };
             };
             /** @description Validation Error */

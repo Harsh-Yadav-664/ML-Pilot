@@ -154,3 +154,13 @@ A person can steer a run while it goes on. Everything goes through plain endpoin
 
 Not built: a chat panel in the UI (the run view, #101, is where it belongs), a language model that rephrases the narration or reads free-form settings, approving or vetoing something other than a feature, and answering a checkpoint after the run was restarted (a restarted job does not resume; the pending question stays on record).
 
+### Evidence report (#60)
+
+`GET /projects/{p}/runs/{run}/report?format=markdown|html|json` (add `download=true` to get a file). The run view has buttons for the HTML and Markdown versions.
+
+* **Sections.** Summary (question, answer, metrics with base rate, test column apart from validation), Task (words, stored YAML, label SQL, label balance per cutoff, feasibility checks, confirmations), Data (version, tables, rows, rows left out for lack of an event time, static tables, privacy setting), Validation (split, acceptance rule, test scored once), Features (baseline, each kept feature with SQL, fold scores, gain and interval, the rest by reason, champion path), Leakage and safety (role check, snapshot-like tables, mutable columns), Limitations (from the run's facts, plus a fixed "what this model is not"), Cost and reproducibility (calls, tokens, cost, prompt log ids, what to reuse).
+* **Where numbers come from.** `report_service.records` reads the stored rows into one JSON tree. `ml/reports/build.py` writes a figure only through `Numbers.num(key, format)`, which looks the value up by its key in that tree and logs it; stored strings go through `Numbers.text(key)`. A key that is missing raises, so there is no blank or invented value. `format=json` returns the records and the log. The test traces every numeral in the Markdown to the log and each logged value to the database row.
+* **Parts recomputed or read at report time.** The label SQL and the label balance are rebuilt from the run's snapshot, the schema scan reads the connection now, and the privacy setting is the project's current one. If one of them cannot be read the section says so and why.
+* **Offline.** The HTML has inline CSS and SVG and no script, link or image; a test checks every `src` and `href`.
+
+Not built: SHAP importances (no source yet), PDF, a canary result per run (canaries run in CI), a per-run link to the prompt files (the report gives the prompt log id), confidence intervals for the test metrics.

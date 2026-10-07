@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Query
+from fastapi.responses import Response
 
 from app.api.deps import DBSession, ProjectID
 from app.schemas.runs import (
@@ -18,6 +21,7 @@ from app.schemas.runs import (
     SuggestionCreate,
     SuggestionRead,
 )
+from app.services.report_service import ReportFormat, ReportService
 from app.services.run_service import RunService, SteerService
 
 router = APIRouter(prefix="/projects/{project_id}/runs", tags=["runs"])
@@ -105,3 +109,43 @@ async def apply_settings(
     """Apply what the sentence says to a queued or running run, after the person has seen the
     preview. The run reads its settings before every round."""
     return await SteerService(db).apply_settings(project_id, run_id, body.message)
+
+
+REPORT_FILES = {"markdown": "md", "html": "html", "json": "json"}
+
+
+@router.get(
+    "/{run_id}/report",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {"text/markdown": {}, "text/html": {}, "application/json": {}},
+            "description": "The evidence report in the format asked for",
+        }
+    },
+)
+async def get_run_report(
+    run_id: str,
+    project_id: ProjectID,
+    db: DBSession,
+    format: Annotated[
+        ReportFormat,
+        Query(
+            description="markdown, html (one file, no external requests) or json "
+            "(the records and the number log)"
+        ),
+    ] = "markdown",
+    download: Annotated[bool, Query(description="Send it as a file to save")] = False,
+) -> Response:
+    """The run's evidence report: the question, the data, the split, every feature with its gain
+    and SQL, the safety findings, the limits, and the cost. Every number in it is read from what
+    the run stored. Works while a run is going or after it ended, for what has been stored."""
+    text, media_type = await ReportService(db).render(project_id, run_id, format)
+    headers = (
+        {
+            "Content-Disposition": f'attachment; filename="report-{run_id[:8]}.{REPORT_FILES[format]}"'
+        }
+        if download
+        else {}
+    )
+    return Response(text, media_type=media_type, headers=headers)

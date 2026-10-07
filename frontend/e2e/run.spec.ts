@@ -109,6 +109,13 @@ test('start a run from a confirmed task and read it: features, champion, test sc
   await expect(page.getByTestId('run-log')).toContainText('Baseline:');
   await expect(page.getByTestId('run-log')).toContainText('No language model answered');
 
+  // The evidence report opens as its own page and shows the API's test number.
+  const [report] = await Promise.all([page.waitForEvent('popup'), page.getByTestId('report-html').click()]);
+  await report.waitForLoadState();
+  await expect(report.locator('h1')).toContainText('run report');
+  await expect(report.locator('body')).toContainText((last.test_metrics as Record<string, number>).pr_auc.toFixed(4));
+  await expect(report.locator('body')).toContainText('customer_status_snapshot');
+
   const dir = process.env.MLPILOT_E2E_SCREENSHOT_DIR ?? testInfo.outputDir;
   await page.screenshot({ path: `${dir}/run-view.png`, fullPage: true });
 });
