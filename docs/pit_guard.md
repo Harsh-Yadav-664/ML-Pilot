@@ -21,7 +21,7 @@ GROUP BY l.entity_id, l.cutoff_time
 | `rewritten` | A bound was missing and could be added safely. The returned SQL has it, and `rewrites` says where. |
 | `rejected` | It could read the future, or the guard cannot tell. `reasons` name the scope, the table and a stable code. No SQL is returned. |
 
-`assumptions` lists static tables that were read without a time bound. They appear in the evidence report.
+`assumptions` lists static tables that were read without a time bound. `warnings` lists static assumptions that look wrong (a table marked static that has a last-modified column). Both appear in the evidence report.
 
 ## The rules
 
@@ -31,9 +31,11 @@ GROUP BY l.entity_id, l.cutoff_time
 4. **Which cutoff.** `K` must be `__labels.cutoff_time` or a pass-through of it. A scope's cutoff sources are its own `__labels`, derived tables and CTEs that expose a cutoff column, and, for a correlated subquery, the enclosing row. They must be joined to each other on `cutoff_time` equality (in the `WHERE`, or in the `ON` of one of the two joins involved). Otherwise a derived table could hand over values that were computed for another cutoff.
 5. **No mixing of label rows.** In a scope that reads its own cutoff, aggregates must `GROUP BY` the cutoff, `DISTINCT` must keep it in the output, window functions must `PARTITION BY` it, and `LIMIT` is refused (a `LIMIT` in a correlated subquery acts per outer row and is fine). A derived table or CTE that reads `__labels` must expose `cutoff_time`.
 6. **Refused outright:** unknown tables and label tables; non-deterministic functions (`now()`, `current_date`, `random()`, `uuid()`, literals such as `'now'`) and any function the SQL parser does not know by name (it could be one of them); order-dependent picks (`any_value`, `first`, `last`, `array_agg` and `string_agg` without `ORDER BY`, `LIMIT` without `ORDER BY`); window frames with `FOLLOWING`; `UNION`/`INTERSECT`/`EXCEPT`; lateral joins, `UNNEST`; every join except `JOIN`, `INNER JOIN`, `CROSS JOIN` and `LEFT JOIN` with `ON` (so no `SEMI`, `ANTI`, `ASOF`, `POSITIONAL`, `NATURAL`, `USING`, right or full joins); `GROUPING SETS`/`ROLLUP`/`CUBE`; `DISTINCT ON`; a second `__labels` in one scope; two output columns with one name; aliases that differ only in case.
-7. **Rewriting.** When a bound is missing and the scope has a cutoff to use, the guard adds `t.time < <cutoff>`: to the table's own `ON` when it is joined, otherwise to the `WHERE` (never when an outer join would then drop label rows). The cutoff it names must resolve, from that scope, to the cutoff it picked (a name shadowed by an inner alias is refused), and inside an `ON` it must belong to a source joined earlier. Anything else that is wrong is rejected, not repaired.
+7. **Asking for the future is refused by name** (`reads_future`). A term that selects the table's event time from after the cutoff (`t > K`, `t >= K`, `t < K + INTERVAL ...`, `BETWEEN K AND K + INTERVAL ...`, or the same with the column on the right) is not rewritten into `t < K`, which would be safe but would silently turn the feature into an empty one: the query is rejected and the message says a feature may only read history. A lookback such as `t >= K - INTERVAL '90 days'` is fine.
+8. **Last-modified times are refused** (`last_modified_time`). If the only time column of a table is a last-modified time (`updated_at`, `modified_at`, ...; the schema graph's `time_leakage_hint`), the table is rejected even with a correct bound: a row is rewritten after the event it describes, so "this row was updated before the cutoff" tells the feature that the future did not happen. If the table is an append-only log (each change is a new row, as in a `plan_changes` table with a `changed_at`), set that column as its event time in the schema: the choice is yours, the guard accepts it and records a warning. If its rows never change, mark it static. Marking a table static that has such a column is accepted but produces the warning "static assumption on a table that changes".
+9. **Rewriting.** When a bound is missing and the scope has a cutoff to use, the guard adds `t.time < <cutoff>`: to the table's own `ON` when it is joined, otherwise to the `WHERE` (never when an outer join would then drop label rows). The cutoff it names must resolve, from that scope, to the cutoff it picked (a name shadowed by an inner alias is refused), and inside an `ON` it must belong to a source joined earlier. Anything else that is wrong is rejected, not repaired.
 
-Everything the guard does not model is rejected. The test fixture `backend/tests/fixtures/pit_queries.yaml` lists 70 queries with their expected result.
+Everything the guard does not model is rejected. The test fixture `backend/tests/fixtures/pit_queries.yaml` lists 79 queries with their expected result.
 
 ## The runtime check
 
@@ -41,8 +43,24 @@ Everything the guard does not model is rejected. The test fixture `backend/tests
 
 ## Known limits
 
-- The guard bounds each table by **its own event-time column**. A column that is filled in later than that time (a `resolved_at` or `delivered_at` next to an `ordered_at`, a status that is overwritten) still leaks through a correctly bounded query. The schema graph flags last-modified time columns (`time_leakage_hint`); a column-level check is #54.
+- The guard bounds each table by **its own event-time column**. A column that is filled in later than that time (a `resolved_at` or `delivered_at` next to an `ordered_at`, a status that is overwritten) still leaks through a correctly bounded query. The schema graph flags last-modified time columns (`time_leakage_hint`); the guard refuses a table whose only time is a last-modified time (rule 8), but a late-filled column in an otherwise well-timed table (such as `customers.is_churned`) is only caught by the name-token and single-feature checks on the computed feature, shown by the canaries below.
 - Static tables are the user's word. A table marked static whose rows grow or change (an `order_items` table whose rows are added with each order) leaks, and the runtime check does not see it because it does not truncate static tables. Only mark tables whose rows never change after the fact.
 - A time-based or ordered pick among rows of equal time (`ORDER BY ordered_at DESC LIMIT 1` with ties) is not reproducible, though it can never come from after the cutoff.
 - Event times are compared as UTC; a time-zone-aware column is converted by the label builder, but a feature query that compares it with the cutoff should convert it too.
 - The runtime check needs the data in memory (a snapshot); on a live database only the SQL analysis runs.
+
+## Canaries
+
+`backend/tests/integration/test_canaries.py` plants seven traps in the demo database, shows that each is caught, and prints a "leakage canary report" (CI step "Leakage canaries"). The numbers are from a run on the demo database.
+
+| # | Trap | Caught by |
+|---|---|---|
+| 1 | a feature from `customer_status_snapshot` (rewritten after churn, only time column `updated_at`), with or without a time bound | guard: `last_modified_time` (as written, the 'churned' flag has AUC 0.59) |
+| 2 | a feature that is the label itself (orders in the 30 days after the cutoff) | guard: `reads_future`; if it got through, the single-feature check blocks it (score 0.99) |
+| 3 | that table marked static to get past 1 | accepted, with the warning "static assumption on a table that changes" |
+| 4 | `customers.is_churned` as a feature | name-token check (warn). The guard cannot see it, and the single-feature AUC is 0.59, below that check's limit |
+| 5 | `MAX(ordered_at)` without a cutoff filter | guard rewrite; the original differs when the future is deleted in 563 sampled rows, the rewritten one in 0 |
+| 6 | a random split on the relational task | refused (#52) |
+| 7 | `customers.discount_code_used_after_churn` as a feature | name-token check (warn); single-feature AUC 0.56 |
+
+Limit shown by 4 and 7: the guard bounds rows, not the columns of a row. A column that is filled in after the row's own event time, in a table that is otherwise well timed, passes the SQL guard; only the name check sees it, so a column with an innocent name would pass. Checking mutable columns is not built yet. The name check also assumes the training table's label column carries the task's name (here `churn_30d`); the training-table builder must do that.
