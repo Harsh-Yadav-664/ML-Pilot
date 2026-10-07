@@ -161,6 +161,32 @@ export interface paths {
         patch: operations["update_schema_api_v1_projects__project_id__connections__connection_id__schema_patch"];
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/connections/{connection_id}/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Snapshot
+         * @description Version what a run will read from the database.
+         *
+         *     ``mode: snapshot`` (default) copies the tables (only the columns asked for, only rows with an
+         *     event time up to ``as_of``) into the project through read-only guarded SELECTs, as a job whose
+         *     steps and progress are at ``/jobs/{id}``; its result holds ``data_version_id``. ``mode: live``
+         *     copies nothing and returns, at once, the row counts and latest event times at ``as_of`` with
+         *     ``reproducible: false``.
+         */
+        post: operations["create_snapshot_api_v1_projects__project_id__connections__connection_id__snapshots_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/connections/{connection_id}/tables/{table}/stats": {
         parameters: {
             query?: never;
@@ -326,6 +352,43 @@ export interface paths {
          * @description Ask the planner for feature ideas (data only; nothing is run).
          */
         get: operations["get_suggestions_api_v1_projects__project_id__datasets__data_version_id__suggestions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/db-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Db Versions
+         * @description Snapshot and live versions of this project's databases, newest first.
+         */
+        get: operations["list_db_versions_api_v1_projects__project_id__db_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/db-versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Db Version */
+        get: operations["get_db_version_api_v1_projects__project_id__db_versions__version_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -938,6 +1001,49 @@ export interface components {
             /** Target Column */
             target_column: string;
         };
+        /** DbVersionRead */
+        DbVersionRead: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Connection */
+            connection: {
+                [key: string]: string;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "db_snapshot" | "db_live";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "snapshot" | "live";
+            /** N Columns */
+            n_columns: number;
+            /** N Rows */
+            n_rows: number;
+            /** Note */
+            note: string | null;
+            /** Reproducible */
+            reproducible: boolean;
+            /** Short Hash */
+            short_hash: string;
+            /** Tables */
+            tables: {
+                [key: string]: components["schemas"]["TableRecord"];
+            };
+        };
         /** Debrief */
         Debrief: {
             /** Debrief */
@@ -1505,6 +1611,41 @@ export interface components {
                 [key: string]: string | null;
             } | null;
         };
+        /** SnapshotRequest */
+        SnapshotRequest: {
+            /**
+             * As Of
+             * @description Upper bound on every event time (UTC); default now
+             */
+            as_of?: string | null;
+            /**
+             * Columns
+             * @description Columns per table key; default all. The time column is always read.
+             */
+            columns?: {
+                [key: string]: string[];
+            } | null;
+            /**
+             * Mode
+             * @description snapshot copies the tables into the project; live copies nothing and only records the state of the source
+             * @default snapshot
+             * @enum {string}
+             */
+            mode: "snapshot" | "live";
+            /**
+             * Tables
+             * @description Table keys from the schema graph; default all
+             */
+            tables?: string[] | null;
+        };
+        /**
+         * SnapshotResponse
+         * @description A live version is ready at once; a snapshot is a job (poll `GET /jobs/{id}`).
+         */
+        SnapshotResponse: {
+            job?: components["schemas"]["JobRead"] | null;
+            version?: components["schemas"]["DbVersionRead"] | null;
+        };
         /**
          * SqlSnapshotRequest
          * @description Run one read-only query and store the result as a data version.
@@ -1579,6 +1720,41 @@ export interface components {
              * @description Set when the chosen time column is a last-modified time: rows are rewritten after the event, so it can leak the future (see #54)
              */
             time_leakage_hint?: string | null;
+        };
+        /**
+         * TableRecord
+         * @description What was read from one table.
+         */
+        TableRecord: {
+            /**
+             * Checksum
+             * @description Order-independent hash of the copied rows
+             */
+            checksum?: string | null;
+            /** Columns */
+            columns: string[];
+            /**
+             * Max Event Time
+             * @description Latest event time among the rows, UTC
+             */
+            max_event_time?: string | null;
+            /**
+             * Null Time Rows
+             * @description Rows without an event time, which cannot be placed in time and are left out
+             */
+            null_time_rows?: number | null;
+            /** Rows */
+            rows: number;
+            /**
+             * Table
+             * @description The table's key in the schema graph
+             */
+            table: string;
+            /**
+             * Time Column
+             * @description Rows after as_of were left out
+             */
+            time_column?: string | null;
         };
         /** TableStats */
         TableStats: {
@@ -2137,6 +2313,42 @@ export interface operations {
             };
         };
     };
+    create_snapshot_api_v1_projects__project_id__connections__connection_id__snapshots_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SnapshotRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_table_stats_api_v1_projects__project_id__connections__connection_id__tables__table__stats_get: {
         parameters: {
             query?: {
@@ -2433,6 +2645,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureSuggestion"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_db_versions_api_v1_projects__project_id__db_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbVersionRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_db_version_api_v1_projects__project_id__db_versions__version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbVersionRead"];
                 };
             };
             /** @description Validation Error */

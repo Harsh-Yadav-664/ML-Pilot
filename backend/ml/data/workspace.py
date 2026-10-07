@@ -26,6 +26,7 @@ from ml.data.engine import (
 from ml.data.versions import content_hash
 
 REGISTRY = TableRef("registered_versions", INTERNAL_SCHEMA)
+SNAPSHOT_REGISTRY = TableRef("snapshot_tables", INTERNAL_SCHEMA)
 VERSION_FILE_SUFFIXES = (".csv", ".parquet")
 
 _OPEN_WORKSPACES: dict[Path, Workspace] = {}
@@ -44,6 +45,39 @@ class Workspace:
                 f"CREATE TABLE {REGISTRY.sql()} (version_id VARCHAR PRIMARY KEY, "
                 "table_name VARCHAR, n_rows BIGINT, n_columns BIGINT)"
             )
+        if not source.has_table(SNAPSHOT_REGISTRY):
+            source.execute(
+                f"CREATE TABLE {SNAPSHOT_REGISTRY.sql()} (version_id VARCHAR, table_key VARCHAR, "
+                "schema_name VARCHAR, table_name VARCHAR, n_rows BIGINT, "
+                "PRIMARY KEY (version_id, table_key))"
+            )
+
+    def has_snapshot(self, version_id: str) -> bool:
+        return bool(
+            self.source.execute(
+                f"SELECT 1 FROM {SNAPSHOT_REGISTRY.sql()} WHERE version_id = ? LIMIT 1",
+                [version_id],
+            )
+        )
+
+    def register_snapshot(self, version_id: str, tables: dict[str, tuple[TableRef, int]]) -> None:
+        """Record which tables of the DuckDB file hold a database snapshot (key -> table, rows)."""
+        with self._lock:
+            for key, (ref, rows) in tables.items():
+                self.source.execute(
+                    f"INSERT INTO {SNAPSHOT_REGISTRY.sql()} VALUES (?, ?, ?, ?, ?)",
+                    [version_id, key, ref.schema, ref.name, rows],
+                )
+
+    def snapshot_tables(self, version_id: str) -> dict[str, TableRef]:
+        rows = self.source.execute(
+            f"SELECT table_key, schema_name, table_name FROM {SNAPSHOT_REGISTRY.sql()} "
+            "WHERE version_id = ?",
+            [version_id],
+        )
+        if not rows:
+            raise EngineError(f"Snapshot {version_id[:12]} is not in this project")
+        return {key: TableRef(name=name, schema=schema) for key, schema, name in rows}
 
     def table_of(self, version_id: str) -> TableRef | None:
         rows = self.source.execute(

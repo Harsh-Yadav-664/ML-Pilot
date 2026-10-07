@@ -24,6 +24,7 @@ from typing import Any
 import pandas as pd
 from pydantic import BaseModel, Field
 
+from ml.data.snapshot import DataDescription
 from ml.experiments.schema import ExperimentResult, ExperimentSpec
 
 MANIFEST_VERSION = 1
@@ -84,6 +85,10 @@ class RunManifest(BaseModel):
 
     # Data and task
     data_version_id: str | None
+    data: DataDescription | None = Field(
+        None,
+        description="For a database: snapshot or live, as_of, per-table row counts and latest event times",
+    )
     task: dict[str, Any] = Field(description="Target column, classes and positive class")
     split_plan: dict[str, Any]
     seeds: dict[str, int]
@@ -151,6 +156,7 @@ def build_manifest(
     data_version_id: str | None,
     preprocessing_config: dict[str, Any] | None,
     mlpilot_version: str,
+    data: DataDescription | None = None,
 ) -> RunManifest:
     """The manifest of a completed experiment, from named fields of its result."""
     p = result.parameters
@@ -181,6 +187,7 @@ def build_manifest(
         mlpilot_version=mlpilot_version,
         **_software(),
         data_version_id=data_version_id,
+        data=data,
         task={
             "target_column": p.get("target_column"),
             **(p.get("target_encoding") or {}),

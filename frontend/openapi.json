@@ -901,6 +901,97 @@
         "title": "DatasetTargetRequest",
         "type": "object"
       },
+      "DbVersionRead": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "connection": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Connection",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "db_snapshot",
+              "db_live"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "snapshot",
+              "live"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "n_columns": {
+            "title": "N Columns",
+            "type": "integer"
+          },
+          "n_rows": {
+            "title": "N Rows",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reproducible": {
+            "title": "Reproducible",
+            "type": "boolean"
+          },
+          "short_hash": {
+            "title": "Short Hash",
+            "type": "string"
+          },
+          "tables": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TableRecord"
+            },
+            "title": "Tables",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "short_hash",
+          "kind",
+          "mode",
+          "as_of",
+          "connection",
+          "reproducible",
+          "note",
+          "n_rows",
+          "n_columns",
+          "tables",
+          "created_at"
+        ],
+        "title": "DbVersionRead",
+        "type": "object"
+      },
       "Debrief": {
         "properties": {
           "debrief": {
@@ -2306,6 +2397,95 @@
         "title": "SchemaOverrides",
         "type": "object"
       },
+      "SnapshotRequest": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Upper bound on every event time (UTC); default now",
+            "title": "As Of"
+          },
+          "columns": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Columns per table key; default all. The time column is always read.",
+            "title": "Columns"
+          },
+          "mode": {
+            "default": "snapshot",
+            "description": "snapshot copies the tables into the project; live copies nothing and only records the state of the source",
+            "enum": [
+              "snapshot",
+              "live"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "tables": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Table keys from the schema graph; default all",
+            "title": "Tables"
+          }
+        },
+        "title": "SnapshotRequest",
+        "type": "object"
+      },
+      "SnapshotResponse": {
+        "description": "A live version is ready at once; a snapshot is a job (poll `GET /jobs/{id}`).",
+        "properties": {
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DbVersionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "SnapshotResponse",
+        "type": "object"
+      },
       "SqlSnapshotRequest": {
         "description": "Run one read-only query and store the result as a data version.\n\nName a saved connection (``connection_id``, see /connections) or, until the UI moves to\nthose, pass a ``connection_string`` (never stored or echoed). Exactly one of the two.",
         "properties": {
@@ -2490,6 +2670,82 @@
           "columns"
         ],
         "title": "Table",
+        "type": "object"
+      },
+      "TableRecord": {
+        "description": "What was read from one table.",
+        "properties": {
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Order-independent hash of the copied rows",
+            "title": "Checksum"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "max_event_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest event time among the rows, UTC",
+            "title": "Max Event Time"
+          },
+          "null_time_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rows without an event time, which cannot be placed in time and are left out",
+            "title": "Null Time Rows"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "table": {
+            "description": "The table's key in the schema graph",
+            "title": "Table",
+            "type": "string"
+          },
+          "time_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rows after as_of were left out",
+            "title": "Time Column"
+          }
+        },
+        "required": [
+          "table",
+          "columns",
+          "rows"
+        ],
+        "title": "TableRecord",
         "type": "object"
       },
       "TableStats": {
@@ -3363,6 +3619,68 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/connections/{connection_id}/snapshots": {
+      "post": {
+        "description": "Version what a run will read from the database.\n\n``mode: snapshot`` (default) copies the tables (only the columns asked for, only rows with an\nevent time up to ``as_of``) into the project through read-only guarded SELECTs, as a job whose\nsteps and progress are at ``/jobs/{id}``; its result holds ``data_version_id``. ``mode: live``\ncopies nothing and returns, at once, the row counts and latest event times at ``as_of`` with\n``reproducible: false``.",
+        "operationId": "create_snapshot_api_v1_projects__project_id__connections__connection_id__snapshots_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Snapshot",
+        "tags": [
+          "data versions"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/connections/{connection_id}/tables/{table}/stats": {
       "get": {
         "description": "Per-column statistics of one table, computed by aggregate SQL in the database (no rows\nare pulled), sampled above a million rows and cached. ``table`` is the table's ``key`` from\nthe schema graph. ``refresh=true`` recomputes.",
@@ -3911,6 +4229,104 @@
         "summary": "Get Suggestions",
         "tags": [
           "datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/db-versions": {
+      "get": {
+        "description": "Snapshot and live versions of this project's databases, newest first.",
+        "operationId": "list_db_versions_api_v1_projects__project_id__db_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DbVersionRead"
+                  },
+                  "title": "Response List Db Versions Api V1 Projects  Project Id  Db Versions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Db Versions",
+        "tags": [
+          "data versions"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/db-versions/{version_id}": {
+      "get": {
+        "operationId": "get_db_version_api_v1_projects__project_id__db_versions__version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DbVersionRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Db Version",
+        "tags": [
+          "data versions"
         ]
       }
     },

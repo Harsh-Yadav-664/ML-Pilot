@@ -13,7 +13,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import agent, chat, connections, datasets, experiments, jobs, privacy, projects
+from app.api.v1 import (
+    agent,
+    chat,
+    connections,
+    datasets,
+    experiments,
+    jobs,
+    privacy,
+    projects,
+    snapshots,
+)
 from app.core import redaction
 from app.core.config import settings
 from app.core.local_token import ENV_TOKEN
@@ -89,6 +99,7 @@ app.include_router(jobs.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(chat.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(connections.router, prefix=API_PREFIX, dependencies=AUTH)
 app.include_router(privacy.router, prefix=API_PREFIX, dependencies=AUTH)
+app.include_router(snapshots.router, prefix=API_PREFIX, dependencies=AUTH)
 
 
 # Health
