@@ -358,8 +358,10 @@ def test_a_static_table_with_a_last_modified_time_warns_for_the_evidence_report(
 ) -> None:
     result = check(CASES[-1]["sql"], graph_for(world, ["customer_status_snapshot"]))
     assert result.status == "accepted" and result.assumptions
-    assert len(result.warnings) == 1
+    # the static assumption, and (#139) the status column read from it
+    assert len(result.warnings) == 2
     assert "static assumption on a table that changes" in result.warnings[0]
+    assert "customer_status_snapshot.status may be overwritten" in result.warnings[1]
     assert result.as_dict()["warnings"] == result.warnings
     plain = check(CASES[0]["sql"], world["graph"])
     assert plain.warnings == []  # no warning when there is nothing to warn about

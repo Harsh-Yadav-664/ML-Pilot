@@ -580,6 +580,7 @@ class _Checker:
         # tables -----------------------------------------------------------------------------
         for alias, table in ctx.tables.items():
             self._check_table(select, label, alias, table, cl, own, terms, join_of, chain)
+        self._warn_mutable(scope, ctx.tables)
         # keys, windows, limits ---------------------------------------------------------------
         if own:
             self._check_mixing(select, label, cl, chain)
@@ -637,6 +638,33 @@ class _Checker:
                 return (ctx.key, alias, col)
             return None  # a column of this source that is not a cutoff (shadows outer names)
         return None
+
+    # columns that change after their row's event time (#139) -------------------------------
+    def _warn_mutable(self, scope: Scope, tables: dict[str, Table]) -> None:
+        """A bound on the row's event time does not stop a read of a column that is overwritten
+        later (``is_churned``, ``status``): the value shows what happened after the cutoff. SQL
+        alone cannot prove such a read safe, so the query is accepted with a warning that names
+        the column. Confirm the column as immutable in the schema to silence it."""
+        for column in scope.columns:
+            qualifier = _lc(column.table)
+            if qualifier:
+                owners = [t for a, t in tables.items() if _lc(a) == qualifier]
+            else:
+                owners = [
+                    t for t in tables.values() if any(c.name == column.name for c in t.columns)
+                ]
+            for table in owners:
+                found = next((c for c in table.columns if _lc(c.name) == _lc(column.name)), None)
+                if found is None or not found.mutable:
+                    continue
+                warning = (
+                    f"{table.name}.{found.name} may be overwritten after its row's event time "
+                    f"({found.mutable}); a feature that reads it can use information from after "
+                    "the cutoff. If it never changes once the row exists, confirm it as immutable "
+                    "in the schema"
+                )
+                if warning not in self.warnings:
+                    self.warnings.append(warning)
 
     # tables -------------------------------------------------------------------------------
     def _check_table(

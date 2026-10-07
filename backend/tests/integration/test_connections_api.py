@@ -359,6 +359,8 @@ async def test_schema_graph_overrides_persist_and_come_back_on_the_next_get(
     assert graph["overrides"] == {
         "time_columns": None,
         "static_tables": None,
+        "mutable_columns": None,
+        "immutable_columns": None,
         "add_edges": None,
         "remove_edges": None,
     }
