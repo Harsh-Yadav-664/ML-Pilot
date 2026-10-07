@@ -34,7 +34,7 @@ metric: pr_auc
 | `target.expression_sql` | Escape hatch instead of `expression`: one `SELECT` that uses `:cutoff`. Accepted with a warning. It runs through the SQL guard and the point-in-time guard, is not understood by the label checks, and is flagged in the evidence report. |
 | `horizon` | How far ahead the label looks: `30d`, `4 weeks`, `1 month`. |
 | `cutoffs` | `start`, `end` and `every` (`7d`, `2 weeks`, `1 month`). Cutoff dates are `start`, `start + every`, ... up to `end`. Months keep the day of the month (clamped to short months). |
-| `split` | `val_from` and `test_from`. Training uses cutoffs whose label window ends before `val_from`; validation those from `val_from` whose window ends before `test_from`; test those from `test_from`. |
+| `split` | `val_from` and `test_from`. Training uses cutoffs before `val_from` whose label window ends by `val_from`; validation those from `val_from` whose window ends by `test_from`; test those from `test_from`. Cutoffs whose window crosses the next boundary are left out and counted (see [How the split works](#how-the-split-works)). |
 | `metric` | `binary`: `pr_auc` (default), `roc_auc`, `f1`, `log_loss`. `regression`: `mae` (default), `rmse`, `r2`. `multiclass`: `macro_f1` (default), `accuracy`, `log_loss`. |
 
 ## Conditions
@@ -53,6 +53,21 @@ Against the schema graph of the connection (`POST /projects/{id}/tasks/validate`
 - `val_from` and `test_from` lie inside the cutoff range, are at least one horizon apart, and leave at least one cutoff for training, validation and test.
 
 Tables more than one foreign key away from the entity (for example `order_items` through `orders`) are not supported yet; the error says so.
+
+## How the split works
+
+A relational task is split by cutoff date, never at random (`ml/validation/splits.py`, `make_temporal_splits`). A random split would put rows of the same customer at nearby cutoffs on both sides, and a training label could look into the test period.
+
+- **train**: cutoff before `val_from` and label window end at or before `val_from`. Its label sees nothing of the validation period.
+- **validation**: cutoff in `[val_from, test_from)` and window end at or before `test_from`.
+- **test**: cutoff at or after `test_from`. It is scored once, at the end of a run.
+- A cutoff whose window crosses the next boundary is *purged*: it is in neither part, and the counts are reported (`n_purged_train`, `n_purged_val`). A window that ends exactly on the boundary is kept; one second later is purged.
+- Model selection inside training uses expanding folds over the training cutoffs: each fold trains on earlier cutoffs only and validates on later ones, and every training window in a fold ends by the start of that fold's validation cutoffs.
+- Asking for a `holdout`, `cv` or any other non-temporal strategy through `split_plan_for_task`, or `make_splits(..., relational=True)`, raises `SplitError` with the reason; there is no way to opt in. The refusal lives in those two functions: the training pipeline for relational tasks does not exist yet (#55 onward) and must call them, and the older single-table experiment path keeps its random splits.
+- The same entity appears on both sides of a boundary (a customer at several cutoffs). That is normal for forecasting; when entity ids are passed, the split summary counts the entities shared by train and validation, train and test, and validation and test.
+- A missing (`NaT`) or unreadable cutoff or window end raises `SplitError`; times with a UTC offset are converted to UTC and times without one are read as UTC.
+
+`POST /projects/{id}/tasks/{task_id}/preview-split` shows the result before a run: a timeline of cutoffs with their part and row count, the totals, the latest training and validation window end, and the folds. It uses the same functions as training, on the label counts of `preview-labels`.
 
 ## Versions
 

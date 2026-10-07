@@ -369,3 +369,57 @@ async def test_preview_labels_of_an_unknown_task_is_404(
 ) -> None:
     resp = await client.post(url(project_id, f"{uuid.uuid4()}/preview-labels"), json={})
     assert resp.status_code == 404
+
+
+# -- temporal split (#52) ---------------------------------------------------------------------
+
+
+async def test_preview_split_gives_a_timeline_and_no_window_crosses_a_boundary(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z")
+    task = await saved_task(client, project_id, connection)
+    resp = await client.post(
+        url(project_id, f"{task}/preview-split"), json={"data_version_id": version}
+    )
+    assert resp.status_code == 200, resp.text
+    out = resp.json()
+    assert out["n_train"] > 0 and out["n_val"] > 0 and out["n_test"] > 0
+    assert len(out["folds"]) == 3
+
+    def when(text: str) -> datetime:
+        return datetime.fromisoformat(text)
+
+    val_from, test_from = when(out["val_from"]), when(out["test_from"])
+    # The acceptance criterion: no training window passes val_from, no validation window test_from.
+    assert when(out["max_train_window_end"]) <= val_from
+    assert when(out["max_val_window_end"]) <= test_from
+    parts: dict[str, list[dict[str, str]]] = {}
+    for entry in out["timeline"]:
+        parts.setdefault(entry["part"], []).append(entry)
+    assert all(when(e["window_end"]) <= val_from for e in parts["train"])
+    assert all(when(e["window_end"]) <= test_from for e in parts["val"])
+    assert all(when(e["cutoff"]) >= test_from for e in parts["test"])
+    for f in out["folds"]:
+        assert f["n_train"] > 0 and f["n_val"] > 0 and when(f["val_to"]) < val_from
+    print(
+        f"\nsplit: train {out['n_train']} (windows end by {out['max_train_window_end'][:10]}), "
+        f"val {out['n_val']} (by {out['max_val_window_end'][:10]}), test {out['n_test']}, "
+        f"purged {out['n_purged_train']}+{out['n_purged_val']}"
+    )
+
+
+async def test_preview_split_asks_for_folds_in_range(
+    client: httpx.AsyncClient, project_id: str, connection: str
+) -> None:
+    task = await saved_task(client, project_id, connection)
+    for folds in (1, 10_000):
+        resp = await client.post(url(project_id, f"{task}/preview-split"), json={"folds": folds})
+        assert resp.status_code == 422, resp.text
+
+
+async def test_preview_split_of_an_unknown_task_is_404(
+    client: httpx.AsyncClient, project_id: str
+) -> None:
+    resp = await client.post(url(project_id, f"{uuid.uuid4()}/preview-split"), json={})
+    assert resp.status_code == 404

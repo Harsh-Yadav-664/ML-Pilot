@@ -807,6 +807,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/tasks/{task_id}/preview-split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Split
+         * @description The temporal split of a task, by cutoff: which cutoffs train, validate and test, which
+         *     rows are left out because their label window crosses a boundary, and the expanding-window
+         *     folds over the training cutoffs. Relational tasks have no other kind of split.
+         */
+        post: operations["preview_split_api_v1_projects__project_id__tasks__task_id__preview_split_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1467,6 +1489,23 @@ export interface components {
              */
             risk: string;
         };
+        /** FoldRead */
+        FoldRead: {
+            /** N Train */
+            n_train: number;
+            /** N Val */
+            n_val: number;
+            /**
+             * Val From
+             * Format: date-time
+             */
+            val_from: string;
+            /**
+             * Val To
+             * Format: date-time
+             */
+            val_to: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1896,6 +1935,74 @@ export interface components {
              */
             severity: "error" | "warning";
         };
+        /** SplitPreview */
+        SplitPreview: {
+            /** Dropped Cutoffs */
+            dropped_cutoffs: components["schemas"]["DroppedCutoffRead"][];
+            /** Folds */
+            folds: components["schemas"]["FoldRead"][];
+            /**
+             * Max Train Window End
+             * Format: date-time
+             * @description At or before val_from
+             */
+            max_train_window_end: string;
+            /**
+             * Max Val Window End
+             * @description At or before test_from
+             */
+            max_val_window_end: string | null;
+            /**
+             * N Purged Train
+             * @description Rows whose label window crosses val_from: left out
+             */
+            n_purged_train: number;
+            /**
+             * N Purged Val
+             * @description Rows whose label window crosses test_from: left out
+             */
+            n_purged_val: number;
+            /** N Test */
+            n_test: number;
+            /** N Train */
+            n_train: number;
+            /** N Val */
+            n_val: number;
+            /** Note */
+            note: string;
+            /**
+             * Test From
+             * Format: date-time
+             */
+            test_from: string;
+            /** Timeline */
+            timeline: components["schemas"]["TimelineEntry"][];
+            /**
+             * Val From
+             * Format: date-time
+             */
+            val_from: string;
+        };
+        /** SplitPreviewRequest */
+        SplitPreviewRequest: {
+            /**
+             * Data Version Id
+             * @description A database snapshot to build the labels from (and write them into the project's DuckDB file), or a live version. Default: the live database as of now
+             */
+            data_version_id?: string | null;
+            /**
+             * Folds
+             * @description Expanding-window folds over the training cutoffs
+             * @default 3
+             */
+            folds: number;
+            /**
+             * Materialize
+             * @description Snapshots only: also write the labels as a table in the project
+             * @default true
+             */
+            materialize: boolean;
+        };
         /**
          * SqlSnapshotRequest
          * @description Run one read-only query and store the result as a data version.
@@ -2129,6 +2236,29 @@ export interface components {
          * @enum {string}
          */
         TaskType: "binary_classification" | "multiclass_classification" | "regression";
+        /** TimelineEntry */
+        TimelineEntry: {
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /**
+             * Part
+             * @enum {string}
+             */
+            part: "train" | "val" | "test" | "purged_train" | "purged_val";
+            /**
+             * Rows
+             * @description Label rows (eligible entities) at this cutoff
+             */
+            rows: number;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+        };
         /** TopValue */
         TopValue: {
             /** Count */
@@ -3844,6 +3974,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LabelPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_split_api_v1_projects__project_id__tasks__task_id__preview_split_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SplitPreviewRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SplitPreview"];
                 };
             };
             /** @description Validation Error */

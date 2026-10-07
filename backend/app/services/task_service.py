@@ -14,6 +14,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import pandas as pd
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,12 +25,16 @@ from app.db.models.task_spec import TaskSpec as TaskSpecRow
 from app.schemas.tasks import (
     CutoffCountRead,
     DroppedCutoffRead,
+    FoldRead,
     LabelPreview,
     LabelPreviewRequest,
     SpecIssueRead,
+    SplitPreview,
+    SplitPreviewRequest,
     TaskSpecInput,
     TaskSpecRead,
     TaskSpecValidation,
+    TimelineEntry,
 )
 from app.services.connection_service import ConnectionService
 from ml.data.engine import EngineError
@@ -47,12 +52,26 @@ from ml.tasks.spec import (
     to_yaml,
     validate_against,
 )
+from ml.validation.splits import (
+    SplitError,
+    TemporalSplitPlan,
+    expanding_folds,
+    partition_cutoffs,
+    timeline,
+)
 
 CONFIRMED_BY = "local user"
 
 
 def _read_issue(i: SpecIssue) -> SpecIssueRead:
     return SpecIssueRead(path=i.path, message=i.message, severity=i.severity)
+
+
+def _utc_time(value: Any) -> datetime:
+    """Any cutoff or window end as an aware UTC datetime (the split code works on naive UTC)."""
+    ts = pd.Timestamp(value)
+    ts = ts.tz_convert(UTC) if ts.tzinfo else ts.tz_localize(UTC)
+    return ts.to_pydatetime()
 
 
 def _utc(ts: datetime | None) -> datetime | None:
@@ -231,6 +250,71 @@ class TaskService:
         except EngineError as e:
             raise HTTPException(422, str(e)) from None
         return self._label_preview(run, mode, as_of)
+
+    async def preview_split(
+        self, project_id: str, task_id: str, request: SplitPreviewRequest
+    ) -> SplitPreview:
+        """How the task's cutoffs divide into train, validation and test (the run view's timeline)."""
+        row = await self.get_row(project_id, task_id)
+        spec = from_yaml(row.yaml)
+        preview = await self.preview_labels(project_id, task_id, request)
+        rows = {
+            (
+                pd.Timestamp(c.cutoff).tz_convert(UTC).tz_localize(None),
+                pd.Timestamp(c.window_end).tz_convert(UTC).tz_localize(None),
+            ): c.eligible
+            for c in preview.cutoffs
+        }
+        try:
+            plan = TemporalSplitPlan.from_spec(spec, request.folds)
+            parts = partition_cutoffs(list(rows), plan)
+            train_pairs = [p for p, part in parts.items() if part == "train"]
+            folds = expanding_folds(train_pairs, request.folds)
+        except SplitError as e:
+            raise HTTPException(422, str(e)) from None
+
+        def total(part: str) -> int:
+            return sum(rows[p] for p, x in parts.items() if x == part)
+
+        n_train, n_val, n_test = total("train"), total("val"), total("test")
+        if not (n_train and n_val and n_test):
+            raise HTTPException(
+                422,
+                "Training, validation or test would have no rows: check split.val_from, "
+                "split.test_from, the horizon and the cutoff range",
+            )
+        ends = {part: [p[1] for p, x in parts.items() if x == part] for part in ("train", "val")}
+        return SplitPreview(
+            val_from=_utc_time(plan.val_from),
+            test_from=_utc_time(plan.test_from),
+            timeline=[
+                TimelineEntry(
+                    cutoff=_utc_time(t["cutoff"]),
+                    window_end=_utc_time(t["window_end"]),
+                    part=t["part"],
+                    rows=t["rows"],
+                )
+                for t in timeline(parts, rows)
+            ],
+            n_train=n_train,
+            n_val=n_val,
+            n_test=n_test,
+            n_purged_train=total("purged_train"),
+            n_purged_val=total("purged_val"),
+            max_train_window_end=_utc_time(max(ends["train"])),
+            max_val_window_end=_utc_time(max(ends["val"])),
+            folds=[
+                FoldRead(
+                    n_train=sum(rows[p] for p in f_train),
+                    n_val=sum(rows[p] for p in f_val),
+                    val_from=_utc_time(min(c for c, _ in f_val)),
+                    val_to=_utc_time(max(c for c, _ in f_val)),
+                )
+                for f_train, f_val in folds
+            ],
+            dropped_cutoffs=preview.dropped_cutoffs,
+            note="Counts are label rows per part. Per-entity overlap is in the split summary of a split made with entity ids.",
+        )
 
     @staticmethod
     def _label_preview(run: labels.LabelRun, mode: str, as_of: datetime) -> LabelPreview:

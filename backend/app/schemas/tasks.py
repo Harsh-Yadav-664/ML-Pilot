@@ -93,3 +93,39 @@ class LabelPreview(BaseModel):
     total_rows: int
     table: str | None = Field(None, description="Where the labels were written, if they were")
     note: str | None = None
+
+
+class SplitPreviewRequest(LabelPreviewRequest):
+    folds: int = Field(
+        3, ge=2, le=10, description="Expanding-window folds over the training cutoffs"
+    )
+
+
+class TimelineEntry(BaseModel):
+    cutoff: datetime
+    window_end: datetime
+    part: Literal["train", "val", "test", "purged_train", "purged_val"]
+    rows: int = Field(description="Label rows (eligible entities) at this cutoff")
+
+
+class FoldRead(BaseModel):
+    n_train: int
+    n_val: int
+    val_from: datetime
+    val_to: datetime
+
+
+class SplitPreview(BaseModel):
+    val_from: datetime
+    test_from: datetime
+    timeline: list[TimelineEntry]
+    n_train: int
+    n_val: int
+    n_test: int
+    n_purged_train: int = Field(description="Rows whose label window crosses val_from: left out")
+    n_purged_val: int = Field(description="Rows whose label window crosses test_from: left out")
+    max_train_window_end: datetime = Field(description="At or before val_from")
+    max_val_window_end: datetime | None = Field(description="At or before test_from")
+    folds: list[FoldRead]
+    dropped_cutoffs: list[DroppedCutoffRead]
+    note: str
