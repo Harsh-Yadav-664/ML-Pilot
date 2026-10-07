@@ -276,3 +276,22 @@ async def test_a_timed_out_feature_is_a_rejected_proposal_and_the_run_continues(
     assert first.reasons[0].startswith("the query failed: timeout:")
     assert second.status == "proposed" and run_result.stopped is None
     assert p.engine.counts["failed"] == 2 and p.engine.counts["computed"] == 1
+
+
+def test_other_label_rows_under_the_same_names_do_not_hit_the_cache(demo, tmp_path: Path) -> None:
+    sql = sql_of(demo, "orders__count_30d")
+    cache = tmp_path / "features"
+    with engine_for(demo, cache) as one:
+        assert one.compute(sql).status == "computed"
+    shifted = demo["labels"].copy()
+    shifted["cutoff_time"] = pd.to_datetime(shifted["cutoff_time"]) + pd.Timedelta(days=1)
+    with FeatureEngine(
+        demo["graph"],
+        demo["tables"],
+        shifted,
+        data_version_id="v1",
+        label_version="labels-1",  # same names, different cutoffs
+        cache_dir=cache,
+    ) as two:
+        assert two.compute(sql).status == "computed"
+    assert len(list(cache.glob("*.parquet"))) == 2

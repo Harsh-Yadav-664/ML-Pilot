@@ -139,8 +139,16 @@ class FeatureEngine:
         self.index = pd.MultiIndex.from_frame(
             self.labels[[ENTITY, CUTOFF]].assign(**{CUTOFF: pd.to_datetime(self.labels[CUTOFF])})
         )
+        # the label rows themselves are part of the key: new cutoffs under the same names must miss
+        row_hash = int(pd.util.hash_pandas_object(self.index.to_frame(index=False)).sum())
         self._context = "|".join(
-            [data_version_id, label_version, f"{self.sampling.fraction:.6f}", str(seed)]
+            [
+                data_version_id,
+                label_version,
+                f"{self.sampling.fraction:.6f}",
+                str(seed),
+                f"{len(self.index)}:{row_hash}",
+            ]
         )
         self._session = FeatureSession(tables, self.labels, graph)
         self.counts = {"computed": 0, "cached": 0, "failed": 0}
