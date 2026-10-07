@@ -678,6 +678,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_v1_projects__project_id__runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Features
+         * @description Every feature of the run: the baseline's, and each proposal with its stage or gain.
+         */
+        get: operations["get_run_features_api_v1_projects__project_id__runs__run_id__features_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Run
+         * @description Start the run as a background job: the baseline, then one proposed feature per round,
+         *     each kept only if its paired gain on time-ordered folds of the training rows beats the
+         *     margin, until a budget is reached, the rounds are used up or no feature has helped for
+         *     ``patience`` rounds. The test rows are scored once, at the end. Needs a run made with
+         *     ``POST .../tasks/{task}/runs`` on a snapshot. Cancel through the job.
+         */
+        post: operations["start_run_api_v1_projects__project_id__runs__run_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/tasks/": {
         parameters: {
             query?: never;
@@ -1701,6 +1762,48 @@ export interface components {
             suggested_metric?: string | null;
             thresholds: components["schemas"]["Thresholds"];
         };
+        /** FeatureRead */
+        FeatureRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Formula */
+            formula?: string | null;
+            /** Gain */
+            gain?: {
+                [key: string]: unknown;
+            } | null;
+            /** Guard Results */
+            guard_results?: {
+                [key: string]: unknown;
+            } | null;
+            /** Id */
+            id: string;
+            /** Ir */
+            ir?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "dfs" | "llm_sql" | "formula" | "user";
+            /** Name */
+            name: string;
+            /** Rationale */
+            rationale?: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Sql */
+            sql?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "proposed" | "rejected_guard" | "rejected_duplicate" | "rejected_gain" | "accepted";
+        };
         /** FeatureSuggestion */
         FeatureSuggestion: {
             /**
@@ -2081,6 +2184,62 @@ export interface components {
             /** Target Column */
             target_column: string;
         };
+        /** RunFeaturesRead */
+        RunFeaturesRead: {
+            /** Features */
+            features: components["schemas"]["FeatureRead"][];
+            /** Run Id */
+            run_id: string;
+        };
+        /**
+         * RunLoopRequest
+         * @description How long the run may go on. A limit that is not set does not apply.
+         */
+        RunLoopRequest: {
+            /**
+             * Feature Timeout Seconds
+             * @description One feature's query may run this long
+             * @default 120
+             */
+            feature_timeout_seconds: number;
+            /**
+             * Max Cost Usd
+             * @description Stop when the language model has cost this much
+             */
+            max_cost_usd?: number | null;
+            /**
+             * Max Proposals
+             * @description Stop after this many proposals
+             */
+            max_proposals?: number | null;
+            /**
+             * Max Rounds
+             * @description Features the model is asked for, at most
+             * @default 20
+             */
+            max_rounds: number;
+            /**
+             * Max Seconds
+             * @description Stop after this much wall time
+             */
+            max_seconds?: number | null;
+            /**
+             * Patience
+             * @description Stop after this many rounds in a row without an accepted feature
+             * @default 5
+             */
+            patience: number;
+        };
+        /** RunLoopStarted */
+        RunLoopStarted: {
+            /**
+             * Job Id
+             * @description Poll or stream /jobs/{job_id}/events; cancel with the jobs API
+             */
+            job_id: string;
+            /** Run Id */
+            run_id: string;
+        };
         /** RunStartRequest */
         RunStartRequest: {
             /**
@@ -2097,6 +2256,69 @@ export interface components {
             /** Override Reason */
             override_reason?: string | null;
             thresholds?: components["schemas"]["Thresholds"] | null;
+        };
+        /**
+         * RunStateRead
+         * @description Where a run stands, from what the loop has recorded so far.
+         */
+        RunStateRead: {
+            /**
+             * Accepted
+             * @description Of those, kept because they helped
+             */
+            accepted: number;
+            /** Budget */
+            budget: {
+                [key: string]: unknown;
+            };
+            /** Budget Used */
+            budget_used: {
+                [key: string]: unknown;
+            };
+            /** Champion Experiment Id */
+            champion_experiment_id: string | null;
+            /** Champion Val Metrics */
+            champion_val_metrics: {
+                [key: string]: number;
+            } | null;
+            /** Data Version Id */
+            data_version_id: string | null;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /** Notes */
+            notes: string[];
+            /**
+             * Rounds
+             * @description Proposals made so far
+             */
+            rounds: number;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "queued" | "running" | "completed" | "failed" | "cancelled" | "stopped";
+            /**
+             * Stop Reason
+             * @description max_rounds, patience, budget:cost, budget:time, budget:proposals, no_llm
+             */
+            stop_reason?: string | null;
+            /** Task Id */
+            task_id: string | null;
+            /** Test Error */
+            test_error?: string | null;
+            /**
+             * Test Metrics
+             * @description Scored once, when the run ends. Empty while it runs and after a cancel
+             */
+            test_metrics?: {
+                [key: string]: number;
+            } | null;
         };
         /** SampleDatasetRequest */
         SampleDatasetRequest: {
@@ -4185,6 +4407,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrivacyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_v1_projects__project_id__runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_features_api_v1_projects__project_id__runs__run_id__features_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunFeaturesRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_api_v1_projects__project_id__runs__run_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RunLoopRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunLoopStarted"];
                 };
             };
             /** @description Validation Error */

@@ -123,5 +123,23 @@ If no real model answers (the offline stub, or every provider failing), the resu
 
 The queries run in a DuckDB with no file or network access, but the engine does not read the SQL: it expects queries that already passed the point-in-time guard (the proposer and the baseline both do that first).
 
-Not built yet: running against a live Postgres through the SQL guard (snapshots only), the refit on the full table, and the run loop that ties the baseline, the proposer and the budget together (#58).
+Not built yet: running against a live Postgres through the SQL guard (snapshots only), and the refit on the full table.
+
+## The run loop: `ml/agents/run_loop.py`
+
+`POST /projects/{id}/runs/{run}/start` queues a job (kind `relational_run`, cancellable, with events) for a run made on a snapshot. The job builds the baseline, records it as the first champion, then repeats up to `max_rounds` times:
+
+1. stop if a budget is reached, or `patience` rounds in a row had no accepted feature
+2. ask the proposer for one feature; it is checked, executed and de-duplicated as above
+3. score the champion and the champion plus the feature on the **same time-ordered folds of the training rows** (`TemporalSplit.folds`: each fold trains on earlier cutoffs and validates on a later block, with the gap that keeps label windows from overlapping), fitting a smaller LightGBM per fold
+4. accept in code if the mean paired PR-AUC gain is larger than `max(min_gain, std_multiplier x std of the paired gains)` (ADR 0006; defaults 0.002 and 1.0). The model is not asked. A rejected feature is remembered, with the reason, in the next prompt
+5. an accepted feature becomes the new champion: LightGBM is fitted on the training rows with early stopping on the validation rows, and recorded as an experiment whose parent is the previous champion
+
+At the end, the champion is refit on the training and validation rows and **the test rows are scored once**, by one function (`score_test`) that a test spies on. A run that is cancelled is never scored. A run stopped by a budget (`stopped`) is scored, since it has a champion. Without a real model nothing is proposed (`no_llm`) and the baseline is the result.
+
+What is recorded: every proposal is a `Feature` row (`llm_sql`, with its SQL, the stage that stopped it or its paired gain, `accepted` or `rejected_gain`); each accepted feature and the final model are `Experiment` rows; `GET /runs/{run}` gives the status, stop reason, budget used, validation metrics of the champion and the test metrics; `GET /runs/{run}/features` lists the features.
+
+Honest limits: the folds are the same for every candidate of a run and a run can make up to 20 proposals, so by chance alone a useless feature is sometimes accepted, and the fold scores of the champion drift upward (optimistic) as features are added; the test score is unaffected. The champion's validation metrics are optimistic too: the validation rows stop the training early, and the final refit on train and validation uses that stopping point as its number of trees. Two runs of the same task can each report test metrics; choosing between runs on them would be tuning on the test set.
+
+Not built yet: several independent proposal histories (`rollouts`), resuming an interrupted run from its last champion (the champion is on record after every accepted feature, but nothing restarts from it), the same loop for single-table CSV tasks (they keep the older formula loop), and a UI for a run (#101).
 

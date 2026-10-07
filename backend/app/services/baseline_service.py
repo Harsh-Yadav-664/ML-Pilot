@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import pandas as pd
 import pyarrow as pa
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,14 +54,17 @@ NOTES = [
 ]
 
 
-def _load(
-    workspace: Workspace,
-    graph: SchemaGraph,
-    version_id: str,
-    task_id: str,
-    spec: TaskSpec,
-    plan: TemporalSplitPlan,
-) -> tuple[BaselineResult, list[Skipped]]:
+@dataclass
+class World:
+    """What a run reads from a data version's snapshot: tables, label rows, restricted graph."""
+
+    graph: SchemaGraph
+    tables: dict[str, pa.Table]
+    labels: pd.DataFrame
+    absent: list[Skipped]
+
+
+def load_world(workspace: Workspace, graph: SchemaGraph, version_id: str, task_id: str) -> World:
     refs = workspace.snapshot_tables(version_id)
     graph, absent = restrict_graph(graph, set(refs))
     tables: dict[str, pa.Table] = {
@@ -68,7 +73,19 @@ def _load(
     frame = arrow_to_pandas(
         workspace.source.read_table(labels.label_table_ref(task_id, version_id))
     )
-    return build_baseline(spec, graph, tables, frame, plan), absent
+    return World(graph, tables, frame, absent)
+
+
+def _load(
+    workspace: Workspace,
+    graph: SchemaGraph,
+    version_id: str,
+    task_id: str,
+    spec: TaskSpec,
+    plan: TemporalSplitPlan,
+) -> tuple[BaselineResult, list[Skipped]]:
+    world = load_world(workspace, graph, version_id, task_id)
+    return build_baseline(spec, world.graph, world.tables, world.labels, plan), world.absent
 
 
 class BaselineService:

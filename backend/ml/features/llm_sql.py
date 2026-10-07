@@ -24,6 +24,7 @@ When no real LLM answered (the offline stub, or every provider failed) nothing i
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -47,7 +48,7 @@ from ml.features.baseline import (
 )
 from ml.features.compile import compile
 from ml.features.engine import FeatureEngine, sql_hash
-from ml.features.ir import NAME, FeatureIR, FeatureIRError, validate
+from ml.features.ir import NAME, FeatureIR, FeatureIRError, describe, validate
 from ml.tasks.nl_to_spec import describe_spec
 from ml.tasks.pit_guard import check
 from ml.tasks.spec import TaskSpec
@@ -152,7 +153,7 @@ class FeatureProposer:
         self.columns: dict[str, pd.Series] = {
             str(c): baseline.frame[c] for c in baseline.frame.columns
         }
-        self.views = [
+        self.views: list[tuple[str, str, float]] = [
             (f.candidate.group, f.candidate.description, f.importance) for f in baseline.features
         ]
         self.hashes = {sql_hash(f.candidate.sql) for f in baseline.features}
@@ -305,13 +306,13 @@ class FeatureProposer:
             record.llm = [first.meta()]
             self.records.append(record)
             return record
-        record, attempt = self._evaluate(first.structured)
+        record, attempt = await asyncio.to_thread(self._evaluate, first.structured)
         record.llm = [first.meta()]
         if record.status not in ("proposed", "no_llm"):
             again = await self.gateway.complete_structured_result(
                 TaskType.SQL, self._prompt(number, remaining, attempt).build(), answer_schema()
             )
-            second, _ = self._evaluate(again.structured)
+            second, _ = await asyncio.to_thread(self._evaluate, again.structured)
             second.repaired = True
             second.attempts = [*record.attempts, *second.attempts]
             second.llm = [*record.llm, again.meta()]
@@ -337,6 +338,20 @@ class FeatureProposer:
                     "reason": _clip("; ".join(record.reasons)),
                 }
             )
+
+    def adopt(self, record: ProposalRecord, importance: float = 0.0) -> None:
+        """A proposal was accepted into the champion: later prompts list it among the features in use."""
+        p = record.proposal
+        if p is None or p.name not in self.columns:
+            raise ValueError("only a proposal that was computed can be adopted")
+        description = describe(p.ir) if p.ir is not None else p.rationale
+        self.views.append(("llm", description, importance))
+
+    def reject_for_gain(self, record: ProposalRecord, reason: str) -> None:
+        """A proposal passed every check but did not help: later prompts hear why."""
+        p = record.proposal
+        if p is not None:
+            self.rejected.append({"name": p.name, "stage": "gain", "reason": _clip(reason)})
 
     async def run(self, count: int) -> list[ProposalRecord]:
         """Up to ``count`` proposals; stops at once if no real LLM is answering."""
