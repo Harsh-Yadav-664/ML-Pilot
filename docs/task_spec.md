@@ -57,3 +57,17 @@ Tables more than one foreign key away from the entity (for example `order_items`
 ## Versions
 
 `POST /projects/{id}/tasks/` saves a draft (version 1). A draft is edited in place with `PUT`. `POST .../confirm` validates again and refuses if any error remains. A confirmed spec is never changed: editing it with `PUT` saves the next version as a new draft, and every run that points at the confirmed version keeps pointing at it. The confirmed row stores the schema fingerprint it was checked against.
+
+## Labels at the cutoff dates
+
+`POST /projects/{id}/tasks/{task_id}/preview-labels` builds the labels of a saved task (`ml/tasks/labels.py`). The body is optional: `data_version_id` picks a database snapshot (the labels are then also written to the project's DuckDB file as `mlpilot.labels_<task>_<data version>`; `"materialize": false` skips that) or a live version; without it the labels are computed read-only on the connected database through the SQL guard. SQLite sources need a snapshot. The answer holds the generated SQL, per cutoff the eligible entities, positives and base rate (mean label for regression), the cutoffs left out, and the table written.
+
+One row per (entity, cutoff): `entity_id, cutoff_time, label, label_window_end`.
+
+- **Eligible** means the entity existed before the cutoff (`created_at < cutoff`), every eligibility condition holds, and every `exists` / `not_exists` test holds over that table's rows **strictly before** the cutoff. The compiler adds that time bound itself, so an eligibility rule cannot read the future even if the spec forgot to limit it.
+- **The label window is `(cutoff, window_end]`.** An event exactly at the cutoff is not in the window (it is history for that cutoff); an event exactly at the window end is. Feature history uses strictly before the cutoff. This is the convention the tests pin down, so a feature and a label never share an event.
+- Entities with no event in the window still get a row: a count and a sum are 0 for them.
+- Rows whose label is NULL (an `avg`, `min` or `max` over no events) are left out, not turned into 0.
+- A cutoff whose window ends after the data does is **dropped and reported** (`dropped_cutoffs`), never kept with an incomplete label. Saving or confirming a spec still treats that as an error; the preview only drops them so a spec written for newer data can be tried on an older snapshot.
+- Times are compared as UTC. A time-zone-aware column is converted; a column without a zone is taken to hold UTC; text times (SQLite) are parsed.
+- `target.expression_sql` is not compiled here: it needs the point-in-time guard (#51).

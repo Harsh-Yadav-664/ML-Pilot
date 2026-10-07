@@ -9,6 +9,7 @@ Rules:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -17,17 +18,26 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import datasets
 from app.db.models import DataVersion, Run
 from app.db.models.task_spec import TaskSpec as TaskSpecRow
 from app.schemas.tasks import (
+    CutoffCountRead,
+    DroppedCutoffRead,
+    LabelPreview,
+    LabelPreviewRequest,
     SpecIssueRead,
     TaskSpecInput,
     TaskSpecRead,
     TaskSpecValidation,
 )
 from app.services.connection_service import ConnectionService
+from ml.data.engine import EngineError
 from ml.data.schema_graph import SchemaGraph
 from ml.data.snapshot import DataDescription
+from ml.data.sources import ConnectionFailure
+from ml.data.workspace import workspace_for
+from ml.tasks import labels
 from ml.tasks.spec import (
     SpecError,
     SpecIssue,
@@ -170,6 +180,88 @@ class TaskService:
         row.schema_fingerprint = schema_fingerprint(graph)
         await self.db.flush()
         return await self._read(row, issues)
+
+    # -- labels -------------------------------------------------------------------------------
+    async def preview_labels(
+        self, project_id: str, task_id: str, request: LabelPreviewRequest
+    ) -> LabelPreview:
+        """Build the labels for a saved task and report the SQL and the counts per cutoff."""
+        row = await self.get_row(project_id, task_id)
+        if row.connection_id is None:
+            raise HTTPException(422, "The task has no connection to read the data from")
+        spec = from_yaml(row.yaml)
+        connections = ConnectionService(self.db)
+        conn = await connections.get(project_id, row.connection_id)
+        graph = await connections.schema_graph(conn)
+        description: DataDescription | None = None
+        version_id = request.data_version_id
+        if version_id is not None:
+            version = await self.db.get(DataVersion, version_id)
+            if (
+                version is None
+                or version.project_id != project_id
+                or version.kind not in ("db_snapshot", "db_live")
+            ):
+                raise HTTPException(404, "Database data version not found in this project")
+            description = DataDescription.model_validate(version.source)
+        mode = "snapshot" if description is not None and description.mode == "snapshot" else "live"
+        as_of = description.as_of if description else datetime.now(UTC)
+        try:
+            if description is not None and mode == "snapshot":
+                assert version_id is not None
+                workspace = workspace_for(project_id, datasets.PROJECTS_DIR)
+                run = await asyncio.to_thread(
+                    labels.run_on_snapshot,
+                    spec,
+                    graph,
+                    workspace,
+                    version_id,
+                    description,
+                    task_id=task_id,
+                    materialize=request.materialize,
+                )
+            else:
+                run = await asyncio.to_thread(
+                    labels.run_on_source, spec, graph, connections.source(conn), as_of
+                )
+        except labels.LabelError as e:
+            raise HTTPException(422, str(e)) from None
+        except ConnectionFailure as e:
+            raise HTTPException(502, f"Could not read the database: {e}") from None
+        except EngineError as e:
+            raise HTTPException(422, str(e)) from None
+        return self._label_preview(run, mode, as_of)
+
+    @staticmethod
+    def _label_preview(run: labels.LabelRun, mode: str, as_of: datetime) -> LabelPreview:
+        dropped = run.compiled.dropped
+        return LabelPreview(
+            sql=run.compiled.sql,
+            dialect=run.dialect,  # type: ignore[arg-type]
+            mode=mode,  # type: ignore[arg-type]
+            as_of=as_of,
+            cutoffs=[
+                CutoffCountRead(
+                    cutoff=c.cutoff,
+                    window_end=c.window_end,
+                    eligible=c.eligible,
+                    positives=c.positives,
+                    base_rate=c.base_rate,
+                    mean_label=c.mean_label,
+                )
+                for c in run.counts
+            ],
+            dropped_cutoffs=[
+                DroppedCutoffRead(
+                    cutoff=w.cutoff,
+                    window_end=w.window_end,
+                    reason="its label window ends after the data does",
+                )
+                for w in dropped
+            ],
+            total_rows=run.total_rows,
+            table=f"{run.table.schema}.{run.table.name}" if run.table else None,
+        )
 
     # -- reading ------------------------------------------------------------------------------
     async def get_row(self, project_id: str, task_id: str) -> TaskSpecRow:

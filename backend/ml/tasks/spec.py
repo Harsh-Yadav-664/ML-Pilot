@@ -268,15 +268,27 @@ def schema_fingerprint(graph: SchemaGraph) -> str:
 
 
 def validate_against(
-    spec: TaskSpec, graph: SchemaGraph, as_of: datetime | None = None
+    spec: TaskSpec,
+    graph: SchemaGraph,
+    as_of: datetime | None = None,
+    *,
+    drop_incomplete_cutoffs: bool = False,
 ) -> list[SpecIssue]:
-    """Every problem of ``spec`` for this database, with the path of the field it is about."""
-    return _Validator(spec, graph, as_of or datetime.now(UTC)).run()
+    """Every problem of ``spec`` for this database, with the path of the field it is about.
+
+    A last cutoff whose label window ends after the data does is an error, unless
+    ``drop_incomplete_cutoffs``: the label builder then leaves those cutoffs out and reports them,
+    so it is only a warning.
+    """
+    return _Validator(spec, graph, as_of or datetime.now(UTC), drop_incomplete_cutoffs).run()
 
 
 class _Validator:
-    def __init__(self, spec: TaskSpec, graph: SchemaGraph, as_of: datetime) -> None:
+    def __init__(
+        self, spec: TaskSpec, graph: SchemaGraph, as_of: datetime, drop_incomplete: bool = False
+    ) -> None:
         self.spec, self.graph = spec, graph
+        self.drop_incomplete = drop_incomplete
         self.as_of = as_of.astimezone(UTC) if as_of.tzinfo else as_of.replace(tzinfo=UTC)
         self.issues: list[SpecIssue] = []
 
@@ -552,7 +564,8 @@ class _Validator:
         last = dates[-1]
         data_end = self.as_of.date()
         if add_duration(last, horizon) > data_end:
-            self.err(
+            report = self.warn if self.drop_incomplete else self.err
+            report(
                 "cutoffs.end",
                 f"the last cutoff ({last}) plus the horizon ({horizon}) is after the data ends ({data_end}); "
                 "its labels would be incomplete. Move cutoffs.end back to "
