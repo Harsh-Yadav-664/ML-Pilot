@@ -39,6 +39,15 @@ async def start_run(
     return await RunService(db).start(project_id, run_id, body or RunLoopRequest())
 
 
+@router.post("/{run_id}/resume", response_model=RunLoopStarted, status_code=202)
+async def resume_run(
+    run_id: str, project_id: ProjectID, db: DBSession
+) -> RunLoopStarted:
+    """Resume an interrupted or cancelled run from its last champion. The run continues
+    with its remaining rounds and budget. A run that was completed cannot be resumed."""
+    return await RunService(db).resume(project_id, run_id)
+
+
 @router.get("/{run_id}", response_model=RunStateRead)
 async def get_run(run_id: str, project_id: ProjectID, db: DBSession) -> RunStateRead:
     return await RunService(db).state(project_id, run_id)
