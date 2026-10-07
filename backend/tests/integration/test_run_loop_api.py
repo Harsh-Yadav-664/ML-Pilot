@@ -257,7 +257,7 @@ async def test_resume_cancelled_run(
     # Simulate the enqueue so resume can find the job request
     async with db_session.AsyncSessionLocal() as db:
         run = await db.get(Run, run_id)
-        job = Job(id=str(uuid.uuid4()), project_id=project_id, run_id=run_id, kind="relational_run", params={"request": {"max_rounds": 4, "patience": 4}})
+        job = Job(id=str(uuid.uuid4()), project_id=project_id, run_id=run_id, kind="relational_run", status="cancelled", params={"request": {"max_rounds": 4, "patience": 4}})
         db.add(job)
         await db.commit()
     
