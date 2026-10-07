@@ -726,6 +726,7 @@ async def _execute(
                 state=r_state,
                 scorer=r_scorer,
                 control=control,
+                score_test=False,
             )
             
             val = float(np.mean(outcome.champion.fold_scores)) if outcome.champion.fold_scores else -1.0

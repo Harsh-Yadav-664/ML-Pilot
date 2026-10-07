@@ -186,6 +186,7 @@ async def run_loop(
     state: LoopState | None = None,
     scorer: FoldScorer | None = None,
     control: Control | None = None,
+    score_test: bool = True,
 ) -> RunOutcome:
     """Run the rounds, then score the test rows once. See the module docstring."""
     hooks = hooks or NoHooks()
@@ -340,13 +341,14 @@ async def _finish(
     split = baseline.temporal
     champion = state.champion
     status: RunStatus = "stopped" if stop_reason.startswith("budget") else "completed"
-    await hooks.step("Refitting on train + validation and scoring the test rows once", 0.95)
     test: dict[str, float] | None = None
     error: str | None = None
-    try:
-        test = await asyncio.to_thread(_refit_and_score_test, champion, y, split, config.seed)
-    except (SplitError, ValueError) as e:  # for example a test period with one class only
-        error = f"the test rows were not scored: {e}"
+    if score_test:
+        await hooks.step("Refitting on train + validation and scoring the test rows once", 0.95)
+        try:
+            test = await asyncio.to_thread(_refit_and_score_test, champion, y, split, config.seed)
+        except (SplitError, ValueError) as e:  # for example a test period with one class only
+            error = f"the test rows were not scored: {e}"
     await hooks.emit("run_finished", status=status, stop_reason=stop_reason, test=test, error=error)
     return RunOutcome(
         status, stop_reason, state.rounds, champion, test, error, state.tracker.used()
