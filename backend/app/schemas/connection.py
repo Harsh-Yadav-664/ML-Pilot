@@ -89,3 +89,26 @@ class TableStatsRead(BaseModel):
     stats: TableStats
     computed_at: datetime
     cached: bool = Field(description="True when these statistics were computed by an earlier call")
+
+
+class MutableCheckRequest(BaseModel):
+    older_version_id: str = Field(description="A snapshot of this database taken earlier")
+    newer_version_id: str = Field(description="A snapshot of the same database taken later")
+    save: bool = Field(
+        True, description="Save the columns found as mutable in the schema overrides"
+    )
+
+
+class MutableColumnRead(BaseModel):
+    table: str
+    column: str
+    compared_rows: int = Field(description="Rows that are in both snapshots")
+    changed_rows: int = Field(description="Of those, rows where the column has another value")
+
+
+class MutableCheckRead(BaseModel):
+    mutable: list[MutableColumnRead]
+    checked_tables: int
+    skipped: list[str] = Field(description="Tables that could not be compared, with the reason")
+    saved: bool = Field(description="The columns were saved as mutable in the schema overrides")
+    note: str

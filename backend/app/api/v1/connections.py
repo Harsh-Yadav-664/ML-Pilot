@@ -10,6 +10,8 @@ from app.schemas.connection import (
     ConnectionRead,
     ConnectionTestResult,
     ConnectionUpdate,
+    MutableCheckRead,
+    MutableCheckRequest,
     TableStatsRead,
 )
 from app.services.connection_service import ConnectionService, to_read
@@ -75,6 +77,18 @@ async def update_schema(
     given replaces the stored one; a field left out is unchanged. Unknown names are a 422."""
     svc = ConnectionService(db)
     return await svc.update_schema_overrides(await svc.get(project_id, connection_id), data)
+
+
+@router.post("/{connection_id}/schema/mutable-check", response_model=MutableCheckRead)
+async def mutable_check(
+    connection_id: str, body: MutableCheckRequest, project_id: ProjectID, db: DBSession
+) -> MutableCheckRead:
+    """Compare two snapshots of the database (taken at different times) for columns whose value
+    changed for rows that already existed, such as a status or an ``is_churned`` flag. They are
+    saved as mutable (``save=false`` only reports): a feature query that reads one gets a
+    point-in-time warning that names the column."""
+    svc = ConnectionService(db)
+    return await svc.mutable_check(await svc.get(project_id, connection_id), body)
 
 
 @router.get("/{connection_id}/tables/{table}/stats", response_model=TableStatsRead)

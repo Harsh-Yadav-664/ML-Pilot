@@ -413,6 +413,35 @@
             "title": "Is Primary Key",
             "type": "boolean"
           },
+          "mutable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the value may be written or overwritten after its row's event time (a status, a flag), so a feature that reads it can see the future (#139): why",
+            "title": "Mutable"
+          },
+          "mutable_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "name",
+                  "observed",
+                  "user"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "name: the name looks like a status or flag. observed: its value changed for old rows between two snapshots. user: you declared it",
+            "title": "Mutable Source"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -2659,6 +2688,103 @@
         "title": "LeakageFinding",
         "type": "object"
       },
+      "MutableCheckRead": {
+        "properties": {
+          "checked_tables": {
+            "title": "Checked Tables",
+            "type": "integer"
+          },
+          "mutable": {
+            "items": {
+              "$ref": "#/components/schemas/MutableColumnRead"
+            },
+            "title": "Mutable",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "saved": {
+            "description": "The columns were saved as mutable in the schema overrides",
+            "title": "Saved",
+            "type": "boolean"
+          },
+          "skipped": {
+            "description": "Tables that could not be compared, with the reason",
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "mutable",
+          "checked_tables",
+          "skipped",
+          "saved",
+          "note"
+        ],
+        "title": "MutableCheckRead",
+        "type": "object"
+      },
+      "MutableCheckRequest": {
+        "properties": {
+          "newer_version_id": {
+            "description": "A snapshot of the same database taken later",
+            "title": "Newer Version Id",
+            "type": "string"
+          },
+          "older_version_id": {
+            "description": "A snapshot of this database taken earlier",
+            "title": "Older Version Id",
+            "type": "string"
+          },
+          "save": {
+            "default": true,
+            "description": "Save the columns found as mutable in the schema overrides",
+            "title": "Save",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "older_version_id",
+          "newer_version_id"
+        ],
+        "title": "MutableCheckRequest",
+        "type": "object"
+      },
+      "MutableColumnRead": {
+        "properties": {
+          "changed_rows": {
+            "description": "Of those, rows where the column has another value",
+            "title": "Changed Rows",
+            "type": "integer"
+          },
+          "column": {
+            "title": "Column",
+            "type": "string"
+          },
+          "compared_rows": {
+            "description": "Rows that are in both snapshots",
+            "title": "Compared Rows",
+            "type": "integer"
+          },
+          "table": {
+            "title": "Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table",
+          "column",
+          "compared_rows",
+          "changed_rows"
+        ],
+        "title": "MutableColumnRead",
+        "type": "object"
+      },
       "NarrationItem": {
         "properties": {
           "at": {
@@ -3637,6 +3763,42 @@
               }
             ],
             "title": "Add Edges"
+          },
+          "immutable_columns": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "table -> columns confirmed never to change after their row's event time: no warning, even if the name looks like a status",
+            "title": "Immutable Columns"
+          },
+          "mutable_columns": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "table -> columns that change after their row's event time (found by comparing two snapshots, or declared). A query reading one gets a warning (#139)",
+            "title": "Mutable Columns"
           },
           "remove_edges": {
             "anyOf": [
@@ -5876,6 +6038,68 @@
           }
         },
         "summary": "Update Schema",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/connections/{connection_id}/schema/mutable-check": {
+      "post": {
+        "description": "Compare two snapshots of the database (taken at different times) for columns whose value\nchanged for rows that already existed, such as a status or an ``is_churned`` flag. They are\nsaved as mutable (``save=false`` only reports): a feature query that reads one gets a\npoint-in-time warning that names the column.",
+        "operationId": "mutable_check_api_v1_projects__project_id__connections__connection_id__schema_mutable_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MutableCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutableCheckRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mutable Check",
         "tags": [
           "connections"
         ]

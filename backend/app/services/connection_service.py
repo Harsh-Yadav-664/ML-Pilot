@@ -21,9 +21,12 @@ from app.schemas.connection import (
     ConnectionRead,
     ConnectionTestResult,
     ConnectionUpdate,
+    MutableCheckRead,
+    MutableCheckRequest,
+    MutableColumnRead,
     TableStatsRead,
 )
-from ml.data.engine import EngineError
+from ml.data.engine import EngineError, arrow_to_pandas
 from ml.data.profiling.db_stats import StatsConfig, TableStats, profile_table
 from ml.data.schema_graph import (
     OverrideError,
@@ -39,6 +42,8 @@ from ml.data.schema_graph import (
 from ml.data.sources import ConnectionFailure, ConnectionSpec, SourceWithChecks, open_source
 from ml.data.sources.duckdb_file import is_duckdb_file
 from ml.data.sources.sqlite import is_sqlite_file
+from ml.data.workspace import workspace_for
+from ml.tasks.mutable_columns import observe_mutable
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +237,49 @@ class ConnectionService:
         conn.schema_overrides = merged.model_dump(mode="json")
         await self.db.flush()
         return apply_overrides(base, merged)
+
+    async def mutable_check(self, conn: Connection, body: MutableCheckRequest) -> MutableCheckRead:
+        """Compare two snapshots of the database for columns that change after their row exists
+        (#139) and, unless told not to, save them as mutable in the schema overrides. A query
+        that reads one then gets a point-in-time warning naming the column."""
+        if body.older_version_id == body.newer_version_id:
+            raise HTTPException(422, "Give two different snapshots: nothing changes between one")
+        graph = await self.schema_graph(conn)
+        workspace = workspace_for(conn.project_id, datasets.PROJECTS_DIR)
+
+        def load(version_id: str) -> dict[str, object]:
+            refs = workspace.snapshot_tables(version_id)
+            return {
+                key: arrow_to_pandas(workspace.source.read_table(ref)) for key, ref in refs.items()
+            }
+
+        try:
+            older = await asyncio.to_thread(load, body.older_version_id)
+            newer = await asyncio.to_thread(load, body.newer_version_id)
+        except EngineError as e:
+            raise HTTPException(422, str(e)) from None
+        report = observe_mutable(older, newer, graph)  # type: ignore[arg-type]
+        saved = False
+        found = report.as_overrides()
+        if body.save and found:
+            stored = SchemaOverrides.model_validate(conn.schema_overrides or {})
+            merged = dict(stored.mutable_columns or {})
+            for t, cols in found.items():
+                merged[t] = sorted({*merged.get(t, []), *cols})
+            updated = stored.model_copy(update={"mutable_columns": merged})
+            conn.schema_overrides = updated.model_dump(mode="json")
+            await self.db.flush()
+            saved = True
+        return MutableCheckRead(
+            mutable=[MutableColumnRead(**o.as_dict()) for o in report.mutable],  # type: ignore[arg-type]
+            checked_tables=report.checked_tables,
+            skipped=[f"{t}: {why}" for t, why in report.skipped],
+            saved=saved,
+            note=(
+                "Only changes between these two snapshots are seen: a column that did not change "
+                "in that time is not proven immutable."
+            ),
+        )
 
     async def _read_schema(self, conn: Connection) -> SchemaGraph:
         source = self.source(conn)

@@ -161,6 +161,29 @@ export interface paths {
         patch: operations["update_schema_api_v1_projects__project_id__connections__connection_id__schema_patch"];
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/connections/{connection_id}/schema/mutable-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mutable Check
+         * @description Compare two snapshots of the database (taken at different times) for columns whose value
+         *     changed for rows that already existed, such as a status or an ``is_churned`` flag. They are
+         *     saved as mutable (``save=false`` only reports): a feature query that reads one gets a
+         *     point-in-time warning that names the column.
+         */
+        post: operations["mutable_check_api_v1_projects__project_id__connections__connection_id__schema_mutable_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/connections/{connection_id}/snapshots": {
         parameters: {
             query?: never;
@@ -1320,6 +1343,16 @@ export interface components {
              * @default false
              */
             is_primary_key: boolean;
+            /**
+             * Mutable
+             * @description Set when the value may be written or overwritten after its row's event time (a status, a flag), so a feature that reads it can see the future (#139): why
+             */
+            mutable?: string | null;
+            /**
+             * Mutable Source
+             * @description name: the name looks like a status or flag. observed: its value changed for old rows between two snapshots. user: you declared it
+             */
+            mutable_source?: ("name" | "observed" | "user") | null;
             /** Name */
             name: string;
             /** Nullable */
@@ -2203,6 +2236,61 @@ export interface components {
              */
             severity: "low" | "medium" | "high";
         };
+        /** MutableCheckRead */
+        MutableCheckRead: {
+            /** Checked Tables */
+            checked_tables: number;
+            /** Mutable */
+            mutable: components["schemas"]["MutableColumnRead"][];
+            /** Note */
+            note: string;
+            /**
+             * Saved
+             * @description The columns were saved as mutable in the schema overrides
+             */
+            saved: boolean;
+            /**
+             * Skipped
+             * @description Tables that could not be compared, with the reason
+             */
+            skipped: string[];
+        };
+        /** MutableCheckRequest */
+        MutableCheckRequest: {
+            /**
+             * Newer Version Id
+             * @description A snapshot of the same database taken later
+             */
+            newer_version_id: string;
+            /**
+             * Older Version Id
+             * @description A snapshot of this database taken earlier
+             */
+            older_version_id: string;
+            /**
+             * Save
+             * @description Save the columns found as mutable in the schema overrides
+             * @default true
+             */
+            save: boolean;
+        };
+        /** MutableColumnRead */
+        MutableColumnRead: {
+            /**
+             * Changed Rows
+             * @description Of those, rows where the column has another value
+             */
+            changed_rows: number;
+            /** Column */
+            column: string;
+            /**
+             * Compared Rows
+             * @description Rows that are in both snapshots
+             */
+            compared_rows: number;
+            /** Table */
+            table: string;
+        };
         /** NarrationItem */
         NarrationItem: {
             /**
@@ -2605,6 +2693,20 @@ export interface components {
         SchemaOverrides: {
             /** Add Edges */
             add_edges?: components["schemas"]["EdgeRef"][] | null;
+            /**
+             * Immutable Columns
+             * @description table -> columns confirmed never to change after their row's event time: no warning, even if the name looks like a status
+             */
+            immutable_columns?: {
+                [key: string]: string[];
+            } | null;
+            /**
+             * Mutable Columns
+             * @description table -> columns that change after their row's event time (found by comparing two snapshots, or declared). A query reading one gets a warning (#139)
+             */
+            mutable_columns?: {
+                [key: string]: string[];
+            } | null;
             /** Remove Edges */
             remove_edges?: components["schemas"]["EdgeRef"][] | null;
             /**
@@ -3787,6 +3889,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SchemaGraph"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mutable_check_api_v1_projects__project_id__connections__connection_id__schema_mutable_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MutableCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutableCheckRead"];
                 };
             };
             /** @description Validation Error */

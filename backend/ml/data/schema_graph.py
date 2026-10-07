@@ -52,6 +52,16 @@ class Column(BaseModel):
         "categorical (and a sharper id/text/boolean) once column statistics exist (#96)"
     )
     is_primary_key: bool = False
+    mutable: str | None = Field(
+        None,
+        description="Set when the value may be written or overwritten after its row's event "
+        "time (a status, a flag), so a feature that reads it can see the future (#139): why",
+    )
+    mutable_source: Literal["name", "observed", "user"] | None = Field(
+        None,
+        description="name: the name looks like a status or flag. observed: its value changed "
+        "for old rows between two snapshots. user: you declared it",
+    )
 
 
 class Table(BaseModel):
@@ -114,6 +124,16 @@ class SchemaOverrides(BaseModel):
         None, description="table -> column; null says the table has no time column"
     )
     static_tables: dict[str, bool] | None = Field(None, description="table -> is_static")
+    mutable_columns: dict[str, list[str]] | None = Field(
+        None,
+        description="table -> columns that change after their row's event time (found by "
+        "comparing two snapshots, or declared). A query reading one gets a warning (#139)",
+    )
+    immutable_columns: dict[str, list[str]] | None = Field(
+        None,
+        description="table -> columns confirmed never to change after their row's event time: "
+        "no warning, even if the name looks like a status",
+    )
     add_edges: list[EdgeRef] | None = None
     remove_edges: list[EdgeRef] | None = None
 
@@ -172,6 +192,21 @@ def id_stem(column: str, *, loose: bool = False) -> str | None:
         return None
     stem = (match.group("stem") or "").strip("_").lower()
     return stem or None
+
+
+MUTABLE_NAME = re.compile(
+    r"^(?:status|state|stage|is_.+|has_.+|.+_flag|.+_status|.+_state|resolved(?:_.+)?|"
+    r"closed(?:_.+)?|final(?:_.+)?|.+_after_.+)$"
+)
+
+
+def mutable_name_reason(column: str) -> str | None:
+    """Why a column's *name* suggests it is filled in or overwritten after its row's event time
+    (a status, an ``is_*`` flag, ``resolved_*``, ``final_*``), or None."""
+    name = column.lower()
+    if MUTABLE_NAME.match(name) is None:
+        return None
+    return f"its name ({column}) looks like a status or flag that is set after the row happened"
 
 
 def _looks_like_id(column: str) -> bool:
@@ -339,6 +374,12 @@ def _table(source: SourceWithChecks, schema: TableSchema, warnings: list[str]) -
     count, estimated = _row_count(source, ref, warnings)
     candidates = time_candidates(columns)
     time_column = candidates[0][1] if candidates else None
+    for column in columns:
+        if column.is_primary_key or column.hint == "id" or column.name == time_column:
+            continue
+        reason = mutable_name_reason(column.name)
+        if reason:
+            column.mutable, column.mutable_source = reason, "name"
     return Table(
         key=key,
         name=ref.name,
@@ -546,6 +587,9 @@ def validate_overrides(graph: SchemaGraph, overrides: SchemaOverrides) -> None:
         need_columns(table, [column] if column else [])
     for table in overrides.static_tables or {}:
         need_columns(table, [])
+    for named in (overrides.mutable_columns, overrides.immutable_columns):
+        for table, columns in (named or {}).items():
+            need_columns(table, columns)
     for ref in (overrides.add_edges or []) + (overrides.remove_edges or []):
         need_columns(ref.from_table, ref.from_columns)
         need_columns(ref.to_table, ref.to_columns)
@@ -574,6 +618,32 @@ def apply_overrides(graph: SchemaGraph, overrides: SchemaOverrides) -> SchemaGra
             tables[table].is_static = static
         else:
             warnings.append(f"Ignored the saved static flag of {table!r}: it is no longer there")
+
+    for table, names in (overrides.mutable_columns or {}).items():
+        for name in names:
+            found = (
+                next((c for c in tables[table].columns if c.name == name), None)
+                if table in tables
+                else None
+            )
+            if found is None:
+                warnings.append(
+                    f"Ignored the saved mutable column {table}.{name}: it is no longer there"
+                )
+                continue
+            found.mutable = (
+                "its value changed for old rows between two snapshots, or you declared it"
+            )
+            found.mutable_source = "observed"
+    for table, names in (overrides.immutable_columns or {}).items():
+        for name in names:
+            found = (
+                next((c for c in tables[table].columns if c.name == name), None)
+                if table in tables
+                else None
+            )
+            if found is not None:
+                found.mutable, found.mutable_source = None, "user"
 
     edges = list(graph.edges)
     for ref in overrides.remove_edges or []:
