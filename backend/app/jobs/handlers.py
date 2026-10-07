@@ -9,10 +9,12 @@ from typing import Any
 
 from ai.gateway import AIGateway
 from app.core.config import settings
-from app.db.models import Experiment
+from app.db.models import Experiment, Job
 from app.jobs.runner import JobContext, handler, sessions
+from app.schemas.snapshot import SnapshotRequest
 from app.services import llm_gateway
 from app.services.experiment_service import ExperimentService
+from app.services.snapshot_service import SnapshotService
 from ml.agents.decision_agent import DecisionAgent
 
 
@@ -49,3 +51,28 @@ async def run_auto_optimize(ctx: JobContext, params: dict[str, Any]) -> dict[str
         project_id=params["project_id"],
         hooks=ctx,
     )
+
+
+@handler("snapshot")
+async def run_snapshot(ctx: JobContext, params: dict[str, Any]) -> dict[str, Any]:
+    """Copy the wanted tables of a connected database into the project (#97)."""
+    request = SnapshotRequest.model_validate(params["request"])
+    async with sessions()() as db:
+        job = await db.get(Job, ctx.job_id)
+        if job is None:
+            raise LookupError("The snapshot job disappeared")
+
+        async def progress(message: str, fraction: float) -> None:
+            await ctx.step(message, fraction)
+
+        version = await SnapshotService(db).take(
+            job.project_id, params["connection_id"], request, progress
+        )
+        await db.commit()
+    await ctx.emit("checkpoint", data_version_id=version.id, rows=version.n_rows)
+    return {
+        "data_version_id": version.id,
+        "short_hash": version.short_hash,
+        "rows": version.n_rows,
+        "as_of": version.as_of.isoformat(),
+    }

@@ -14,6 +14,7 @@ from app.core import datasets
 from app.core.config import settings
 from app.db.models.experiment import Experiment
 from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
+from app.services.data_version_service import database_description
 from ml.data.versions import content_hash, version_id_of
 from ml.data.workspace import workspace_for
 from ml.experiments.executor import LocalExperimentExecutor
@@ -131,6 +132,7 @@ class ExperimentService:
                         data_version_id=exp.data_version_id,
                         preprocessing_config=exp.preprocessing_config,
                         mlpilot_version=settings.APP_VERSION,
+                        data=await database_description(session, exp.data_version_id),
                     ).model_dump(mode="json")
                 logger.info(f"Experiment {experiment_id} completed. F1: {result.metrics.get('f1')}")
 

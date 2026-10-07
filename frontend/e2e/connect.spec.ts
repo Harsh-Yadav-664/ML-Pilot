@@ -126,3 +126,35 @@ test('a role that can write gets a visible warning', async ({ page }, testInfo) 
   const dir = process.env.MLPILOT_E2E_SCREENSHOT_DIR ?? testInfo.outputDir;
   await page.screenshot({ path: `${dir}/connect-write-warning.png`, fullPage: true });
 });
+
+test('a snapshot gets a version id, the same data gets the same one, and live mode says it cannot be reproduced', async ({ page }) => {
+  await waitForBackend(page);
+  await page.goto('/#/connect');
+  await fillPostgres(page, 'demo-snapshot', roUser);
+  await page.getByLabel('Password', { exact: true }).fill(roPassword);
+  await page.getByRole('button', { name: 'Save & test' }).click();
+  await expect(page.getByTestId('connect-ok')).toBeVisible({ timeout: 60_000 });
+  const panel = page.getByTestId('data-versions');
+  await expect(panel).toBeVisible({ timeout: 60_000 });
+
+  const versions = panel.getByTestId('db-version');
+  await panel.getByRole('button', { name: 'Take snapshot' }).click();
+  await expect(versions).toHaveCount(1, { timeout: 120_000 });
+  await expect(versions.first()).toContainText(/[0-9a-f]{12}/);
+  await expect(versions.first()).toContainText('snapshot');
+  await expect(versions.first()).toContainText('reproducible');
+  const first = (await versions.first().innerText()).match(/[0-9a-f]{12}/)![0];
+
+  // Nothing changed in the database, so the second snapshot is the same version, listed once.
+  await expect(panel.getByRole('button', { name: 'Take snapshot' })).toBeEnabled({ timeout: 120_000 });
+  await panel.getByRole('button', { name: 'Take snapshot' }).click();
+  await expect(panel.getByRole('button', { name: 'Take snapshot' })).toBeEnabled({ timeout: 120_000 });
+  await expect(versions).toHaveCount(1);
+  await expect(versions.first()).toContainText(first);
+
+  // Live mode copies nothing and says so.
+  await panel.getByLabel('Version mode').selectOption('live');
+  await panel.getByRole('button', { name: 'Record live state' }).click();
+  await expect(versions).toHaveCount(2, { timeout: 60_000 });
+  await expect(panel.getByText('not reproducible')).toBeVisible();
+});

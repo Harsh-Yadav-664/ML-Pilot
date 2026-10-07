@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-DataVersionKind = Literal["file", "db_snapshot"]
+DataVersionKind = Literal["file", "db_snapshot", "db_live"]
 TaskSpecStatus = Literal["draft", "confirmed"]
 RunStatus = Literal["created", "queued", "running", "completed", "failed", "cancelled"]
 FeatureKind = Literal["dfs", "llm_sql", "formula", "user"]
