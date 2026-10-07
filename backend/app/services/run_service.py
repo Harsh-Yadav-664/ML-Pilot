@@ -123,6 +123,37 @@ class RunService:
         await self.db.flush()
         return RunLoopStarted(run_id=run_id, job_id=job.id)
 
+    async def resume(self, project_id: str, run_id: str) -> RunLoopStarted:
+        run = await self._run(project_id, run_id)
+        if run.status in ("completed", "created", "queued", "running"):
+            raise HTTPException(409, f"A run in status '{run.status}' cannot be resumed")
+        if run.champion_experiment_id is None:
+            raise HTTPException(409, "Cannot resume a run that never completed a baseline")
+        
+        # Find the original job to get the request parameters
+        orig_job = await self.db.scalar(
+            select(Job).where(Job.run_id == run_id).order_by(Job.created_at.desc()).limit(1)
+        )
+        if not orig_job:
+            raise HTTPException(404, "Original job not found")
+
+        job = await runner.enqueue(
+            self.db,
+            project_id=project_id,
+            kind=KIND,
+            params={"run_id": run_id, "request": orig_job.params.get("request", {}), "resume": True},
+        )
+        job.run_id = run_id
+        run.status = "queued"
+        # Close any pending checkpoints
+        checkpoints = await self.db.scalars(
+            select(RunCheckpoint).where(RunCheckpoint.run_id == run_id, RunCheckpoint.status == "pending")
+        )
+        for cp in checkpoints:
+            cp.status = "timeout"
+        await self.db.flush()
+        return RunLoopStarted(run_id=run_id, job_id=job.id)
+
     async def state(self, project_id: str, run_id: str) -> RunStateRead:
         run = await self._run(project_id, run_id)
         rows = (await self.db.scalars(select(Feature).where(Feature.run_id == run_id))).all()
@@ -521,10 +552,11 @@ async def execute(
 ) -> dict[str, Any]:
     """The job: baseline, loop, final model. Raises (and records ``failed``) on an error."""
     run_id = params["run_id"]
+    is_resume = params.get("resume", False)
     request = RunLoopRequest.model_validate(params["request"])
     gateway: AIGateway = (make_gateway or _default_gateway)()
     try:
-        return await _execute(ctx, run_id, request, gateway)
+        return await _execute(ctx, run_id, request, gateway, is_resume)
     except JobCancelled:
         await _cancelled(run_id)
         raise
@@ -552,7 +584,7 @@ async def _cancelled(run_id: str) -> None:
 
 
 async def _execute(
-    ctx: JobContext, run_id: str, request: RunLoopRequest, gateway: AIGateway
+    ctx: JobContext, run_id: str, request: RunLoopRequest, gateway: AIGateway, is_resume: bool = False
 ) -> dict[str, Any]:
     await ctx.step("Reading the snapshot and building the baseline", 0.02)
     async with runner.sessions()() as db:
@@ -585,16 +617,25 @@ async def _execute(
     async with runner.sessions()() as db:
         run = await db.get(Run, run_id)
         assert run is not None
-        await BaselineService(db)._record(run, spec.name, baseline, world.absent)
+        if not is_resume:
+            await BaselineService(db)._record(run, spec.name, baseline, world.absent)
         run.status = "running"
         await db.commit()
         previous = str(run.champion_experiment_id)
-    await ctx.emit(
-        "baseline",
-        val_pr_auc=baseline.metrics["pr_auc"],
-        base_rate=baseline.metrics["base_rate"],
-        features=len(baseline.features),
-    )
+    
+    if not is_resume:
+        await ctx.emit(
+            "baseline",
+            val_pr_auc=baseline.metrics["pr_auc"],
+            base_rate=baseline.metrics["base_rate"],
+            features=len(baseline.features),
+        )
+    else:
+        await ctx.emit(
+            "resume",
+            message="Resuming run from last champion",
+        )
+    
     cache = datasets.PROJECTS_DIR / project_id / "feature_cache"
     # the proposer flattens the graph and types the times; the engine has to run on the same
     flat, _ = flatten_graph(world.graph, spec.entity.table)
@@ -628,6 +669,13 @@ async def _execute(
     control = DbControl(ctx, run_id, config)
     control.checkpoint_timeout = request.checkpoint_timeout_seconds
     state, scorer = await asyncio.to_thread(loop.start_state, baseline, config)
+    
+    if is_resume:
+        async with runner.sessions()() as db:
+            champion_exp = await db.get(Experiment, previous)
+            features = (await db.scalars(select(Feature).where(Feature.run_id == run_id).order_by(Feature.created_at))).all()
+        await asyncio.to_thread(_restore_resume_state, proposer, engine, state, champion_exp, features)
+        
     sink = _Sink(run_id, previous, spec.name, seed)
     try:
         outcome = await loop.run_loop(
@@ -708,3 +756,49 @@ async def _finish(
             },
         }
         await db.commit()
+
+
+def _restore_resume_state(
+    proposer: FeatureProposer,
+    engine: FeatureEngine,
+    state: loop.LoopState,
+    champion_exp: Experiment,
+    features: list[Feature]
+) -> None:
+    """Rebuild the champion frame and the proposer's history from the run's saved features."""
+    from ml.features.llm_sql import sql_hash, ir_key
+    
+    accepted_sqls = {}
+    for f in features:
+        if f.status == "accepted":
+            proposer.names.add(f.name)
+            if f.ir:
+                proposer.irs.add(ir_key(f.ir))
+            if f.sql:
+                proposer.hashes.add(sql_hash(f.sql))
+            accepted_sqls[f.name] = f.sql
+        elif f.status.startswith("rejected_") or f.status == "vetoed":
+            reason = ""
+            if f.gain and "mean_gain" in f.gain:
+                reason = f"no gain: {f.gain.get('mean_gain', 0):+.4f}"
+            elif f.guard_results:
+                reason = "guard failed"
+            proposer.rejected.append({
+                "name": f.name,
+                "stage": f.status.replace("rejected_", ""),
+                "reason": reason[:100]  # simple clip
+            })
+
+    champion_set = set(champion_exp.feature_set)
+    for name, sql in accepted_sqls.items():
+        if name in champion_set and name not in state.champion.frame.columns:
+            computed = engine.compute(sql)
+            if computed.values is not None:
+                state.champion.frame[name] = computed.values.to_numpy()
+                proposer.columns[name] = computed.values
+
+    state.champion.names = list(champion_exp.feature_set)
+    state.champion.metrics = champion_exp.val_metrics or champion_exp.metrics or {}
+    state.champion.best_iteration = int(state.champion.metrics.get("best_iteration", 10))
+    state.champion.fold_scores = (champion_exp.decision_detail or {}).get("candidate_scores", state.champion.fold_scores)
+

@@ -237,3 +237,80 @@ async def test_a_run_needs_a_snapshot_and_a_known_id(
 ) -> None:
     unknown = await client.post(runs_url(project_id, f"/{uuid.uuid4()}/start"))
     assert unknown.status_code == 404
+
+async def test_resume_cancelled_run(
+    client: httpx.AsyncClient,
+    project_id: str,
+    connection: str,
+    test_calls: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(DEFAULT_RULE, "min_gain", -1.0)
+    monkeypatch.setitem(DEFAULT_RULE, "std_multiplier", -1e6)
+    
+    # Run the first part and cancel
+    gateway = Costly([answer(k) for k in GOOD], cost=0.01)
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z", TABLES)
+    
+    _, run_id = await started_run(client, project_id, connection, version)
+    
+    # Simulate the enqueue so resume can find the job request
+    async with db_session.AsyncSessionLocal() as db:
+        run = await db.get(Run, run_id)
+        job = Job(id=str(uuid.uuid4()), project_id=project_id, run_id=run_id, kind="relational_run", params={"request": {"max_rounds": 4, "patience": 4}})
+        db.add(job)
+        await db.commit()
+    
+    ctx = FakeCtx(cancel_from_check=3)
+    with pytest.raises(run_service.JobCancelled):
+        await run_service.execute(
+            ctx,
+            {"run_id": run_id, "request": {"max_rounds": 4, "patience": 4}},
+            lambda: gateway,
+        )
+        
+    assert test_calls == []
+    
+    # Now resume the run
+    res = await client.post(runs_url(project_id, f"/{run_id}/resume"))
+    assert res.status_code == 202
+    
+    ctx2 = FakeCtx(cancel_from_check=999) # finish normally
+    await run_service.execute(
+        ctx2,
+        {"run_id": run_id, "resume": True, "request": {"max_rounds": 4, "patience": 4}},
+        lambda: gateway,
+    )
+    
+    assert len(test_calls) == 1
+    
+    state = (await client.get(runs_url(project_id, f"/{run_id}"))).json()
+    assert state["status"] == "completed"
+    assert state["rounds"] == 4
+    assert state["accepted"] == 4
+    assert state["test_metrics"] is not None
+
+async def test_cannot_resume_completed_run(
+    client: httpx.AsyncClient,
+    project_id: str,
+    connection: str,
+    test_calls: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(DEFAULT_RULE, "min_gain", -1.0)
+    monkeypatch.setitem(DEFAULT_RULE, "std_multiplier", -1e6)
+    
+    gateway = Costly([answer(k) for k in GOOD[:2]], cost=0.01)
+    version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z", TABLES)
+    _, run_id = await started_run(client, project_id, connection, version)
+    
+    ctx = FakeCtx(cancel_from_check=999)
+    await run_service.execute(
+        ctx,
+        {"run_id": run_id, "request": {"max_rounds": 2, "patience": 2}},
+        lambda: gateway,
+    )
+    
+    res = await client.post(runs_url(project_id, f"/{run_id}/resume"))
+    assert res.status_code == 409
+    assert "cannot be resumed" in res.json()["detail"]
