@@ -829,6 +829,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/tasks/{task_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Run
+         * @description Record a run of a confirmed task. The feasibility checks run first: if they block the
+         *     task (too few positives, say) the answer is a 422 with the reasons, unless the request says
+         *     ``override: true``, in which case the run is recorded and its manifest keeps the report and
+         *     the override. This records the run; it does not train a model yet.
+         */
+        post: operations["start_run_api_v1_projects__project_id__tasks__task_id__runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1461,6 +1484,54 @@ export interface components {
             /** Script */
             script: string;
         };
+        /** FeasibilityCheckRead */
+        FeasibilityCheckRead: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Numbers */
+            numbers: {
+                [key: string]: unknown;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "warn" | "block";
+        };
+        /** FeasibilityRead */
+        FeasibilityRead: {
+            /**
+             * Blocked
+             * @description A run cannot start unless it is started with an override
+             */
+            blocked: boolean;
+            /** Checks */
+            checks: components["schemas"]["FeasibilityCheckRead"][];
+            /**
+             * Metric
+             * @description The metric the task will be judged by
+             */
+            metric: string;
+            /**
+             * Reasons
+             * @description The blockers, or if none, the warnings
+             */
+            reasons: string[];
+            /**
+             * Status
+             * @description The worst of the checks
+             * @enum {string}
+             */
+            status: "ok" | "warn" | "block";
+            /**
+             * Suggested Metric
+             * @description Set when the base rate is very low
+             */
+            suggested_metric?: string | null;
+            thresholds: components["schemas"]["Thresholds"];
+        };
         /** FeatureSuggestion */
         FeatureSuggestion: {
             /**
@@ -1668,6 +1739,7 @@ export interface components {
              * @description Cutoffs whose label window ends after the data does: left out
              */
             dropped_cutoffs: components["schemas"]["DroppedCutoffRead"][];
+            feasibility: components["schemas"]["FeasibilityRead"];
             /**
              * Mode
              * @enum {string}
@@ -1701,6 +1773,8 @@ export interface components {
              * @default true
              */
             materialize: boolean;
+            /** @description Limits for the feasibility checks. Default: the standard limits */
+            thresholds?: components["schemas"]["Thresholds"] | null;
         };
         /** LeakageFinding */
         LeakageFinding: {
@@ -1837,6 +1911,23 @@ export interface components {
             parent_id?: string | null;
             /** Target Column */
             target_column: string;
+        };
+        /** RunStartRequest */
+        RunStartRequest: {
+            /**
+             * Data Version Id
+             * @description The database version to build the labels from. Default: live, as of now
+             */
+            data_version_id?: string | null;
+            /**
+             * Override
+             * @description Start although the feasibility checks block the task; it is recorded
+             * @default false
+             */
+            override: boolean;
+            /** Override Reason */
+            override_reason?: string | null;
+            thresholds?: components["schemas"]["Thresholds"] | null;
         };
         /** SampleDatasetRequest */
         SampleDatasetRequest: {
@@ -2002,6 +2093,8 @@ export interface components {
              * @default true
              */
             materialize: boolean;
+            /** @description Limits for the feasibility checks. Default: the standard limits */
+            thresholds?: components["schemas"]["Thresholds"] | null;
         };
         /**
          * SqlSnapshotRequest
@@ -2154,6 +2247,38 @@ export interface components {
             computed_at: string;
             stats: components["schemas"]["TableStats"];
         };
+        /** TaskRunRead */
+        TaskRunRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Data Version Id */
+            data_version_id: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Manifest
+             * @description What the run was started with: task version, split, feasibility report, and the override if there was one
+             */
+            manifest: {
+                [key: string]: unknown;
+            };
+            /** Project Id */
+            project_id: string;
+            /** Split Plan */
+            split_plan: {
+                [key: string]: unknown;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "queued" | "running" | "completed" | "failed" | "cancelled";
+            /** Task Id */
+            task_id: string;
+        };
         /** TaskSpecInput */
         TaskSpecInput: {
             /**
@@ -2236,6 +2361,54 @@ export interface components {
          * @enum {string}
          */
         TaskType: "binary_classification" | "multiclass_classification" | "regression";
+        /**
+         * Thresholds
+         * @description The limits the checks use. A value at the limit passes; below it (or above, for ratios) fails.
+         */
+        Thresholds: {
+            /**
+             * Imbalance Rate
+             * @description Rarer class below this: warn
+             * @default 0.01
+             */
+            imbalance_rate: number;
+            /**
+             * Max Base Rate Ratio
+             * @description Highest / lowest cutoff base rate
+             * @default 3
+             */
+            max_base_rate_ratio: number;
+            /**
+             * Max Eligible Drop
+             * @description Fall between adjacent cutoffs
+             * @default 0.5
+             */
+            max_eligible_drop: number;
+            /**
+             * Min Coverage
+             * @description Best related table below this: warn
+             * @default 0.05
+             */
+            min_coverage: number;
+            /**
+             * Min Eval Positives
+             * @description Validation or test, below this: block
+             * @default 20
+             */
+            min_eval_positives: number;
+            /**
+             * Min Train Positives
+             * @description Below this: block
+             * @default 50
+             */
+            min_train_positives: number;
+            /**
+             * Warn Positives
+             * @description Any split below this: warn
+             * @default 200
+             */
+            warn_positives: number;
+        };
         /** TimelineEntry */
         TimelineEntry: {
             /**
@@ -4010,6 +4183,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SplitPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_api_v1_projects__project_id__tasks__task_id__runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RunStartRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRunRead"];
                 };
             };
             /** @description Validation Error */

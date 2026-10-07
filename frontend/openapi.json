@@ -1613,6 +1613,104 @@
         "title": "ExportScript",
         "type": "object"
       },
+      "FeasibilityCheckRead": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "numbers": {
+            "additionalProperties": true,
+            "title": "Numbers",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warn",
+              "block"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "status",
+          "message",
+          "numbers"
+        ],
+        "title": "FeasibilityCheckRead",
+        "type": "object"
+      },
+      "FeasibilityRead": {
+        "properties": {
+          "blocked": {
+            "description": "A run cannot start unless it is started with an override",
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/FeasibilityCheckRead"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "metric": {
+            "description": "The metric the task will be judged by",
+            "title": "Metric",
+            "type": "string"
+          },
+          "reasons": {
+            "description": "The blockers, or if none, the warnings",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "description": "The worst of the checks",
+            "enum": [
+              "ok",
+              "warn",
+              "block"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggested_metric": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the base rate is very low",
+            "title": "Suggested Metric"
+          },
+          "thresholds": {
+            "$ref": "#/components/schemas/Thresholds"
+          }
+        },
+        "required": [
+          "status",
+          "blocked",
+          "reasons",
+          "checks",
+          "thresholds",
+          "metric"
+        ],
+        "title": "FeasibilityRead",
+        "type": "object"
+      },
       "FeatureSuggestion": {
         "properties": {
           "availability_assumption": {
@@ -2099,6 +2197,9 @@
             "title": "Dropped Cutoffs",
             "type": "array"
           },
+          "feasibility": {
+            "$ref": "#/components/schemas/FeasibilityRead"
+          },
           "mode": {
             "enum": [
               "snapshot",
@@ -2147,7 +2248,8 @@
           "as_of",
           "cutoffs",
           "dropped_cutoffs",
-          "total_rows"
+          "total_rows",
+          "feasibility"
         ],
         "title": "LabelPreview",
         "type": "object"
@@ -2171,6 +2273,17 @@
             "description": "Snapshots only: also write the labels as a table in the project",
             "title": "Materialize",
             "type": "boolean"
+          },
+          "thresholds": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Thresholds"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Limits for the feasibility checks. Default: the standard limits"
           }
         },
         "title": "LabelPreviewRequest",
@@ -2513,6 +2626,52 @@
           "target_column"
         ],
         "title": "RunExperimentRequest",
+        "type": "object"
+      },
+      "RunStartRequest": {
+        "properties": {
+          "data_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The database version to build the labels from. Default: live, as of now",
+            "title": "Data Version Id"
+          },
+          "override": {
+            "default": false,
+            "description": "Start although the feasibility checks block the task; it is recorded",
+            "title": "Override",
+            "type": "boolean"
+          },
+          "override_reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Reason"
+          },
+          "thresholds": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Thresholds"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "RunStartRequest",
         "type": "object"
       },
       "SampleDatasetRequest": {
@@ -2879,6 +3038,17 @@
             "description": "Snapshots only: also write the labels as a table in the project",
             "title": "Materialize",
             "type": "boolean"
+          },
+          "thresholds": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Thresholds"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Limits for the feasibility checks. Default: the standard limits"
           }
         },
         "title": "SplitPreviewRequest",
@@ -3239,6 +3409,73 @@
         "title": "TableStatsRead",
         "type": "object"
       },
+      "TaskRunRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "data_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Version Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "description": "What the run was started with: task version, split, feasibility report, and the override if there was one",
+            "title": "Manifest",
+            "type": "object"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "split_plan": {
+            "additionalProperties": true,
+            "title": "Split Plan",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "task_id",
+          "data_version_id",
+          "status",
+          "split_plan",
+          "manifest",
+          "created_at"
+        ],
+        "title": "TaskRunRead",
+        "type": "object"
+      },
       "TaskSpecInput": {
         "properties": {
           "connection_id": {
@@ -3436,6 +3673,65 @@
         ],
         "title": "TaskType",
         "type": "string"
+      },
+      "Thresholds": {
+        "description": "The limits the checks use. A value at the limit passes; below it (or above, for ratios) fails.",
+        "properties": {
+          "imbalance_rate": {
+            "default": 0.01,
+            "description": "Rarer class below this: warn",
+            "exclusiveMaximum": 0.5,
+            "exclusiveMinimum": 0.0,
+            "title": "Imbalance Rate",
+            "type": "number"
+          },
+          "max_base_rate_ratio": {
+            "default": 3.0,
+            "description": "Highest / lowest cutoff base rate",
+            "exclusiveMinimum": 1.0,
+            "title": "Max Base Rate Ratio",
+            "type": "number"
+          },
+          "max_eligible_drop": {
+            "default": 0.5,
+            "description": "Fall between adjacent cutoffs",
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Eligible Drop",
+            "type": "number"
+          },
+          "min_coverage": {
+            "default": 0.05,
+            "description": "Best related table below this: warn",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Coverage",
+            "type": "number"
+          },
+          "min_eval_positives": {
+            "default": 20,
+            "description": "Validation or test, below this: block",
+            "minimum": 0.0,
+            "title": "Min Eval Positives",
+            "type": "integer"
+          },
+          "min_train_positives": {
+            "default": 50,
+            "description": "Below this: block",
+            "minimum": 0.0,
+            "title": "Min Train Positives",
+            "type": "integer"
+          },
+          "warn_positives": {
+            "default": 200,
+            "description": "Any split below this: warn",
+            "minimum": 0.0,
+            "title": "Warn Positives",
+            "type": "integer"
+          }
+        },
+        "title": "Thresholds",
+        "type": "object"
       },
       "TimelineEntry": {
         "properties": {
@@ -6360,6 +6656,75 @@
           }
         },
         "summary": "Preview Split",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks/{task_id}/runs": {
+      "post": {
+        "description": "Record a run of a confirmed task. The feasibility checks run first: if they block the\ntask (too few positives, say) the answer is a 422 with the reasons, unless the request says\n``override: true``, in which case the run is recorded and its manifest keeps the report and\nthe override. This records the run; it does not train a model yet.",
+        "operationId": "start_run_api_v1_projects__project_id__tasks__task_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RunStartRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRunRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Run",
         "tags": [
           "tasks"
         ]

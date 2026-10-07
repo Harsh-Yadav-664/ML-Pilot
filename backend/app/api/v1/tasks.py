@@ -11,8 +11,10 @@ from app.schemas.tasks import (
     ConfirmRequest,
     LabelPreview,
     LabelPreviewRequest,
+    RunStartRequest,
     SplitPreview,
     SplitPreviewRequest,
+    TaskRunRead,
     TaskSpecInput,
     TaskSpecRead,
     TaskSpecValidation,
@@ -104,3 +106,14 @@ async def preview_split(
     rows are left out because their label window crosses a boundary, and the expanding-window
     folds over the training cutoffs. Relational tasks have no other kind of split."""
     return await TaskService(db).preview_split(project_id, task_id, body or SplitPreviewRequest())
+
+
+@router.post("/{task_id}/runs", response_model=TaskRunRead, status_code=status.HTTP_201_CREATED)
+async def start_run(
+    task_id: str, project_id: ProjectID, db: DBSession, body: RunStartRequest | None = None
+) -> TaskRunRead:
+    """Record a run of a confirmed task. The feasibility checks run first: if they block the
+    task (too few positives, say) the answer is a 422 with the reasons, unless the request says
+    ``override: true``, in which case the run is recorded and its manifest keeps the report and
+    the override. This records the run; it does not train a model yet."""
+    return await TaskService(db).start_run(project_id, task_id, body or RunStartRequest())

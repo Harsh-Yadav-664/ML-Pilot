@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,12 +26,15 @@ from app.db.models.task_spec import TaskSpec as TaskSpecRow
 from app.schemas.tasks import (
     CutoffCountRead,
     DroppedCutoffRead,
+    FeasibilityRead,
     FoldRead,
     LabelPreview,
     LabelPreviewRequest,
+    RunStartRequest,
     SpecIssueRead,
     SplitPreview,
     SplitPreviewRequest,
+    TaskRunRead,
     TaskSpecInput,
     TaskSpecRead,
     TaskSpecValidation,
@@ -43,6 +47,7 @@ from ml.data.snapshot import DataDescription
 from ml.data.sources import ConnectionFailure
 from ml.data.workspace import workspace_for
 from ml.tasks import labels
+from ml.tasks.feasibility import FeasibilityReport, Thresholds, check_feasibility
 from ml.tasks.spec import (
     SpecError,
     SpecIssue,
@@ -85,6 +90,16 @@ def parse(text: str) -> TaskSpec:
         return from_yaml(text)
     except SpecError as e:
         raise HTTPException(422, detail={"issues": [i.as_dict() for i in e.issues]}) from None
+
+
+@dataclass(frozen=True)
+class _BuiltLabels:
+    row: TaskSpecRow
+    spec: TaskSpec
+    run: labels.LabelRun
+    mode: str
+    as_of: datetime
+    version_id: str | None
 
 
 class TaskService:
@@ -201,10 +216,10 @@ class TaskService:
         return await self._read(row, issues)
 
     # -- labels -------------------------------------------------------------------------------
-    async def preview_labels(
+    async def _build_labels(
         self, project_id: str, task_id: str, request: LabelPreviewRequest
-    ) -> LabelPreview:
-        """Build the labels for a saved task and report the SQL and the counts per cutoff."""
+    ) -> _BuiltLabels:
+        """Build the labels of a saved task (and read its coverage) on the data version asked for."""
         row = await self.get_row(project_id, task_id)
         if row.connection_id is None:
             raise HTTPException(422, "The task has no connection to read the data from")
@@ -249,7 +264,96 @@ class TaskService:
             raise HTTPException(502, f"Could not read the database: {e}") from None
         except EngineError as e:
             raise HTTPException(422, str(e)) from None
-        return self._label_preview(run, mode, as_of)
+        return _BuiltLabels(row, spec, run, mode, as_of, version_id)
+
+    async def preview_labels(
+        self, project_id: str, task_id: str, request: LabelPreviewRequest
+    ) -> LabelPreview:
+        """Build the labels for a saved task and report the SQL, the counts per cutoff and the
+        feasibility checks."""
+        built = await self._build_labels(project_id, task_id, request)
+        report = self._feasibility(built, request.thresholds)
+        return self._label_preview(built.run, built.mode, built.as_of, report)
+
+    @staticmethod
+    def _feasibility(built: _BuiltLabels, thresholds: Thresholds | None) -> FeasibilityReport:
+        return check_feasibility(
+            built.spec,
+            built.run.counts,
+            dropped_cutoffs=len(built.run.compiled.dropped),
+            coverage=built.run.coverage,
+            thresholds=thresholds,
+        )
+
+    async def start_run(
+        self, project_id: str, task_id: str, request: RunStartRequest
+    ) -> TaskRunRead:
+        """Record a run of a confirmed task, unless the feasibility checks block it.
+
+        A blocked task is a 422 with the reasons. With ``override`` the run is recorded and its
+        manifest keeps the report and the override. Training itself is not started here.
+        """
+        row = await self.get_row(project_id, task_id)
+        if row.status != "confirmed":
+            raise HTTPException(409, "Only a confirmed task can be run: confirm the spec first")
+        built = await self._build_labels(
+            project_id, task_id, LabelPreviewRequest(data_version_id=request.data_version_id)
+        )
+        report = self._feasibility(built, request.thresholds)
+        if report.blocked and not request.override:
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "The task is blocked by the feasibility checks. Fix the task or "
+                    "start the run with override=true",
+                    "reasons": report.reasons,
+                    "feasibility": report.as_dict(),
+                },
+            )
+        try:
+            plan = TemporalSplitPlan.from_spec(built.spec).model_dump(mode="json")
+        except SplitError as e:
+            raise HTTPException(422, str(e)) from None
+        manifest: dict[str, Any] = {
+            "task": {"id": row.id, "name": row.name, "version": row.version},
+            "data_version_id": built.version_id,
+            "as_of": built.as_of.isoformat(),
+            "feasibility": report.as_dict(),
+            "override": (
+                {
+                    "used": True,
+                    "reason": request.override_reason,
+                    "blocked_by": report.reasons,
+                    "at": datetime.now(UTC).isoformat(),
+                }
+                if report.blocked
+                else {"used": False}
+            ),
+        }
+        run = Run(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            task_spec_id=row.id,
+            data_version_id=built.version_id,
+            split_plan=plan,
+            manifest=manifest,
+            engine="not_selected",
+            seed=42,
+            status="created",
+        )
+        self.db.add(run)
+        await self.db.flush()
+        await self.db.refresh(run)
+        return TaskRunRead(
+            id=run.id,
+            project_id=project_id,
+            task_id=row.id,
+            data_version_id=run.data_version_id,
+            status="created",
+            split_plan=run.split_plan,
+            manifest=run.manifest,
+            created_at=_utc(run.created_at) or datetime.now(UTC),
+        )
 
     async def preview_split(
         self, project_id: str, task_id: str, request: SplitPreviewRequest
@@ -317,7 +421,9 @@ class TaskService:
         )
 
     @staticmethod
-    def _label_preview(run: labels.LabelRun, mode: str, as_of: datetime) -> LabelPreview:
+    def _label_preview(
+        run: labels.LabelRun, mode: str, as_of: datetime, report: FeasibilityReport
+    ) -> LabelPreview:
         dropped = run.compiled.dropped
         return LabelPreview(
             sql=run.compiled.sql,
@@ -345,6 +451,7 @@ class TaskService:
             ],
             total_rows=run.total_rows,
             table=f"{run.table.schema}.{run.table.name}" if run.table else None,
+            feasibility=FeasibilityRead.model_validate(report.as_dict()),
         )
 
     # -- reading ------------------------------------------------------------------------------

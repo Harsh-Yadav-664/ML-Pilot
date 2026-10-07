@@ -69,6 +69,23 @@ A relational task is split by cutoff date, never at random (`ml/validation/split
 
 `POST /projects/{id}/tasks/{task_id}/preview-split` shows the result before a run: a timeline of cutoffs with their part and row count, the totals, the latest training and validation window end, and the folds. It uses the same functions as training, on the label counts of `preview-labels`.
 
+## Feasibility checks
+
+Before a run starts, the label table is checked (`ml/tasks/feasibility.py`). Each check returns `ok`, `warn` or `block` with the numbers it used; the report is part of `preview-labels` (`feasibility`), and is stored in the run's manifest. A value exactly at a limit passes.
+
+| Check | Warns | Blocks |
+|---|---|---|
+| `positives_per_split` (binary) | any of train, validation, test has fewer than 200 positives | train has fewer than 50 positives, or validation or test fewer than 20 |
+| `base_rate_per_cutoff` (binary) | a cutoff has no positives, or the highest base rate is more than 3 times the lowest | |
+| `eligible_per_cutoff` | eligible entities fall by more than 50% between adjacent cutoffs | |
+| `class_imbalance` (binary) | the rarer class is under 1% of rows; the report suggests PR-AUC (lift at k is not available yet, #93) | |
+| `coverage` | at the first cutoff, no related table has earlier rows for 5% of the eligible entities, or there is no related table at all | |
+| `horizon_vs_data` | cutoffs were dropped because their label window ends after the data does | |
+
+A related table is one with an event time and a direct foreign key to the entity table. Coverage counts entities with at least one row *before* the first cutoff, so it reads no future data. On a snapshot it covers only the tables and columns the snapshot holds. The limits are a `thresholds` object in the request (`min_train_positives`, `min_eval_positives`, `warn_positives`, `max_base_rate_ratio`, `max_eligible_drop`, `imbalance_rate`, `min_coverage`); the ones used are in the report.
+
+`POST /projects/{id}/tasks/{task_id}/runs` records a run of a confirmed task. If a check blocks, the answer is a 422 with the reasons and the report, unless the body has `override: true`; then the run is recorded and `manifest.override` keeps the reason you gave, what blocked and when. This records the run only: training on a task is built in #55 onward.
+
 ## Versions
 
 `POST /projects/{id}/tasks/` saves a draft (version 1). A draft is edited in place with `PUT`. `POST .../confirm` validates again and refuses if any error remains. A confirmed spec is never changed: editing it with `PUT` saves the next version as a new draft, and every run that points at the confirmed version keeps pointing at it. The confirmed row stores the schema fingerprint it was checked against.
