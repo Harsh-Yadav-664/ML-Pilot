@@ -147,10 +147,10 @@ class RunService:
         run.status = "queued"
         # Close any pending checkpoints
         checkpoints = await self.db.scalars(
-            select(RunCheckpoint).where(RunCheckpoint.run_id == run_id, RunCheckpoint.status == "pending")
+            select(RunCheckpoint).where(RunCheckpoint.run_id == run_id, RunCheckpoint.state == "pending")
         )
         for cp in checkpoints:
-            cp.status = "timeout"
+            cp.state = "timeout"
         await self.db.flush()
         return RunLoopStarted(run_id=run_id, job_id=job.id)
 
