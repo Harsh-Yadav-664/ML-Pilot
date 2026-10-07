@@ -875,6 +875,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/tasks/{task_id}/runs/{run_id}/baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Baseline
+         * @description Build the baseline of a run: automatic aggregations over the tables related to the entity
+         *     (counts and recency over several windows, sums and means of numeric columns, shares, counts
+         *     per common category, attributes of the entity row), every one checked by the point-in-time
+         *     guard; constant and duplicate features are dropped, then LightGBM is trained on the temporal
+         *     split and scored on the validation rows. The result is recorded as the run's first champion.
+         *     Needs a snapshot data version. The test rows are not scored here.
+         */
+        post: operations["run_baseline_api_v1_projects__project_id__tasks__task_id__runs__run_id__baseline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -919,6 +944,104 @@ export interface components {
             n_hypotheses: number;
             /** Target Column */
             target_column: string;
+        };
+        /** BaselineDroppedRead */
+        BaselineDroppedRead: {
+            /** Detail */
+            detail: string;
+            /** Group */
+            group: string;
+            /** Name */
+            name: string;
+            /**
+             * Reason
+             * @description constant, near_constant, duplicate, leakage_scan or over_cap
+             */
+            reason: string;
+        };
+        /** BaselineFeatureRead */
+        BaselineFeatureRead: {
+            /**
+             * Description
+             * @description The feature as one English sentence
+             */
+            description: string;
+            /**
+             * Group
+             * @description count, recency, trend, category, numeric, boolean or attribute
+             */
+            group: string;
+            /**
+             * Importance
+             * @description Share of the model's total gain
+             */
+            importance: number;
+            /**
+             * Ir
+             * @description The feature spec it was compiled from; none for attributes of the entity row
+             */
+            ir: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name: string;
+            /**
+             * Sql
+             * @description The feature query: reads __labels, returns entity_id, cutoff_time, value
+             */
+            sql: string;
+        };
+        /** BaselineRead */
+        BaselineRead: {
+            /** Candidates */
+            candidates: number;
+            /** Dropped */
+            dropped: components["schemas"]["BaselineDroppedRead"][];
+            /** Dropped Counts */
+            dropped_counts: {
+                [key: string]: number;
+            };
+            /** Engine */
+            engine: string;
+            /** Engine Version */
+            engine_version: string;
+            /** Experiment Id */
+            experiment_id: string;
+            /**
+             * Features
+             * @description Kept features, most important first
+             */
+            features: components["schemas"]["BaselineFeatureRead"][];
+            /** Kept */
+            kept: number;
+            /**
+             * Metrics
+             * @description Validation metrics: base rate, PR-AUC, precision, recall and lift at the top 1, 5 and 10% and top 100. The test rows are not scored here.
+             */
+            metrics: {
+                [key: string]: number;
+            };
+            /** Notes */
+            notes: string[];
+            /** Run Id */
+            run_id: string;
+            /** Seconds */
+            seconds: number;
+            /** Seed */
+            seed: number;
+            /** Skipped Tables */
+            skipped_tables: components["schemas"]["BaselineSkippedRead"][];
+            /** Split */
+            split: {
+                [key: string]: unknown;
+            };
+        };
+        /** BaselineSkippedRead */
+        BaselineSkippedRead: {
+            /** Reason */
+            reason: string;
+            /** Table */
+            table: string;
         };
         /** Body_upload_dataset_api_v1_projects__project_id__datasets_upload_post */
         Body_upload_dataset_api_v1_projects__project_id__datasets_upload_post: {
@@ -4368,6 +4491,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskRunRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_baseline_api_v1_projects__project_id__tasks__task_id__runs__run_id__baseline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaselineRead"];
                 };
             };
             /** @description Validation Error */

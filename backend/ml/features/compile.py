@@ -180,3 +180,73 @@ def _ratio(ir: FeatureIR, numerator: str, denominator: str) -> str:
             "LEFT JOIN b " + join.format(t="b"),
         ]
     )
+
+
+def compile_entity_value(
+    graph: SchemaGraph,
+    entity_table: str,
+    column: str | None,
+    dialect: str = "duckdb",
+    *,
+    created_at: str | None = None,
+    check_guard: bool = True,
+) -> str:
+    """SQL for a feature of the entity row itself: its ``column``, or, with ``created_at``, its
+    age in days at the cutoff. The entity table is bounded by the cutoff like any other table.
+    """
+    sql = _Sql(dialect)
+    table = next((t for t in graph.tables if t.key == entity_table), None)
+    errors: list[FieldError] = []
+    if table is None:
+        errors.append(FieldError("entity_table", f"{entity_table!r} is not a table of the schema"))
+    elif len(table.primary_key) != 1:
+        errors.append(FieldError("entity_table", "the entity table needs a single-column key"))
+    elif not table.time_column and table.is_static is not True:
+        errors.append(
+            FieldError(
+                "entity_table",
+                f"table {entity_table!r} has no event time and is not confirmed as static",
+            )
+        )
+    elif (column is None) == (created_at is None):
+        errors.append(FieldError("column", "give either a column or created_at"))
+    else:
+        names = {c.name for c in table.columns}
+        for field, name in (("column", column), ("created_at", created_at)):
+            if name is not None and name not in names:
+                errors.append(FieldError(field, f"{entity_table!r} has no column {name!r}"))
+    if errors or table is None:
+        raise FeatureIRError(errors)
+    if created_at is not None:
+        time = f"e.{sql.ident(created_at)}"
+        if sql.dialect == "postgres":
+            value = (
+                f"EXTRACT(EPOCH FROM (CAST(l.{CUTOFF} AS TIMESTAMP) - CAST({time} AS TIMESTAMP)))"
+                " / 86400.0"
+            )
+        else:
+            value = (
+                f"date_diff('second', CAST({time} AS TIMESTAMP), "
+                f"CAST(l.{CUTOFF} AS TIMESTAMP)) / 86400.0"
+            )
+    else:
+        assert column is not None
+        value = f"e.{sql.ident(column)}"
+    on = [f"e.{sql.ident(table.primary_key[0])} = l.{ENTITY}"]
+    if table.time_column:
+        on.append(f"e.{sql.ident(table.time_column)} < l.{CUTOFF}")
+    lines = [
+        f"SELECT l.{ENTITY}, l.{CUTOFF}, {value} AS value",
+        f"FROM {LABELS} l",
+        f"LEFT JOIN {sql.table(table)} e",
+        *(f"  {'ON' if j == 0 else 'AND'} {term}" for j, term in enumerate(on)),
+    ]
+    query = "\n".join(lines)
+    if check_guard:
+        result = check(query, graph, dialect, allow_rewrite=False)
+        if result.status != "accepted":
+            raise FeatureIRError(
+                [FieldError("sql", f"{r.code}: {r.message}") for r in result.reasons]
+                or [FieldError("sql", "the point-in-time guard did not accept the compiled SQL")]
+            )
+    return query

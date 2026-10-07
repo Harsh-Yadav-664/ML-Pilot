@@ -1,6 +1,6 @@
 # 0005. A typed feature spec first, free SQL second
 
-**Status:** Accepted. The spec, its validation and its compiler are implemented (#100, [reference](../features.md), `test_feature_ir.py`). The baseline generator (#55) and the LLM proposer (#56) are `planned`.
+**Status:** Accepted. The spec, its validation and its compiler are implemented (#100, [reference](../features.md), `test_feature_ir.py`). The baseline generator is implemented (#55, `test_dfs.py`). The LLM proposer (#56) is `planned`.
 
 ## Context
 
@@ -19,6 +19,7 @@ The first feature language is a small typed spec (an intermediate representation
 ## Alternatives considered
 
 - **Free SQL only.** More expressive, but every feature needs full analysis and is harder to review.
+- **Featuretools (BSD-3) for the baseline.** It was considered for #55. Generating our own IR keeps one guarded path (every baseline feature is compiled by the same compiler and checked by the same guard as a proposed one) and gives readable SQL for the report and the export; Featuretools computes in pandas and would need its own time handling and its own proof of cutoff safety.
 - **Only fixed DFS-style features, no LLM.** Safe and useful as a baseline (#55), but gives up the main idea of the product.
 
 ## Issues

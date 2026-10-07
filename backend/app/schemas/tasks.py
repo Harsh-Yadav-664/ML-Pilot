@@ -221,3 +221,49 @@ class TaskDraft(BaseModel):
     source: dict[str, Any] = Field(
         description="What to save with the spec: question, decision_mode, assumptions, LLM calls"
     )
+
+
+class BaselineFeatureRead(BaseModel):
+    name: str
+    group: str = Field(description="count, recency, trend, category, numeric, boolean or attribute")
+    description: str = Field(description="The feature as one English sentence")
+    sql: str = Field(
+        description="The feature query: reads __labels, returns entity_id, cutoff_time, value"
+    )
+    ir: dict[str, Any] | None = Field(
+        description="The feature spec it was compiled from; none for attributes of the entity row"
+    )
+    importance: float = Field(description="Share of the model's total gain")
+
+
+class BaselineDroppedRead(BaseModel):
+    name: str
+    group: str
+    reason: str = Field(description="constant, near_constant, duplicate, leakage_scan or over_cap")
+    detail: str
+
+
+class BaselineSkippedRead(BaseModel):
+    table: str
+    reason: str
+
+
+class BaselineRead(BaseModel):
+    run_id: str
+    experiment_id: str
+    engine: str
+    engine_version: str
+    seed: int
+    metrics: dict[str, float] = Field(
+        description="Validation metrics: base rate, PR-AUC, precision, recall and lift at the top "
+        "1, 5 and 10% and top 100. The test rows are not scored here."
+    )
+    split: dict[str, Any]
+    candidates: int
+    kept: int
+    dropped_counts: dict[str, int]
+    skipped_tables: list[BaselineSkippedRead]
+    features: list[BaselineFeatureRead] = Field(description="Kept features, most important first")
+    dropped: list[BaselineDroppedRead]
+    seconds: float
+    notes: list[str]

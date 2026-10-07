@@ -63,3 +63,34 @@ GROUP BY l.entity_id, l.cutoff_time
 * Edges on composite keys are not supported.
 * A window is always "the N days before the cutoff"; "the 30 days before the previous 60" is not expressible yet.
 * The IR is only compiled and checked here. Nothing fills it in yet (the LLM proposal step is #56) and no run uses it before the baseline features (#55).
+
+## The baseline (DFS)
+
+Before any model proposes a feature, MLPilot builds a baseline with no LLM: `ml/features/dfs.py` writes feature specs for every table one or two edges below the entity table (customers → orders → order_items), and `ml/features/baseline.py` computes them, filters them and trains LightGBM on the temporal split. Every candidate is compiled with the compiler above and checked by the guard, so there is no separate code path for the baseline. It is the bar that proposed features must beat.
+
+Templates, in priority order (the cap keeps the first ones):
+
+| priority | features |
+|---|---|
+| 0 | count over 7, 30, 90, 365 days and all history |
+| 1 | days since the most recent and the first event |
+| 2 | count per top-5 value of a low-cardinality text column (30, 90, 365 days); recent share: count in 7 days / count in 30 days, 30 / 90 |
+| 3 | sum and mean of numeric columns (30, 90, 365 days); share of rows where a boolean column is true |
+| 4 | min, max and standard deviation of numeric columns |
+| 5 | columns of the entity row itself, and its age at the cutoff |
+
+Filters, applied in this order to the training rows only (never validation or test):
+
+1. constant, or one value in more than 99% of rows: dropped;
+2. equal to, or correlated above 0.99 with, a feature already kept: dropped as a duplicate;
+3. more than 300 kept (`max_features`): the rest are dropped as `over_cap`.
+
+Every dropped feature is reported with its reason. A table with no event time that was not confirmed as static, or whose only time column is a last-modified time, is skipped and the reason is reported.
+
+The attributes of the entity row are the one kind of feature the cutoff guard cannot vouch for: a column such as `customers.is_churned` is filled in after the event it describes, and the guard cannot see that (#139). They go through the leakage scan on the training rows (post-outcome names, a copy of the target, one column that predicts almost perfectly), and what it flags is dropped. Text columns with more than 50 distinct values (e-mail addresses, codes) are not used as categories.
+
+LightGBM stops early on the validation rows, so the validation score is slightly optimistic. The test rows are not read; the test set is scored once per run, at its end.
+
+`POST /projects/{id}/tasks/{task}/runs/{run}/baseline` runs it for a run started on a snapshot, and records an experiment (the run's first champion), one `features` row per kept feature (SQL, spec, sentence, gain share) and a summary in the run's manifest. The SQL is compiled for DuckDB and run on the snapshot's copies of the tables; tables are keyed by bare name there.
+
+Limits: the "trend" feature is the recent share of a longer window (7 / 30 days, 30 / 90 days), not a ratio to the previous period, because a window is always measured back from the cutoff. Duplicate detection samples up to 5,000 training rows.

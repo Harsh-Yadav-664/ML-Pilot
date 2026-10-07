@@ -8,6 +8,7 @@ from fastapi import APIRouter, status
 
 from app.api.deps import DBSession, Gateway, ProjectID
 from app.schemas.tasks import (
+    BaselineRead,
     ConfirmRequest,
     LabelPreview,
     LabelPreviewRequest,
@@ -21,6 +22,7 @@ from app.schemas.tasks import (
     TaskSpecRead,
     TaskSpecValidation,
 )
+from app.services.baseline_service import BaselineService
 from app.services.task_service import TaskService
 from ml.tasks.spec import json_schema
 
@@ -130,3 +132,16 @@ async def start_run(
     ``override: true``, in which case the run is recorded and its manifest keeps the report and
     the override. This records the run; it does not train a model yet."""
     return await TaskService(db).start_run(project_id, task_id, body or RunStartRequest())
+
+
+@router.post("/{task_id}/runs/{run_id}/baseline", response_model=BaselineRead)
+async def run_baseline(
+    task_id: str, run_id: str, project_id: ProjectID, db: DBSession
+) -> BaselineRead:
+    """Build the baseline of a run: automatic aggregations over the tables related to the entity
+    (counts and recency over several windows, sums and means of numeric columns, shares, counts
+    per common category, attributes of the entity row), every one checked by the point-in-time
+    guard; constant and duplicate features are dropped, then LightGBM is trained on the temporal
+    split and scored on the validation rows. The result is recorded as the run's first champion.
+    Needs a snapshot data version. The test rows are not scored here."""
+    return await BaselineService(db).run(project_id, task_id, run_id)
