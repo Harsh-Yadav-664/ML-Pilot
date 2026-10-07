@@ -121,6 +121,7 @@ class PitResult:
     sql: str | None  # the checked (and possibly rewritten) query; None if rejected
     rewrites: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)  # static tables read without a bound
+    warnings: list[str] = field(default_factory=list)  # for the evidence report (#54)
 
     @property
     def ok(self) -> bool:
@@ -133,6 +134,7 @@ class PitResult:
             "sql": self.sql,
             "rewrites": self.rewrites,
             "assumptions": self.assumptions,
+            "warnings": self.warnings,
         }
 
 
@@ -231,6 +233,7 @@ class _Checker:
         self.reasons: list[Reason] = []
         self.rewrites: list[str] = []
         self.assumptions: list[str] = []
+        self.warnings: list[str] = []
         self._derived: dict[int, _Info] = {}
 
     # reporting
@@ -284,10 +287,14 @@ class _Checker:
         except SqlglotError as e:
             self.reject("parse_error", str(e).splitlines()[0], "query")
         if self.reasons:
-            return PitResult("rejected", self.reasons, None, self.rewrites, self.assumptions)
+            return PitResult(
+                "rejected", self.reasons, None, self.rewrites, self.assumptions, self.warnings
+            )
         final = tree.sql(dialect=self.dialect, pretty=True)
         status: Status = "rewritten" if self.rewrites else "accepted"
-        return PitResult(status, [], final, self.rewrites, sorted(set(self.assumptions)))
+        return PitResult(
+            status, [], final, self.rewrites, sorted(set(self.assumptions)), self.warnings
+        )
 
     # preparation --------------------------------------------------------------------------
     def _prepare(self, tree: exp.Select) -> exp.Select:
@@ -648,6 +655,15 @@ class _Checker:
             self.assumptions.append(
                 f"{table.name} is static (confirmed in the schema): read without a time bound"
             )
+            if table.time_leakage_hint and table.time_column:
+                warning = (
+                    f"static assumption on a table that changes: {table.name} is marked static, "
+                    f"but its {table.time_column} is a last-modified time, so its rows are "
+                    "rewritten after the events they describe and a feature on it can use "
+                    "information from after the cutoff"
+                )
+                if warning not in self.warnings:
+                    self.warnings.append(warning)
             return
         tcol = table.time_column
         if tcol is None:
@@ -659,8 +675,37 @@ class _Checker:
                 table.name,
             )
             return
+        if table.time_leakage_hint and table.time_column_source == "user":
+            warning = (
+                f"{table.name}.{tcol} is a last-modified time that you confirmed as the event "
+                "time: if its rows are rewritten after the events they describe, a feature on "
+                "it can use information from after the cutoff"
+            )
+            if warning not in self.warnings:
+                self.warnings.append(warning)
+        if table.time_leakage_hint and table.time_column_source != "user":
+            self.reject(
+                "last_modified_time",
+                f"{table.name}.{tcol} is a last-modified time: a row is rewritten after the event "
+                "it describes, so even a read bounded by the cutoff shows whether the future "
+                "happened (a row updated before the cutoff means it was not updated later). "
+                "If the table is an append-only log of events (each change is a new row), set that "
+                "column as its event time in the schema; if its rows never change, mark it static",
+                label,
+                table.name,
+            )
+            return
         own_terms = [c for c, j in terms if j is None or j == alias]
         date_col = type_kind(next(c.type for c in table.columns if c.name == tcol)) == "date"
+        if any(self._reads_future(c, alias, tcol, cl, chain, date_col) for c in own_terms):
+            self.reject(
+                "reads_future",
+                f"{table.name}.{tcol} is selected from after the cutoff: a feature may only read "
+                "history, so use '<' the cutoff (the rows after it are the label window)",
+                label,
+                table.name,
+            )
+            return
         if any(self._is_bound(c, alias, tcol, cl, chain, date_col) for c in own_terms):
             return
         if not cl:
@@ -776,6 +821,63 @@ class _Checker:
             return False  # an event at the cutoff itself belongs to neither history nor window
         term = self._terminal(c, chain)
         return term is not None and term in cl
+
+    def _reads_future(
+        self,
+        conj: exp.Expr,
+        alias: str,
+        tcol: str,
+        cl: frozenset[Terminal],
+        chain: list[_Ctx],
+        date_col: bool = False,
+    ) -> bool:
+        """A term that asks for the table's rows after the cutoff (``t > K``, ``t < K + 30 days``).
+
+        Rewriting such a term to ``t < K`` would be safe but would silently make the feature
+        empty; a feature that asks for the future is refused with that reason instead.
+        """
+        while isinstance(conj, exp.Paren):
+            conj = conj.this
+        pairs: list[tuple[exp.Expr, str, exp.Expr]] = []  # (time side, op on it, cutoff side)
+        if isinstance(conj, exp.LT | exp.LTE):
+            pairs.append((conj.this, "upper", conj.expression))
+        elif isinstance(conj, exp.GT | exp.GTE):
+            pairs.append((conj.this, "lower", conj.expression))
+        elif isinstance(conj, exp.Between):
+            low, high = conj.args.get("low"), conj.args.get("high")
+            if low is not None and high is not None:
+                pairs += [(conj.this, "lower", low), (conj.this, "upper", high)]
+        flipped = isinstance(conj, exp.LT | exp.LTE | exp.GT | exp.GTE)
+        for time_side, kind, cut_side in list(pairs):
+            if flipped:  # the column may be on the right: K < t
+                t_left = _unwrap(time_side, date_ok=date_col)
+                if not (
+                    isinstance(t_left, exp.Column)
+                    and _lc(t_left.table) == alias
+                    and _lc(t_left.name) == _lc(tcol)
+                ):
+                    pairs.append((cut_side, "upper" if kind == "lower" else "lower", time_side))
+        for time_side, kind, cut_side in pairs:
+            t = _unwrap(time_side, date_ok=date_col)
+            if not (
+                isinstance(t, exp.Column) and _lc(t.table) == alias and _lc(t.name) == _lc(tcol)
+            ):
+                continue
+            c = _unwrap(cut_side)
+            offset = 0  # +1: cutoff plus an interval, -1: minus, 0: the cutoff itself
+            if isinstance(c, exp.Add | exp.Sub) and _positive_interval(c.expression):
+                offset = 1 if isinstance(c, exp.Add) else -1
+                c = _unwrap(c.this)
+            if date_col and isinstance(c, exp.Cast | exp.TryCast):
+                c = _unwrap(c, date_ok=True)
+            term = self._terminal(c, chain)
+            if term is None or term not in cl:
+                continue
+            if kind == "lower" and offset >= 0:
+                return True  # t > K, t >= K, t > K + interval
+            if kind == "upper" and offset > 0:
+                return True  # t < K + interval
+        return False
 
     def _check_mixing(
         self, select: exp.Select, label: str, cl: frozenset[Terminal], chain: list[_Ctx]

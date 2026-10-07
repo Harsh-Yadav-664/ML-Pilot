@@ -69,6 +69,8 @@ jobs:
         run: pytest -q -s -p no:logging tests/unit/test_db_stats.py tests/integration/test_db_stats_postgres.py -k "matches_pandas or five_million or one_row_per_group"
       - name: Planted-leak suite (prints leakage precision/recall)
         run: python -m tests.fixtures.leakage.suite
+      - name: Leakage canaries (prints the canary report, one line per trap and the layer that catches it)
+        run: pytest -q -s -p no:logging tests/integration/test_canaries.py
       # The OpenAPI schema is the frontend's contract (frontend/openapi.json).
       - name: API contract is up to date
         run: python -m scripts.export_openapi --check

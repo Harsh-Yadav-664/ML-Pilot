@@ -679,3 +679,91 @@
   runnable: false
   sql: |
     SELECT l.entity_id, l.cutoff_time, mystery_clock() AS value FROM __labels l
+
+# ---- asking for the future, and last-modified times (#54) --------------------------------
+- id: future_window_after_the_cutoff
+  expect: rejected
+  codes: [reads_future]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l
+    JOIN orders o ON o.customer_id = l.entity_id AND o.ordered_at > l.cutoff_time
+      AND o.ordered_at <= l.cutoff_time + INTERVAL '30 days'
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: future_lower_bound_only
+  expect: rejected
+  codes: [reads_future]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l JOIN orders o ON o.customer_id = l.entity_id
+    WHERE o.ordered_at >= l.cutoff_time
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: future_between
+  expect: rejected
+  codes: [reads_future]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l JOIN orders o ON o.customer_id = l.entity_id
+    WHERE o.ordered_at BETWEEN l.cutoff_time AND l.cutoff_time + INTERVAL '7 days'
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: future_with_the_column_on_the_right
+  expect: rejected
+  codes: [reads_future]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l JOIN orders o ON o.customer_id = l.entity_id AND l.cutoff_time < o.ordered_at
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: upper_bound_past_the_cutoff
+  expect: rejected
+  codes: [reads_future]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l JOIN orders o ON o.customer_id = l.entity_id
+    WHERE o.ordered_at < l.cutoff_time + INTERVAL '1 day'
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: lookback_lower_bound_is_not_the_future
+  expect: rewritten
+  contains: "o.ordered_at < l.cutoff_time"
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l JOIN orders o ON o.customer_id = l.entity_id
+    WHERE o.ordered_at >= l.cutoff_time - INTERVAL '90 days'
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: last_modified_table_bounded
+  expect: rejected
+  codes: [last_modified_time]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(*) AS value
+    FROM __labels l
+    JOIN customer_status_snapshot s ON s.customer_id = l.entity_id AND s.updated_at < l.cutoff_time
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: last_modified_table_unbounded
+  expect: rejected
+  codes: [last_modified_time]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, max(CASE WHEN s.status = 'churned' THEN 1 ELSE 0 END) AS value
+    FROM __labels l JOIN customer_status_snapshot s ON s.customer_id = l.entity_id
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: last_modified_table_marked_static_is_accepted_with_a_warning
+  expect: accepted
+  static: [customer_status_snapshot]
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, max(CASE WHEN s.status = 'churned' THEN 1 ELSE 0 END) AS value
+    FROM __labels l JOIN customer_status_snapshot s ON s.customer_id = l.entity_id
+    GROUP BY l.entity_id, l.cutoff_time

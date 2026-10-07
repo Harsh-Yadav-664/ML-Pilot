@@ -327,3 +327,54 @@ def test_the_same_200_without_their_time_bound_are_rewritten_and_the_leak_is_det
     print(
         f"\nwithout the bound: {len(queries)} rewritten, the leak was visible in {leaks} as written"
     )
+
+
+# -- last-modified times and explicit future reads (#54) -------------------------------------
+
+STATUS = """
+SELECT l.entity_id, l.cutoff_time, count(*) AS value
+FROM __labels l JOIN customer_status_snapshot s
+  ON s.customer_id = l.entity_id AND s.updated_at < l.cutoff_time
+GROUP BY l.entity_id, l.cutoff_time
+"""
+
+
+def test_a_last_modified_time_the_user_confirmed_as_the_event_time_is_allowed(
+    world: dict[str, Any],
+) -> None:
+    graph = apply_overrides(
+        world["graph"],
+        SchemaOverrides(time_columns={"customer_status_snapshot": "updated_at"}),
+    )
+    table = next(t for t in graph.tables if t.name == "customer_status_snapshot")
+    assert table.time_column_source == "user" and table.time_leakage_hint
+    result = check(STATUS, graph)
+    assert result.status == "accepted"  # their call, made in the schema
+    assert len(result.warnings) == 1 and "you confirmed" in result.warnings[0]  # but not silent
+
+
+def test_a_static_table_with_a_last_modified_time_warns_for_the_evidence_report(
+    world: dict[str, Any],
+) -> None:
+    result = check(CASES[-1]["sql"], graph_for(world, ["customer_status_snapshot"]))
+    assert result.status == "accepted" and result.assumptions
+    assert len(result.warnings) == 1
+    assert "static assumption on a table that changes" in result.warnings[0]
+    assert result.as_dict()["warnings"] == result.warnings
+    plain = check(CASES[0]["sql"], world["graph"])
+    assert plain.warnings == []  # no warning when there is nothing to warn about
+
+
+def test_the_future_is_refused_by_name_not_rewritten_into_an_empty_feature(
+    world: dict[str, Any],
+) -> None:
+    result = check(
+        """SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+           FROM __labels l JOIN orders o ON o.customer_id = l.entity_id
+             AND o.ordered_at > l.cutoff_time
+           GROUP BY l.entity_id, l.cutoff_time""",
+        world["graph"],
+    )
+    assert result.status == "rejected"
+    assert [r.code for r in result.reasons] == ["reads_future"]
+    assert "history" in result.reasons[0].message
