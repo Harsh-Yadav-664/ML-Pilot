@@ -35,6 +35,21 @@ The reasoning, the competitors and the phases are in [`docs/ROADMAP.md`](docs/RO
 
 ## What works today
 
+**From a database to a ranked list.** One end-to-end test, [`frontend/e2e/v1.spec.ts`](frontend/e2e/v1.spec.ts), drives the UI through these steps on the demo Postgres as the read-only role, with the offline stub LLM plus a scripted provider that replays four feature proposals (CI job `v1-e2e`; the trace and video of each run are kept as artifacts). This list is generated from the test's step names by `python scripts/works_today.py`, and CI fails if they differ.
+
+<!-- v1-steps:begin -->
+1. Connect to the demo database as the read-only role
+2. The schema graph shows every demo table; products is marked static
+3. Ask the question; the task card shows the drafted task
+4. The label preview shows the base rate per cutoff and feasibility; confirm the task
+5. Start a run: baseline features, the scripted proposals, the leaky one refused by the guard
+6. The test metric is shown once the run has ended; the report opens with its safety section
+7. Export the bundle; in a clean virtualenv score.py reproduces the validation metric
+8. Score the latest day; download the ranked list with reasons
+<!-- v1-steps:end -->
+
+Everything below is exercised by smaller tests.
+
 Today MLPilot works on a **single CSV file**. Each item below is exercised by a test that runs in CI ([workflow](.github/workflows/ci.yml)). All tests use the offline stub LLM provider, so they need no API keys and no network.
 
 | Works today | Proven by |
