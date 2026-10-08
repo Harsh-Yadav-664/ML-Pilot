@@ -11,18 +11,22 @@ import numpy as np
 import pandas as pd
 
 from ml.reports.explain import shap_summary
+from ml.scoring.score import feature_stats
 
 MODEL_FILE = "model.txt"
 REFERENCE_FILE = "reference_validation.csv"
 CATEGORIES_FILE = "categories.json"
 SHAP_FILE = "shap.json"
+STATS_FILE = "feature_stats.json"
 
 
 def artifact_dir(projects_dir: Path, project_id: str, run_id: str) -> Path:
     return projects_dir / project_id / "runs" / run_id
 
 
-def save_artifacts(directory: Path, champion: Any, labels: pd.DataFrame, val: np.ndarray) -> bool:
+def save_artifacts(
+    directory: Path, champion: Any, labels: pd.DataFrame, train: np.ndarray, val: np.ndarray
+) -> bool:
     """Write ``model.txt`` and ``reference_validation.csv``; False if the champion has no model."""
     if champion.model is None:
         return False
@@ -38,6 +42,12 @@ def save_artifacts(directory: Path, champion: Any, labels: pd.DataFrame, val: np
     (directory / SHAP_FILE).write_text(
         json.dumps(shap_summary(champion.model, champion.frame, val))
     )
+    per_cutoff = labels.groupby("cutoff_time").size().mean()
+    stats = {
+        "features": feature_stats(champion.frame, train),
+        "entities_per_cutoff": float(per_cutoff),
+    }
+    (directory / STATS_FILE).write_text(json.dumps(stats))
     rows = labels.iloc[val]
     score = np.asarray(champion.model.predict_proba(champion.frame.iloc[val]))[:, 1]
     reference = pd.DataFrame(

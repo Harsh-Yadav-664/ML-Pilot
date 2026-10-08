@@ -36,6 +36,21 @@ def _versions() -> dict[str, str]:
     return {name: metadata.version(name) for name in PINNED}
 
 
+async def latest_features(db: AsyncSession, run_id: str) -> dict[str, Feature]:
+    """The newest Feature row of each name that has SQL."""
+    rows = (
+        await db.scalars(
+            select(Feature)
+            .where(Feature.run_id == run_id, Feature.sql.is_not(None))
+            .order_by(Feature.created_at.desc())
+        )
+    ).all()
+    by_name: dict[str, Feature] = {}
+    for f in rows:
+        by_name.setdefault(f.name, f)
+    return by_name
+
+
 class BundleService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -65,16 +80,7 @@ class BundleService:
                 f"The source database is {conn.dialect}; the queries are written for DuckDB, "
                 "so load the tables into DuckDB (or ask for dialect=postgres) to run them."
             )
-        rows = (
-            await self.db.scalars(
-                select(Feature)
-                .where(Feature.run_id == run_id, Feature.sql.is_not(None))
-                .order_by(Feature.created_at.desc())
-            )
-        ).all()
-        by_name: dict[str, Feature] = {}
-        for f in rows:
-            by_name.setdefault(f.name, f)
+        by_name = await latest_features(self.db, run_id)
         missing = [n for n in champion.feature_set if n not in by_name]
         if missing:
             raise HTTPException(409, f"The SQL of {len(missing)} champion features is missing")

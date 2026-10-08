@@ -38,3 +38,14 @@ mlpilot_export_<run>/
 - The dbt models compile; running them against a warehouse other than DuckDB is not tested.
 - SQLite sources are exported for DuckDB: load the tables into DuckDB first.
 - A run made before this change kept no model file and answers 409.
+
+## Scoring from the API (#62)
+
+`POST /runs/{id}/score` does what `score.py --cutoff` does, but on the connection the run was made on and with the SQL guard of the main app: it checks the schema against the data version the run trained on, builds the entities with the run's label query, runs each stored feature with `__labels` defined from those entities (not a values list, so a large cutoff stays under the guard's size limit), and ranks the entities with the stored model. The ranked list is written under `runs/<run>/scores/` and served as CSV.
+
+- Default cutoff: the start of the last day on which every table a feature reads has data.
+- A missing table or column stops the call with 409 and names `table.column` and the features that read it. A renamed column is a missing column.
+- Warnings (never blocking): a feature's missing share differs from training by more than 10 points, its mean is more than 3 training standard deviations away, or the number of eligible entities is more than 50% off the per-cutoff average of the training table.
+- `expected_positives_*` are sums of the model's probabilities. No calibrator is fitted, so they are not forecasts.
+- Only the validation cutoffs reproduce known scores. The held-out test rows are scored once per run, so scoring does not touch them.
+- Limit: `score.py --cutoff` in the bundle still lists the entities in a values list, so very large cutoffs are slow there.

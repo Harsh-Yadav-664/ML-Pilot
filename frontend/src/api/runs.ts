@@ -158,3 +158,32 @@ export async function openReport(runId: string, format: ReportFormat): Promise<v
   }
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
+
+export type RunScore = S['RunScore'];
+
+/** Score the entities eligible at `cutoff` (default: the last complete day) with the run's champion on the live database (#62). */
+export async function scoreRun(runId: string, cutoff: string | null, topK: number): Promise<RunScore> {
+  return (
+    await api.post<RunScore>(`${await runs(runId)}/score`, { cutoff, top_k: topK }, { timeout: 600_000 })
+  ).data;
+}
+
+async function saveBlob(path: string, name: string, type: string): Promise<void> {
+  const res = await api.get<Blob>(path, { responseType: 'blob', timeout: 300_000 });
+  const url = URL.createObjectURL(new Blob([res.data], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** `csv` is the path the score response names, relative to the run's project. */
+export async function downloadScores(runId: string, csv: string): Promise<void> {
+  const project = await ensureProject();
+  await saveBlob(`/projects/${project.id}${csv}`, `scores-${runId.slice(0, 8)}.csv`, 'text/csv');
+}
+
+export async function downloadBundle(runId: string): Promise<void> {
+  await saveBlob(`${await runs(runId)}/export`, `mlpilot-export-${runId.slice(0, 8)}.zip`, 'application/zip');
+}
