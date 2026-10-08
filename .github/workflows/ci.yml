@@ -74,6 +74,13 @@ jobs:
       # The OpenAPI schema is the frontend's contract (frontend/openapi.json).
       - name: API contract is up to date
         run: python -m scripts.export_openapi --check
+      # Last in the job: it installs an extra the other steps must not depend on.
+      # mlflow is an optional extra, so the full test step skips tests/integration/test_mlflow_logging.py
+      # (importorskip). This one installs it and runs them against a file store in tmp_path (#64).
+      - name: MLflow logging (optional extra installed; prints the logged run)
+        run: |
+          pip install -r requirements-mlflow.txt
+          pytest -q -s tests/integration/test_mlflow_logging.py
 
   # The demo database as Docker ships it (issue #47): `docker compose up demo-db`, then psql as
   # the read-only role and the integration test against it.

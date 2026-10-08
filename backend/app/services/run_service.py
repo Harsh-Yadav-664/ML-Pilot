@@ -59,6 +59,7 @@ from app.schemas.runs import (
 from app.services.baseline_service import BaselineService, load_world
 from app.services.connection_service import ConnectionService
 from app.services.feature_proposals import feature_description, feature_row
+from app.services.mlflow_service import log_finished_run
 from app.services.privacy_service import PrivacyService
 from app.services.task_service import TaskService
 from ml.agents import narration, settings_nl
@@ -807,7 +808,7 @@ async def _execute(
         best_sink.seed,
         rollouts_run=min(N, i + 1),
     )
-    return {
+    result: dict[str, Any] = {
         "run_id": run_id,
         "status": best_outcome.status,
         "stop_reason": best_outcome.stop_reason,
@@ -815,6 +816,10 @@ async def _execute(
         "rounds": len(best_outcome.rounds),
         "rollouts": min(N, i + 1),
     }
+    logged = await log_finished_run(ctx, project_id, run_id)  # only if MLFLOW_TRACKING_URI is set
+    if logged is not None:
+        result["mlflow"] = logged
+    return result
 
 
 async def _finish(
