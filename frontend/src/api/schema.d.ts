@@ -822,6 +822,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Run
+         * @description Resume an interrupted or cancelled run from its last champion. The run continues
+         *     with its remaining rounds and budget. A run that was completed cannot be resumed.
+         */
+        post: operations["resume_run_api_v1_projects__project_id__runs__run_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/runs/{run_id}/settings": {
         parameters: {
             query?: never;
@@ -2553,6 +2574,12 @@ export interface components {
              * @default 5
              */
             patience: number;
+            /**
+             * Rollouts
+             * @description Number of independent proposal histories to run. The best champion on validation is picked.
+             * @default 1
+             */
+            rollouts: number;
         };
         /** RunLoopStarted */
         RunLoopStarted: {
@@ -5092,6 +5119,38 @@ export interface operations {
                     "application/json": unknown;
                     "text/html": unknown;
                     "text/markdown": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_run_api_v1_projects__project_id__runs__run_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunLoopStarted"];
                 };
             };
             /** @description Validation Error */
