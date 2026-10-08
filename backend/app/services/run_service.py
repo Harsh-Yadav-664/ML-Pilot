@@ -15,16 +15,17 @@ or interrupted always has its last champion on record:
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
+import numpy as np
 from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-import numpy as np
 
 from ai.gateway import AIGateway
 from app.core import datasets
@@ -66,7 +67,7 @@ from ml.data.engine import EngineError
 from ml.data.profiling.db_stats import TableStats
 from ml.data.workspace import workspace_for
 from ml.features.baseline import BaselineError, build_baseline, flatten_graph, typed_times
-from ml.features.engine import Budget, FeatureEngine, BudgetTracker
+from ml.features.engine import Budget, BudgetTracker, FeatureEngine
 from ml.features.llm_sql import FeatureProposer
 from ml.tasks import labels
 from ml.validation.splits import SplitError, TemporalSplitPlan
@@ -86,6 +87,8 @@ NOTES = [
         "validation. They played no part in any decision."
     ),
 ]
+
+log = logging.getLogger(__name__)
 
 
 def _aware(ts: datetime | None) -> datetime | None:
@@ -130,7 +133,7 @@ class RunService:
             raise HTTPException(409, f"A run in status '{run.status}' cannot be resumed")
         if run.champion_experiment_id is None:
             raise HTTPException(409, "Cannot resume a run that never completed a baseline")
-        
+
         # Find the original job to get the request parameters
         orig_job = await self.db.scalar(
             select(Job).where(Job.run_id == run_id).order_by(Job.created_at.desc()).limit(1)
@@ -142,13 +145,19 @@ class RunService:
             self.db,
             project_id=project_id,
             kind=KIND,
-            params={"run_id": run_id, "request": orig_job.params.get("request", {}), "resume": True},
+            params={
+                "run_id": run_id,
+                "request": orig_job.params.get("request", {}),
+                "resume": True,
+            },
         )
         job.run_id = run_id
         run.status = "queued"
         # Close any pending checkpoints
         checkpoints = await self.db.scalars(
-            select(RunCheckpoint).where(RunCheckpoint.run_id == run_id, RunCheckpoint.state == "pending")
+            select(RunCheckpoint).where(
+                RunCheckpoint.run_id == run_id, RunCheckpoint.state == "pending"
+            )
         )
         for cp in checkpoints:
             cp.state = "timeout"
@@ -380,6 +389,7 @@ class DbControl:
         self.run_id = run_id
         self.config = config
         self.checkpoint_timeout = 300.0
+        self.rounds_done = 0  # proposals asked for before a resume: they count against max_rounds
 
     async def settings(self) -> loop.RunConfig | None:
         async with runner.sessions()() as db:
@@ -392,7 +402,11 @@ class DbControl:
                 stored.get("max_seconds"),
                 stored.get("max_proposals"),
             ),
-            max_rounds=int(stored.get("max_rounds", self.config.max_rounds)),
+            max_rounds=(
+                max(0, int(stored["max_rounds"]) - self.rounds_done)
+                if "max_rounds" in stored
+                else self.config.max_rounds
+            ),
             patience=int(stored.get("patience", self.config.patience)),
             approval_mode=stored.get("approval_mode", self.config.approval_mode),
         )
@@ -491,7 +505,9 @@ def _changes(old: loop.RunConfig, new: loop.RunConfig) -> dict[str, dict[str, An
 class _Sink:
     """Writes each round as it ends: the proposal, and for an accepted one the new champion."""
 
-    def __init__(self, run_id: str, previous_experiment: str, task_name: str, seed: int, rollout: int = 0) -> None:
+    def __init__(
+        self, run_id: str, previous_experiment: str, task_name: str, seed: int, rollout: int = 0
+    ) -> None:
         self.run_id = run_id
         self.parent = previous_experiment
         self.task_name = task_name
@@ -504,7 +520,16 @@ class _Sink:
         async with runner.sessions()() as db:
             run = await db.get(Run, self.run_id)
             assert run is not None
-            db.add(feature_row(self.run_id, rnd.record, self.position, rnd.gain, rnd.vetoed, rollout=self.rollout))
+            db.add(
+                feature_row(
+                    self.run_id,
+                    rnd.record,
+                    self.position,
+                    rnd.gain,
+                    rnd.vetoed,
+                    rollout=self.rollout,
+                )
+            )
             if rnd.accepted and rnd.gain is not None and rnd.record.proposal is not None:
                 exp = Experiment(
                     id=str(uuid.uuid4()),
@@ -586,7 +611,11 @@ async def _cancelled(run_id: str) -> None:
 
 
 async def _execute(
-    ctx: JobContext, run_id: str, request: RunLoopRequest, gateway: AIGateway, is_resume: bool = False
+    ctx: JobContext,
+    run_id: str,
+    request: RunLoopRequest,
+    gateway: AIGateway,
+    is_resume: bool = False,
 ) -> dict[str, Any]:
     await ctx.step("Reading the snapshot and building the baseline", 0.02)
     async with runner.sessions()() as db:
@@ -624,7 +653,7 @@ async def _execute(
         run.status = "running"
         await db.commit()
         previous = str(run.champion_experiment_id)
-    
+
     if not is_resume:
         await ctx.emit(
             "baseline",
@@ -637,7 +666,7 @@ async def _execute(
             "resume",
             message="Resuming run from last champion",
         )
-    
+
     cache = datasets.PROJECTS_DIR / project_id / "feature_cache"
     # the proposer flattens the graph and types the times; the engine has to run on the same
     flat, _ = flatten_graph(world.graph, spec.entity.table)
@@ -671,13 +700,21 @@ async def _execute(
     control = DbControl(ctx, run_id, config)
     control.checkpoint_timeout = request.checkpoint_timeout_seconds
     state, scorer = await asyncio.to_thread(loop.start_state, baseline, config)
-    
+
+    resumed_features: list[Feature] = []
     if is_resume:
         async with runner.sessions()() as db:
             champion_exp = await db.get(Experiment, previous)
-            features = (await db.scalars(select(Feature).where(Feature.run_id == run_id).order_by(Feature.created_at))).all()
-        await asyncio.to_thread(_restore_resume_state, proposer, engine, state, champion_exp, features)
-        
+            features = (
+                await db.scalars(
+                    select(Feature).where(Feature.run_id == run_id).order_by(Feature.created_at)
+                )
+            ).all()
+        resumed_features = list(features)
+        await asyncio.to_thread(
+            _restore_resume_state, proposer, engine, state, champion_exp, features
+        )
+
     N = request.rollouts if not is_resume else 1
     shared_tracker = BudgetTracker(config.budget)
     best_outcome = None
@@ -692,7 +729,11 @@ async def _execute(
                 r_config = config
             elif is_resume:
                 r_proposer, r_state, r_scorer = proposer, state, scorer
-                r_config = config
+                # the rounds already asked for count against max_rounds: "the remaining rounds"
+                asked = sum(1 for f in resumed_features if f.kind == "llm_sql")
+                r_config = replace(config, max_rounds=max(0, config.max_rounds - asked))
+                control.config = r_config
+                control.rounds_done = asked
                 r_seed = seed
             else:
                 r_proposer = FeatureProposer(
@@ -716,7 +757,7 @@ async def _execute(
 
             r_state.tracker = shared_tracker
             r_sink = _Sink(run_id, previous, spec.name, r_seed, rollout=i)
-            
+
             outcome = await loop.run_loop(
                 baseline,
                 r_proposer,
@@ -726,22 +767,36 @@ async def _execute(
                 state=r_state,
                 scorer=r_scorer,
                 control=control,
-                score_test=False,
+                score_test=N == 1,
             )
-            
-            val = float(np.mean(outcome.champion.fold_scores)) if outcome.champion.fold_scores else -1.0
+
+            val = (
+                float(np.mean(outcome.champion.fold_scores))
+                if outcome.champion.fold_scores
+                else -1.0
+            )
             if val > best_val or best_outcome is None:
                 best_val = val
                 best_outcome = outcome
                 best_sink = r_sink
-                
+
             if shared_tracker.exceeded():
                 break
     finally:
         engine.close()
 
     assert best_outcome is not None and best_sink is not None
-    await _finish(run_id, best_outcome, best_sink.parent, spec.name, engine, best_sink.seed, rollouts_run=min(N, i + 1))
+    if N > 1:
+        best_outcome = await loop.score_chosen(baseline, best_outcome, best_sink.seed)
+    await _finish(
+        run_id,
+        best_outcome,
+        best_sink.parent,
+        spec.name,
+        engine,
+        best_sink.seed,
+        rollouts_run=min(N, i + 1),
+    )
     return {
         "run_id": run_id,
         "status": best_outcome.status,
@@ -817,12 +872,12 @@ def _restore_resume_state(
     engine: FeatureEngine,
     state: loop.LoopState,
     champion_exp: Experiment,
-    features: list[Feature]
+    features: list[Feature],
 ) -> None:
     """Rebuild the champion frame and the proposer's history from the run's saved features."""
-    from ml.features.llm_sql import sql_hash, ir_key
     from ml.features.ir import FeatureIR
-    
+    from ml.features.llm_sql import ir_key, sql_hash
+
     accepted_sqls = {}
     for f in features:
         if f.status == "accepted":
@@ -831,8 +886,12 @@ def _restore_resume_state(
                 try:
                     ir_model = FeatureIR.model_validate(f.ir) if isinstance(f.ir, dict) else f.ir
                     proposer.irs.add(ir_key(ir_model))
-                except Exception:
-                    pass
+                except ValueError as e:  # pydantic.ValidationError subclasses ValueError
+                    log.warning(
+                        "saved feature %s has an unreadable IR, not added to the history: %s",
+                        f.name,
+                        e,
+                    )
             if f.sql:
                 proposer.hashes.add(sql_hash(f.sql))
             accepted_sqls[f.name] = f.sql
@@ -842,15 +901,19 @@ def _restore_resume_state(
                 reason = f"no gain: {f.gain.get('mean_gain', 0):+.4f}"
             elif f.guard_results:
                 reason = "guard failed"
-            proposer.rejected.append({
-                "name": f.name,
-                "stage": f.status.replace("rejected_", ""),
-                "reason": reason[:100]  # simple clip
-            })
+            proposer.rejected.append(
+                {
+                    "name": f.name,
+                    "stage": f.status.replace("rejected_", ""),
+                    "reason": reason[:100],  # simple clip
+                }
+            )
 
     champion_set = set(champion_exp.feature_set)
     for name, sql in accepted_sqls.items():
         if name in champion_set and name not in state.champion.frame.columns:
+            if sql is None:
+                continue
             computed = engine.compute(sql)
             if computed.values is not None:
                 state.champion.frame[name] = computed.values.to_numpy()
@@ -859,5 +922,6 @@ def _restore_resume_state(
     state.champion.names = list(champion_exp.feature_set)
     state.champion.metrics = champion_exp.val_metrics or champion_exp.metrics or {}
     state.champion.best_iteration = int(state.champion.metrics.get("best_iteration", 10))
-    state.champion.fold_scores = (champion_exp.decision_detail or {}).get("candidate_scores", state.champion.fold_scores)
-
+    state.champion.fold_scores = (champion_exp.decision_detail or {}).get(
+        "candidate_scores", state.champion.fold_scores
+    )

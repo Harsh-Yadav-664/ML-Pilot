@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol
 
 import lightgbm as lgb
@@ -247,7 +247,7 @@ async def run_loop(
         await sink.round_done(rnd, state.champion)
         await hooks.emit("feature_decision", **_event(rnd, state.champion, tracker, cost))
     await hooks.check_cancelled()
-    return await _finish(baseline, state, config, stop_reason, y, hooks)
+    return await _finish(baseline, state, config, stop_reason, y, hooks, score=score_test)
 
 
 async def _decide(
@@ -336,6 +336,7 @@ async def _finish(
     stop_reason: str,
     y: np.ndarray,
     hooks: LoopHooks,
+    score: bool = True,
 ) -> RunOutcome:
     assert baseline.temporal is not None and state.tracker is not None
     split = baseline.temporal
@@ -343,16 +344,34 @@ async def _finish(
     status: RunStatus = "stopped" if stop_reason.startswith("budget") else "completed"
     test: dict[str, float] | None = None
     error: str | None = None
-    if score_test:
+    if score:
         await hooks.step("Refitting on train + validation and scoring the test rows once", 0.95)
-        try:
-            test = await asyncio.to_thread(_refit_and_score_test, champion, y, split, config.seed)
-        except (SplitError, ValueError) as e:  # for example a test period with one class only
-            error = f"the test rows were not scored: {e}"
+        test, error = await _score_once(champion, y, split, config.seed)
     await hooks.emit("run_finished", status=status, stop_reason=stop_reason, test=test, error=error)
     return RunOutcome(
         status, stop_reason, state.rounds, champion, test, error, state.tracker.used()
     )
+
+
+async def _score_once(
+    champion: Champion, y: np.ndarray, split: Any, seed: int
+) -> tuple[dict[str, float] | None, str | None]:
+    try:
+        return await asyncio.to_thread(_refit_and_score_test, champion, y, split, seed), None
+    except (SplitError, ValueError) as e:  # for example a test period with one class only
+        return None, f"the test rows were not scored: {e}"
+
+
+async def score_chosen(baseline: BaselineResult, outcome: RunOutcome, seed: int) -> RunOutcome:
+    """Score the test rows for the one outcome that was kept among several rollouts.
+
+    Rollouts run with ``score_test=False`` so the test rows are touched once per run, by the
+    winner only, never once per rollout and never to choose between them.
+    """
+    assert baseline.labels is not None and baseline.temporal is not None
+    y = baseline.labels["label"].astype(int).to_numpy()
+    test, error = await _score_once(outcome.champion, y, baseline.temporal, seed)
+    return replace(outcome, test=test, test_error=error)
 
 
 def _refit_and_score_test(

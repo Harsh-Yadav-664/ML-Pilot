@@ -3350,6 +3350,14 @@
             "minimum": 1.0,
             "title": "Patience",
             "type": "integer"
+          },
+          "rollouts": {
+            "default": 1,
+            "description": "Number of independent proposal histories to run. The best champion on validation is picked.",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Rollouts",
+            "type": "integer"
           }
         },
         "title": "RunLoopRequest",
@@ -8059,6 +8067,58 @@
           }
         },
         "summary": "Get Run Report",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/resume": {
+      "post": {
+        "description": "Resume an interrupted or cancelled run from its last champion. The run continues\nwith its remaining rounds and budget. A run that was completed cannot be resumed.",
+        "operationId": "resume_run_api_v1_projects__project_id__runs__run_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunLoopStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume Run",
         "tags": [
           "runs"
         ]

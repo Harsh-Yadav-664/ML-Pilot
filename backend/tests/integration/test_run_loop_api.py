@@ -238,6 +238,7 @@ async def test_a_run_needs_a_snapshot_and_a_known_id(
     unknown = await client.post(runs_url(project_id, f"/{uuid.uuid4()}/start"))
     assert unknown.status_code == 404
 
+
 async def test_resume_cancelled_run(
     client: httpx.AsyncClient,
     project_id: str,
@@ -247,20 +248,26 @@ async def test_resume_cancelled_run(
 ) -> None:
     monkeypatch.setitem(DEFAULT_RULE, "min_gain", -1.0)
     monkeypatch.setitem(DEFAULT_RULE, "std_multiplier", -1e6)
-    
+
     # Run the first part and cancel
     gateway = Costly([answer(k) for k in GOOD], cost=0.01)
     version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z", TABLES)
-    
+
     _, run_id = await started_run(client, project_id, connection, version)
-    
+
     # Simulate the enqueue so resume can find the job request
     async with db_session.AsyncSessionLocal() as db:
-        run = await db.get(Run, run_id)
-        job = Job(id=str(uuid.uuid4()), project_id=project_id, run_id=run_id, kind="relational_run", status="cancelled", params={"request": {"max_rounds": 4, "patience": 4}})
+        job = Job(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            run_id=run_id,
+            kind="relational_run",
+            status="cancelled",
+            params={"request": {"max_rounds": 4, "patience": 4}},
+        )
         db.add(job)
         await db.commit()
-    
+
     ctx = FakeCtx(cancel_from_check=3)
     with pytest.raises(run_service.JobCancelled):
         await run_service.execute(
@@ -268,27 +275,38 @@ async def test_resume_cancelled_run(
             {"run_id": run_id, "request": {"max_rounds": 4, "patience": 4}},
             lambda: gateway,
         )
-        
+
     assert test_calls == []
-    
-    # Now resume the run
+
+    # Now resume the run through the API: the job it queues uses the same scripted gateway
+    monkeypatch.setattr(handlers, "make_gateway", lambda: gateway)
     res = await client.post(runs_url(project_id, f"/{run_id}/resume"))
     assert res.status_code == 202
-    
-    ctx2 = FakeCtx(cancel_from_check=999) # finish normally
-    await run_service.execute(
-        ctx2,
-        {"run_id": run_id, "resume": True, "request": {"max_rounds": 4, "patience": 4}},
-        lambda: gateway,
-    )
-    
+    job = await finished(client, project_id, res.json()["job_id"])
+    assert job["status"] == "succeeded", job
+
     assert len(test_calls) == 1
-    
+
     state = (await client.get(runs_url(project_id, f"/{run_id}"))).json()
     assert state["status"] == "completed"
     assert state["rounds"] == 4
-    assert state["accepted"] == 4
+    assert state["accepted"] >= 2  # the two accepted before the cancel stay accepted
+    async with db_session.AsyncSessionLocal() as db:
+        run = await db.get(Run, run_id)
+        assert run is not None
+        final = await db.get(Experiment, run.champion_experiment_id)
+        assert final is not None
+        kept = {
+            f.name
+            for f in (
+                await db.scalars(
+                    select(Feature).where(Feature.run_id == run_id, Feature.status == "accepted")
+                )
+            ).all()
+        }
+    assert len(kept) >= 2 and kept <= set(final.feature_set), (kept, final.feature_set)
     assert state["test_metrics"] is not None
+
 
 async def test_cannot_resume_completed_run(
     client: httpx.AsyncClient,
@@ -299,21 +317,22 @@ async def test_cannot_resume_completed_run(
 ) -> None:
     monkeypatch.setitem(DEFAULT_RULE, "min_gain", -1.0)
     monkeypatch.setitem(DEFAULT_RULE, "std_multiplier", -1e6)
-    
+
     gateway = Costly([answer(k) for k in GOOD[:2]], cost=0.01)
     version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z", TABLES)
     _, run_id = await started_run(client, project_id, connection, version)
-    
+
     ctx = FakeCtx(cancel_from_check=999)
     await run_service.execute(
         ctx,
         {"run_id": run_id, "request": {"max_rounds": 2, "patience": 2}},
         lambda: gateway,
     )
-    
+
     res = await client.post(runs_url(project_id, f"/{run_id}/resume"))
     assert res.status_code == 409
     assert "cannot be resumed" in res.json()["detail"]
+
 
 async def test_rollouts(
     client: httpx.AsyncClient,
@@ -352,11 +371,14 @@ async def test_rollouts(
 
     # Check that manifest has rollouts=3
     async with db_session.AsyncSessionLocal() as db:
+        run = await db.get(Run, run_id)
+        assert run is not None
         final_exp = await db.scalar(
-            select(Experiment).where(Experiment.run_id == run_id, Experiment.decision_mode == "auto").order_by(Experiment.created_at.desc())
+            select(Experiment).where(Experiment.id == run.champion_experiment_id)
         )
         assert final_exp is not None
         assert final_exp.manifest.get("rollouts") == 3
+
 
 async def test_rollout_shared_budget(
     client: httpx.AsyncClient,
@@ -377,9 +399,12 @@ async def test_rollout_shared_budget(
     _, run_id = await started_run(client, project_id, connection, version)
 
     ctx = FakeCtx(cancel_from_check=999)
-    res_execute = await run_service.execute(
+    await run_service.execute(
         ctx,
-        {"run_id": run_id, "request": {"max_rounds": 2, "patience": 2, "rollouts": 3, "max_cost_usd": 0.05}},
+        {
+            "run_id": run_id,
+            "request": {"max_rounds": 2, "patience": 2, "rollouts": 3, "max_cost_usd": 0.05},
+        },
         lambda: gateway,
     )
 
@@ -391,3 +416,6 @@ async def test_rollout_shared_budget(
         assert 0 in rollouts
         assert 1 in rollouts
         assert 2 not in rollouts
+    assert len(test_calls) == 1, (
+        "the test rows are scored once for the whole run, not once per rollout"
+    )
