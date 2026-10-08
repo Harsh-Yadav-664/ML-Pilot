@@ -21,6 +21,7 @@ from app.schemas.runs import (
     SuggestionCreate,
     SuggestionRead,
 )
+from app.services.bundle_service import BundleService, Dialect
 from app.services.report_service import ReportFormat, ReportService
 from app.services.run_service import RunService, SteerService
 
@@ -156,3 +157,28 @@ async def get_run_report(
         else {}
     )
     return Response(text, media_type=media_type, headers=headers)
+
+
+@router.get(
+    "/{run_id}/export",
+    response_class=Response,
+    responses={200: {"content": {"application/zip": {}}, "description": "The export bundle"}},
+)
+async def export_run(
+    run_id: str,
+    project_id: ProjectID,
+    db: DBSession,
+    dialect: Annotated[
+        Dialect | None,
+        Query(description="SQL dialect of the features; default: the source's, else duckdb"),
+    ] = None,
+) -> Response:
+    """A zip with the champion's features as SQL and a dbt project, the model in LightGBM text
+    format, the task, the manifest, the report, and score.py, which scores from your database
+    read-only without MLPilot. Only for a run that ended and kept its model."""
+    data, filename = await BundleService(db).bundle(project_id, run_id, dialect)
+    return Response(
+        data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

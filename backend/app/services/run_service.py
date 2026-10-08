@@ -66,6 +66,7 @@ from ml.agents import run_loop as loop
 from ml.data.engine import EngineError
 from ml.data.profiling.db_stats import TableStats
 from ml.data.workspace import workspace_for
+from ml.export.artifacts import artifact_dir, save_artifacts
 from ml.features.baseline import BaselineError, build_baseline, flatten_graph, typed_times
 from ml.features.engine import Budget, BudgetTracker, FeatureEngine
 from ml.features.llm_sql import FeatureProposer
@@ -788,6 +789,14 @@ async def _execute(
     assert best_outcome is not None and best_sink is not None
     if N > 1:
         best_outcome = await loop.score_chosen(baseline, best_outcome, best_sink.seed)
+    assert baseline.labels is not None and baseline.temporal is not None
+    await asyncio.to_thread(
+        save_artifacts,
+        artifact_dir(datasets.PROJECTS_DIR, project_id, run_id),
+        best_outcome.champion,
+        baseline.labels,
+        baseline.temporal.val,
+    )
     await _finish(
         run_id,
         best_outcome,

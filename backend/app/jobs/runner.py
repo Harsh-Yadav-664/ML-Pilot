@@ -25,6 +25,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -269,9 +270,16 @@ class JobWorker:
     async def _beat(self, job_id: str) -> None:
         while True:
             await asyncio.sleep(self.heartbeat)
-            async with sessions()() as db:
-                await db.execute(update(Job).where(Job.id == job_id).values(heartbeat_at=_now()))
-                await db.commit()
+            try:
+                async with sessions()() as db:
+                    await db.execute(
+                        update(Job).where(Job.id == job_id).values(heartbeat_at=_now())
+                    )
+                    await db.commit()
+            except OperationalError:
+                # a beat that loses a write race with the job's own long transaction is retried
+                # at the next beat; the stale-job sweep acts only after stale_after seconds
+                logger.warning("Heartbeat of job %s failed (database busy), retrying", job_id)
 
     async def _run(self, job: Job) -> None:
         async with sessions()() as db:
