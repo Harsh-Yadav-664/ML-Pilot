@@ -718,6 +718,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Run
+         * @description Answer a question from this run's stored records only. A model may word the answer; it is
+         *     shown only if every number and name in it is in the records, otherwise the records are shown.
+         *     No matching record: "I don't have a record of that in this run."
+         */
+        post: operations["ask_run_api_v1_projects__project_id__runs__run_id__ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/runs/{run_id}/checkpoints": {
         parameters: {
             query?: never;
@@ -753,6 +775,47 @@ export interface paths {
          *     model without testing it. Answered once: a second answer is a 409.
          */
         post: operations["answer_checkpoint_api_v1_projects__project_id__runs__run_id__checkpoints__checkpoint_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/debrief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Debrief Run
+         * @description What the run did and found, from its stored records (same checks as /ask).
+         */
+        get: operations["debrief_run_api_v1_projects__project_id__runs__run_id__debrief_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/explain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Explain Run
+         * @description Global SHAP importance of the champion (exact TreeSHAP on up to 2,000 validation rows),
+         *     kept when the run ended.
+         */
+        get: operations["explain_run_api_v1_projects__project_id__runs__run_id__explain_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2479,6 +2542,29 @@ export interface components {
             name?: string | null;
             status?: components["schemas"]["ProjectStatus"] | null;
         };
+        /** RunAnswer */
+        RunAnswer: {
+            /** Answer */
+            answer: string;
+            /**
+             * Mode
+             * @description llm: a model's wording that passed the number and name check; fallback: the records as they are, because the wording did not pass or the model failed; no_record: nothing in this run matches the question
+             * @enum {string}
+             */
+            mode: "llm" | "fallback" | "no_record";
+            /** Note */
+            note?: string | null;
+            /**
+             * Records
+             * @description Ids of the stored records the answer comes from
+             */
+            records: string[];
+        };
+        /** RunAsk */
+        RunAsk: {
+            /** Question */
+            question: string;
+        };
         /** RunExperimentRequest */
         RunExperimentRequest: {
             /** Data Version Id */
@@ -2490,6 +2576,22 @@ export interface components {
             parent_id?: string | null;
             /** Target Column */
             target_column: string;
+        };
+        /** RunExplain */
+        RunExplain: {
+            /** Base Value */
+            base_value: number;
+            /**
+             * Features
+             * @description feature, mean_abs and share, largest first
+             */
+            features: {
+                [key: string]: number | string;
+            }[];
+            /** Method */
+            method: string;
+            /** N Rows */
+            n_rows: number;
         };
         /** RunFeatureRead */
         RunFeatureRead: {
@@ -4982,6 +5084,42 @@ export interface operations {
             };
         };
     };
+    ask_run_api_v1_projects__project_id__runs__run_id__ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunAsk"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAnswer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_checkpoints_api_v1_projects__project_id__runs__run_id__checkpoints_get: {
         parameters: {
             query?: never;
@@ -5038,6 +5176,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CheckpointRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    debrief_run_api_v1_projects__project_id__runs__run_id__debrief_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAnswer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    explain_run_api_v1_projects__project_id__runs__run_id__explain_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunExplain"];
                 };
             };
             /** @description Validation Error */

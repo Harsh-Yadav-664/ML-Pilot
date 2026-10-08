@@ -10,9 +10,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ml.reports.explain import shap_summary
+
 MODEL_FILE = "model.txt"
 REFERENCE_FILE = "reference_validation.csv"
 CATEGORIES_FILE = "categories.json"
+SHAP_FILE = "shap.json"
 
 
 def artifact_dir(projects_dir: Path, project_id: str, run_id: str) -> Path:
@@ -32,6 +35,9 @@ def save_artifacts(directory: Path, champion: Any, labels: pd.DataFrame, val: np
         if isinstance(champion.frame[c].dtype, pd.CategoricalDtype)
     }
     (directory / CATEGORIES_FILE).write_text(json.dumps(categories, indent=2))
+    (directory / SHAP_FILE).write_text(
+        json.dumps(shap_summary(champion.model, champion.frame, val))
+    )
     rows = labels.iloc[val]
     score = np.asarray(champion.model.predict_proba(champion.frame.iloc[val]))[:, 1]
     reference = pd.DataFrame(

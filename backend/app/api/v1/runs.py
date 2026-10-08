@@ -7,10 +7,13 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
-from app.api.deps import DBSession, ProjectID
+from app.api.deps import DBSession, Gateway, ProjectID
 from app.schemas.runs import (
     CheckpointDecision,
     CheckpointRead,
+    RunAnswer,
+    RunAsk,
+    RunExplain,
     RunFeaturesRead,
     RunLoopRequest,
     RunLoopStarted,
@@ -22,6 +25,7 @@ from app.schemas.runs import (
     SuggestionRead,
 )
 from app.services.bundle_service import BundleService, Dialect
+from app.services.explain_service import ExplainService
 from app.services.report_service import ReportFormat, ReportService
 from app.services.run_service import RunService, SteerService
 
@@ -182,3 +186,28 @@ async def export_run(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/{run_id}/explain", response_model=RunExplain)
+async def explain_run(run_id: str, project_id: ProjectID, db: DBSession) -> RunExplain:
+    """Global SHAP importance of the champion (exact TreeSHAP on up to 2,000 validation rows),
+    kept when the run ended."""
+    return await ExplainService(db).shap(project_id, run_id)
+
+
+@router.post("/{run_id}/ask", response_model=RunAnswer)
+async def ask_run(
+    run_id: str, project_id: ProjectID, db: DBSession, gateway: Gateway, body: RunAsk
+) -> RunAnswer:
+    """Answer a question from this run's stored records only. A model may word the answer; it is
+    shown only if every number and name in it is in the records, otherwise the records are shown.
+    No matching record: "I don't have a record of that in this run." """
+    return await ExplainService(db).ask(project_id, run_id, body.question, gateway)
+
+
+@router.get("/{run_id}/debrief", response_model=RunAnswer)
+async def debrief_run(
+    run_id: str, project_id: ProjectID, db: DBSession, gateway: Gateway
+) -> RunAnswer:
+    """What the run did and found, from its stored records (same checks as /ask)."""
+    return await ExplainService(db).ask(project_id, run_id, "debrief", gateway)

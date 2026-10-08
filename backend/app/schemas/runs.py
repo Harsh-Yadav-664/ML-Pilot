@@ -178,3 +178,27 @@ class NarrationItem(BaseModel):
 class RunNarration(BaseModel):
     run_id: str
     items: list[NarrationItem]
+
+
+class RunAsk(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+
+
+class RunAnswer(BaseModel):
+    answer: str
+    records: list[str] = Field(description="Ids of the stored records the answer comes from")
+    mode: Literal["llm", "fallback", "no_record"] = Field(
+        description="llm: a model's wording that passed the number and name check; fallback: the "
+        "records as they are, because the wording did not pass or the model failed; "
+        "no_record: nothing in this run matches the question"
+    )
+    note: str | None = None
+
+
+class RunExplain(BaseModel):
+    method: str
+    n_rows: int
+    base_value: float
+    features: list[dict[str, float | str]] = Field(
+        description="feature, mean_abs and share, largest first"
+    )
