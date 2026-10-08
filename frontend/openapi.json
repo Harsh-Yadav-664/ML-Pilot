@@ -3068,6 +3068,65 @@
         "title": "ProjectUpdate",
         "type": "object"
       },
+      "RunAnswer": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "mode": {
+            "description": "llm: a model's wording that passed the number and name check; fallback: the records as they are, because the wording did not pass or the model failed; no_record: nothing in this run matches the question",
+            "enum": [
+              "llm",
+              "fallback",
+              "no_record"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "records": {
+            "description": "Ids of the stored records the answer comes from",
+            "items": {
+              "type": "string"
+            },
+            "title": "Records",
+            "type": "array"
+          }
+        },
+        "required": [
+          "answer",
+          "records",
+          "mode"
+        ],
+        "title": "RunAnswer",
+        "type": "object"
+      },
+      "RunAsk": {
+        "properties": {
+          "question": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "RunAsk",
+        "type": "object"
+      },
       "RunExperimentRequest": {
         "properties": {
           "data_version_id": {
@@ -3109,6 +3168,48 @@
           "target_column"
         ],
         "title": "RunExperimentRequest",
+        "type": "object"
+      },
+      "RunExplain": {
+        "properties": {
+          "base_value": {
+            "title": "Base Value",
+            "type": "number"
+          },
+          "features": {
+            "description": "feature, mean_abs and share, largest first",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "n_rows": {
+            "title": "N Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "n_rows",
+          "base_value",
+          "features"
+        ],
+        "title": "RunExplain",
         "type": "object"
       },
       "RunFeatureRead": {
@@ -7762,6 +7863,68 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/runs/{run_id}/ask": {
+      "post": {
+        "description": "Answer a question from this run's stored records only. A model may word the answer; it is\nshown only if every number and name in it is in the records, otherwise the records are shown.\nNo matching record: \"I don't have a record of that in this run.\"",
+        "operationId": "ask_run_api_v1_projects__project_id__runs__run_id__ask_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/runs/{run_id}/checkpoints": {
       "get": {
         "description": "The questions the run asked: a pending one is waiting for an answer.",
@@ -7884,6 +8047,110 @@
           }
         },
         "summary": "Answer Checkpoint",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/debrief": {
+      "get": {
+        "description": "What the run did and found, from its stored records (same checks as /ask).",
+        "operationId": "debrief_run_api_v1_projects__project_id__runs__run_id__debrief_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Debrief Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/explain": {
+      "get": {
+        "description": "Global SHAP importance of the champion (exact TreeSHAP on up to 2,000 validation rows),\nkept when the run ended.",
+        "operationId": "explain_run_api_v1_projects__project_id__runs__run_id__explain_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunExplain"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Explain Run",
         "tags": [
           "runs"
         ]
