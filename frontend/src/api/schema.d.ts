@@ -759,6 +759,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Run
+         * @description A zip with the champion's features as SQL and a dbt project, the model in LightGBM text
+         *     format, the task, the manifest, the report, and score.py, which scores from your database
+         *     read-only without MLPilot. Only for a run that ended and kept its model.
+         */
+        get: operations["export_run_api_v1_projects__project_id__runs__run_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/runs/{run_id}/features": {
         parameters: {
             query?: never;
@@ -5016,6 +5038,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CheckpointRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_run_api_v1_projects__project_id__runs__run_id__export_get: {
+        parameters: {
+            query?: {
+                /** @description SQL dialect of the features; default: the source's, else duckdb */
+                dialect?: ("duckdb" | "postgres") | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The export bundle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
                 };
             };
             /** @description Validation Error */

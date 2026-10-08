@@ -119,6 +119,11 @@ jobs:
       - name: Integration test against the compose service (tables, roles, recency AUC)
         working-directory: backend
         run: pytest -q -s -p no:logging tests/integration/test_demo_db_compose.py
+      # A run on the compose database, exported; score.py reads the same database as the
+      # read-only role through pg8000 and must reproduce the validation PR-AUC within 1e-6.
+      - name: Export bundle on the demo Postgres reproduces the validation metric
+        working-directory: backend
+        run: pytest -q -s -p no:logging tests/integration/test_export_bundle.py -k demo_postgres
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -228,6 +233,47 @@ jobs:
 
   # Measures how many of a real model's feature proposals pass the checks on the demo churn task
   # (#56, target 70 percent). Runs only when an LLM API key secret exists, never blocks.
+  export:
+    # #61: export a run, install the bundle in a clean virtualenv, reproduce the validation
+    # metric with the bundle's own score.py, and compile its dbt project (dbt-duckdb).
+    runs-on: ubuntu-latest
+    env:
+      EXPORT_DIR: ${{ github.workspace }}/export-out
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Run and export the demo task (writes the unzipped bundle and a DuckDB copy of its data)
+        working-directory: backend
+        env:
+          MLPILOT_EXPORT_DIR: ${{ env.EXPORT_DIR }}
+        run: pytest -q -s -p no:logging tests/integration/test_export_bundle.py -k from_the_database
+      - name: Clean virtualenv, install only the bundle's requirements.txt, run score.py --verify
+        run: |
+          bundle=$(ls -d "$EXPORT_DIR"/mlpilot_export_*)
+          python -m venv "$RUNNER_TEMP/bundle-venv"
+          "$RUNNER_TEMP/bundle-venv/bin/pip" install -q -r "$bundle/requirements.txt"
+          MLPILOT_DB_URL="duckdb:///$EXPORT_DIR/data.duckdb" \
+            "$RUNNER_TEMP/bundle-venv/bin/python" "$bundle/score.py" --verify
+      - name: dbt compile on the bundle's dbt project
+        run: |
+          bundle=$(ls -d "$EXPORT_DIR"/mlpilot_export_*)
+          python -m venv "$RUNNER_TEMP/dbt-venv"
+          "$RUNNER_TEMP/dbt-venv/bin/pip" install -q dbt-duckdb
+          cd "$bundle/dbt"
+          "$RUNNER_TEMP/dbt-venv/bin/dbt" compile --profiles-dir . --project-dir . --vars '{cutoff: "2025-01-01"}'
+          test -f target/compiled/mlpilot_features/models/features_all.sql
+
   feature-proposals:
     runs-on: ubuntu-latest
     continue-on-error: true

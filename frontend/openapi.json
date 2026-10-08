@@ -7889,6 +7889,76 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/runs/{run_id}/export": {
+      "get": {
+        "description": "A zip with the champion's features as SQL and a dbt project, the model in LightGBM text\nformat, the task, the manifest, the report, and score.py, which scores from your database\nread-only without MLPilot. Only for a run that ended and kept its model.",
+        "operationId": "export_run_api_v1_projects__project_id__runs__run_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "SQL dialect of the features; default: the source's, else duckdb",
+            "in": "query",
+            "name": "dialect",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "duckdb",
+                    "postgres"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "SQL dialect of the features; default: the source's, else duckdb",
+              "title": "Dialect"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {}
+            },
+            "description": "The export bundle"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/runs/{run_id}/features": {
       "get": {
         "description": "Every feature of the run: the baseline's, and each proposal with its stage or gain.",
