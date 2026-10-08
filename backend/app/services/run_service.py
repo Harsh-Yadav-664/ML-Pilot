@@ -795,6 +795,7 @@ async def _execute(
         artifact_dir(datasets.PROJECTS_DIR, project_id, run_id),
         best_outcome.champion,
         baseline.labels,
+        baseline.temporal.train,
         baseline.temporal.val,
     )
     await _finish(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Query
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from app.api.deps import DBSession, Gateway, ProjectID
 from app.schemas.runs import (
@@ -18,6 +18,8 @@ from app.schemas.runs import (
     RunLoopRequest,
     RunLoopStarted,
     RunNarration,
+    RunScore,
+    RunScoreRequest,
     RunStateRead,
     SettingsMessage,
     SettingsPreview,
@@ -28,6 +30,7 @@ from app.services.bundle_service import BundleService, Dialect
 from app.services.explain_service import ExplainService
 from app.services.report_service import ReportFormat, ReportService
 from app.services.run_service import RunService, SteerService
+from app.services.score_service import ScoreService
 
 router = APIRouter(prefix="/projects/{project_id}/runs", tags=["runs"])
 
@@ -211,3 +214,24 @@ async def debrief_run(
 ) -> RunAnswer:
     """What the run did and found, from its stored records (same checks as /ask)."""
     return await ExplainService(db).ask(project_id, run_id, "debrief", gateway)
+
+
+@router.post("/{run_id}/score", response_model=RunScore)
+async def score_run(
+    run_id: str, project_id: ProjectID, db: DBSession, body: RunScoreRequest | None = None
+) -> RunScore:
+    """Score every entity eligible at a cutoff (default: the last complete day) with the champion,
+    on the task's own connection, read-only. Ranked, with the three features that pushed each
+    score most. Refuses with 409 if a column the features read is gone since training; differences
+    in null rates, means or entity counts are warnings."""
+    req = body or RunScoreRequest()
+    return await ScoreService(db).score(project_id, run_id, req.cutoff, req.top_k)
+
+
+@router.get("/{run_id}/scores/{stamp}.csv", response_class=FileResponse)
+async def download_scores(
+    run_id: str, stamp: str, project_id: ProjectID, db: DBSession
+) -> FileResponse:
+    """The full ranked list of an earlier POST .../score, as CSV."""
+    path = ScoreService(db).csv(project_id, run_id, stamp)
+    return FileResponse(path, media_type="text/csv", filename=f"scores-{run_id[:8]}-{stamp}.csv")

@@ -202,3 +202,22 @@ class RunExplain(BaseModel):
     features: list[dict[str, float | str]] = Field(
         description="feature, mean_abs and share, largest first"
     )
+
+
+class RunScoreRequest(BaseModel):
+    cutoff: datetime | None = Field(
+        None, description="Score the entities eligible at this time; default: the last complete day"
+    )
+    top_k: int = Field(300, ge=1, le=100_000, description="Size of the list the summary describes")
+
+
+class RunScore(BaseModel):
+    cutoff: datetime
+    summary: dict[str, Any]
+    warnings: list[dict[str, str]] = Field(
+        description="Differences from the training data (warn, never block)"
+    )
+    preview: list[dict[str, Any]] = Field(
+        description="The top rows: entity_id, score, rank, decile, reasons"
+    )
+    csv: str = Field(description="Path of the full ranked list, relative to the project")

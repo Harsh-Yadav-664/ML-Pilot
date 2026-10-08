@@ -3504,6 +3504,81 @@
         "title": "RunNarration",
         "type": "object"
       },
+      "RunScore": {
+        "properties": {
+          "csv": {
+            "description": "Path of the full ranked list, relative to the project",
+            "title": "Csv",
+            "type": "string"
+          },
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "preview": {
+            "description": "The top rows: entity_id, score, rank, decile, reasons",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Preview",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          },
+          "warnings": {
+            "description": "Differences from the training data (warn, never block)",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cutoff",
+          "summary",
+          "warnings",
+          "preview",
+          "csv"
+        ],
+        "title": "RunScore",
+        "type": "object"
+      },
+      "RunScoreRequest": {
+        "properties": {
+          "cutoff": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Score the entities eligible at this time; default: the last complete day",
+            "title": "Cutoff"
+          },
+          "top_k": {
+            "default": 300,
+            "description": "Size of the list the summary describes",
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "type": "integer"
+          }
+        },
+        "title": "RunScoreRequest",
+        "type": "object"
+      },
       "RunStartRequest": {
         "properties": {
           "data_version_id": {
@@ -8456,6 +8531,129 @@
           }
         },
         "summary": "Resume Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/score": {
+      "post": {
+        "description": "Score every entity eligible at a cutoff (default: the last complete day) with the champion,\non the task's own connection, read-only. Ranked, with the three features that pushed each\nscore most. Refuses with 409 if a column the features read is gone since training; differences\nin null rates, means or entity counts are warnings.",
+        "operationId": "score_run_api_v1_projects__project_id__runs__run_id__score_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RunScoreRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunScore"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Score Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/scores/{stamp}.csv": {
+      "get": {
+        "description": "The full ranked list of an earlier POST .../score, as CSV.",
+        "operationId": "download_scores_api_v1_projects__project_id__runs__run_id__scores__stamp__csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stamp",
+            "required": true,
+            "schema": {
+              "title": "Stamp",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Scores",
         "tags": [
           "runs"
         ]

@@ -8,6 +8,7 @@ import {
   RunState,
   SplitPreview,
   cancelRun,
+  downloadBundle,
   openReport,
   getCheckpoints,
   getNarration,
@@ -22,6 +23,7 @@ import { FeatureLeaderboard } from '../components/FeatureLeaderboard';
 import { SplitTimeline } from '../components/SplitTimeline';
 import { SteerPanel } from '../components/SteerPanel';
 import { leaveRoute, runIdFromHash } from '../route';
+import { ScoreView } from './ScoreView';
 import { Btn, CardHeader, Eyebrow, Panel, Tag } from '../ui';
 
 const POLL_MS = 1500;
@@ -274,14 +276,19 @@ export function RunView() {
                       Evidence report ({f === 'html' ? 'HTML' : 'Markdown'})
                     </Btn>
                   ))}
-                  {['Export bundle', 'Scoring script'].map((l) => (
-                    <Btn key={l} variant="ghost" size="sm" disabled title="Not available yet">
-                      {l} (not available yet)
-                    </Btn>
-                  ))}
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    data-testid="export-bundle"
+                    disabled={!run.champion_val_metrics}
+                    onClick={() => void downloadBundle(run.id).catch((e) => setError(describeError(e)))}
+                  >
+                    Export bundle (zip)
+                  </Btn>
                 </div>
               </div>
             </Panel>
+            {ended && run.champion_val_metrics && <ScoreView runId={run.id} />}
           </>
         )}
       </main>

@@ -928,6 +928,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}/score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Score Run
+         * @description Score every entity eligible at a cutoff (default: the last complete day) with the champion,
+         *     on the task's own connection, read-only. Ranked, with the three features that pushed each
+         *     score most. Refuses with 409 if a column the features read is gone since training; differences
+         *     in null rates, means or entity counts are warnings.
+         */
+        post: operations["score_run_api_v1_projects__project_id__runs__run_id__score_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/runs/{run_id}/scores/{stamp}.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Scores
+         * @description The full ranked list of an earlier POST .../score, as CSV.
+         */
+        get: operations["download_scores_api_v1_projects__project_id__runs__run_id__scores__stamp__csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/runs/{run_id}/settings": {
         parameters: {
             query?: never;
@@ -2721,6 +2764,51 @@ export interface components {
             items: components["schemas"]["NarrationItem"][];
             /** Run Id */
             run_id: string;
+        };
+        /** RunScore */
+        RunScore: {
+            /**
+             * Csv
+             * @description Path of the full ranked list, relative to the project
+             */
+            csv: string;
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /**
+             * Preview
+             * @description The top rows: entity_id, score, rank, decile, reasons
+             */
+            preview: {
+                [key: string]: unknown;
+            }[];
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            };
+            /**
+             * Warnings
+             * @description Differences from the training data (warn, never block)
+             */
+            warnings: {
+                [key: string]: string;
+            }[];
+        };
+        /** RunScoreRequest */
+        RunScoreRequest: {
+            /**
+             * Cutoff
+             * @description Score the entities eligible at this time; default: the last complete day
+             */
+            cutoff?: string | null;
+            /**
+             * Top K
+             * @description Size of the list the summary describes
+             * @default 300
+             */
+            top_k: number;
         };
         /** RunStartRequest */
         RunStartRequest: {
@@ -5411,6 +5499,73 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RunLoopStarted"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    score_run_api_v1_projects__project_id__runs__run_id__score_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RunScoreRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunScore"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_scores_api_v1_projects__project_id__runs__run_id__scores__stamp__csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                stamp: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
