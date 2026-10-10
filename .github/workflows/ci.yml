@@ -89,6 +89,10 @@ jobs:
       MLPILOT_DEMO_PG_RO_PASSWORD: mlpilot_demo_ro
       MLPILOT_DEMO_PG_RW_USER: mlpilot_rw
       MLPILOT_DEMO_PG_RW_PASSWORD: mlpilot_demo_rw
+      # The container's superuser (POSTGRES_USER of the compose file, same documented demo default):
+      # the pilot-role test needs it to create a role.
+      MLPILOT_DEMO_PG_ADMIN_USER: demo_admin
+      MLPILOT_DEMO_PG_ADMIN_PASSWORD: mlpilot_demo_admin
       MLPILOT_DEMO_PG_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v5
@@ -119,6 +123,15 @@ jobs:
       - name: Integration test against the compose service (tables, roles, recency AUC)
         working-directory: backend
         run: pytest -q -s -p no:logging tests/integration/test_demo_db_compose.py
+      # The pilot kit (#103): docs/pilot/readonly_role.sql run with psql as the container's superuser.
+      # The new role can SELECT its tables only, cannot write, has the statement timeout and the
+      # connection limit; lock and drop end its sessions and remove it.
+      - name: Pilot kit read-only role SQL on the demo Postgres (prints what the role can and cannot do)
+        working-directory: backend
+        run: |
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          psql --version
+          pytest -q -s -p no:logging tests/integration/test_pilot_role.py
       # A run on the compose database, exported; score.py reads the same database as the
       # read-only role through pg8000 and must reproduce the validation PR-AUC within 1e-6.
       - name: Export bundle on the demo Postgres reproduces the validation metric
