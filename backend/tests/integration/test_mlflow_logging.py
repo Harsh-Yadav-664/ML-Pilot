@@ -216,10 +216,11 @@ def test_the_error_text_never_carries_the_credentials_of_the_uri(
     monkeypatch.setattr(mlflow, "MlflowClient", Broken)
     data = MlflowRunData("r" * 36, "t", {}, {}, [], {}, "x: 1")
     result = log_run(data, uri)
-    assert result.status == "failed" and "cannot reach https://mlflow.example.com:5000" in (
-        result.message
+    message = result["message"]
+    assert (
+        result["status"] == "failed" and "cannot reach https://mlflow.example.com:5000" in message
     )
-    assert "s3cret-pw" not in result.message and "alice" not in result.message
+    assert "s3cret-pw" not in message and "alice" not in message
 
 
 def test_redacted_keeps_scheme_host_and_path_only() -> None:

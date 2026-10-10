@@ -94,7 +94,9 @@ def _state(spec: ConnectionSpec) -> tuple[Any, ...]:
             "WHERE table_name LIKE 'mlpilot_guard%' ORDER BY 1"
         )
         columns = admin.run(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = :t", t=TABLE
+            "SELECT column_name FROM information_schema.columns WHERE table_name = :t "
+            "ORDER BY ordinal_position",
+            t=TABLE,
         )
         seq = admin.run("SELECT last_value, is_called FROM mlpilot_guard_seq")
         return (rows, tables, columns, seq)

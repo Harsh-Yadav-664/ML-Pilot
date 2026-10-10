@@ -6,7 +6,7 @@ Set ``MLFLOW_TRACKING_URI`` and, when a run ends, its parameters, metrics, champ
 * ``mlflow`` is an optional extra (``requirements-mlflow.txt``). This module imports without it;
   with the URI set and mlflow missing, :func:`log_run` returns a ``failed`` result that says so.
 * Logging never changes or fails the run: :func:`log_run` never raises, and what it did is
-  returned as a :class:`LogResult` for the caller to record (AGENTS.md rule 8: failures are loud).
+  returned as a dict for the caller to record (AGENTS.md rule 8: failures are loud).
 * A tracking URI can carry a password (``https://user:secret@host``); it is never logged or
   returned, only :func:`redacted`.
 """
@@ -18,9 +18,9 @@ import logging
 import math
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 log = logging.getLogger(__name__)
@@ -58,25 +58,14 @@ class MlflowRunData:
     task_yaml: str
     report_html: str | None = None
     model_file: Path | None = None
-    tags: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class LogResult:
-    status: Literal["logged", "failed"]
-    message: str
-    mlflow_run_id: str | None = None
-    experiment: str | None = None
-    uri: str | None = None  # redacted
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "message": self.message,
-            "mlflow_run_id": self.mlflow_run_id,
-            "experiment": self.experiment,
-            "tracking_uri": self.uri,
-        }
+def failed(uri: str, error: str) -> dict[str, Any]:
+    """The result recorded for a run that could not be logged. Never contains the raw URI."""
+    shown = redacted(uri)
+    message = f"Logging to MLflow ({shown}) failed: {error}".replace(uri, shown)
+    log.warning(message)
+    return {"status": "failed", "message": message, "tracking_uri": shown}
 
 
 def _clean_metrics(metrics: dict[str, float | None]) -> dict[str, float]:
@@ -98,19 +87,17 @@ def _write_files(root: Path, data: MlflowRunData) -> None:
         (root / "report.html").write_text(data.report_html)
 
 
-def log_run(data: MlflowRunData, uri: str) -> LogResult:
+def log_run(data: MlflowRunData, uri: str) -> dict[str, Any]:
     """Log ``data`` to the MLflow server or store at ``uri``. Never raises."""
-    shown = redacted(uri)
     try:
         from mlflow import MlflowClient
         from mlflow.entities import Metric, Param
     except ImportError:
-        message = (
-            f"{ENV_URI} is set ({shown}) but the optional 'mlflow' package is not installed, "
-            "so nothing was logged. Install it with: pip install -r requirements-mlflow.txt"
+        return failed(
+            uri,
+            "the optional 'mlflow' package is not installed, so nothing was logged "
+            "(pip install -r requirements-mlflow.txt)",
         )
-        log.warning(message)
-        return LogResult("failed", message, uri=shown)
     try:
         client = MlflowClient(tracking_uri=uri)
         experiment_name = os.environ.get(ENV_EXPERIMENT) or f"mlpilot/{data.task_name}"
@@ -119,7 +106,7 @@ def log_run(data: MlflowRunData, uri: str) -> LogResult:
         run = client.create_run(
             experiment_id,
             run_name=f"{data.task_name}-{data.run_id[:8]}",
-            tags={RUN_ID_TAG: data.run_id, **data.tags},
+            tags={RUN_ID_TAG: data.run_id},
         )
         mlflow_run_id = run.info.run_id
         status = "FAILED"
@@ -141,14 +128,12 @@ def log_run(data: MlflowRunData, uri: str) -> LogResult:
             status = "FINISHED"
         finally:
             client.set_terminated(mlflow_run_id, status)
-    except Exception as e:  # noqa: BLE001 - any MLflow or network error becomes a failed LogResult; the run is untouched
-        message = f"Logging to MLflow ({shown}) failed: {type(e).__name__}: {e}".replace(uri, shown)
-        log.warning(message)
-        return LogResult("failed", message, uri=shown)
-    return LogResult(
-        "logged",
-        f"Logged to MLflow experiment '{experiment_name}' as run {mlflow_run_id}",
-        mlflow_run_id=mlflow_run_id,
-        experiment=experiment_name,
-        uri=shown,
-    )
+    except Exception as e:  # noqa: BLE001 - any MLflow or network error becomes a failed result; the run is untouched
+        return failed(uri, f"{type(e).__name__}: {e}")
+    return {
+        "status": "logged",
+        "message": f"Logged to MLflow experiment '{experiment_name}' as run {mlflow_run_id}",
+        "mlflow_run_id": mlflow_run_id,
+        "experiment": experiment_name,
+        "tracking_uri": redacted(uri),
+    }

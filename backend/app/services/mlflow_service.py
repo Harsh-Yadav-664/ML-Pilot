@@ -19,7 +19,7 @@ from app.jobs.runner import JobContext
 from app.services.bundle_service import latest_features
 from app.services.report_service import ReportService
 from ml.export.artifacts import MODEL_FILE, artifact_dir
-from ml.export.mlflow_logger import LogResult, MlflowRunData, log_run, redacted, tracking_uri
+from ml.export.mlflow_logger import MlflowRunData, failed, log_run, tracking_uri
 from ml.reports import build_report, to_html
 from ml.tasks.spec import from_yaml
 
@@ -81,7 +81,6 @@ async def collect(project_id: str, run_id: str) -> MlflowRunData:
         task_yaml=records["task"]["yaml"],
         report_html=to_html(build_report(records)),
         model_file=model if model.exists() else None,
-        tags={"mlpilot.status": records["run"]["status"]},
     )
 
 
@@ -95,16 +94,11 @@ async def log_finished_run(ctx: JobContext, project_id: str, run_id: str) -> dic
     if uri is None:
         return None
     try:
-        data = await collect(project_id, run_id)
-        result = await asyncio.to_thread(log_run, data, uri)
-    except Exception as e:  # noqa: BLE001 - nothing about MLflow may fail the run; recorded as failed below
-        shown = redacted(uri)
-        message = f"Logging to MLflow ({shown}) failed: {type(e).__name__}: {e}".replace(uri, shown)
-        log.warning(message)
-        result = LogResult("failed", message, uri=shown)
-    payload = result.as_dict()
+        result = await asyncio.to_thread(log_run, await collect(project_id, run_id), uri)
+    except Exception as e:  # noqa: BLE001 - nothing about MLflow may fail the run; recorded as failed
+        result = failed(uri, f"{type(e).__name__}: {e}")
     try:
-        await ctx.emit("mlflow", **payload)
+        await ctx.emit("mlflow", **result)
     except Exception as e:  # noqa: BLE001 - the event is bookkeeping; the warning above already says what happened
         log.warning("could not record the mlflow event for run %s: %s", run_id, e)
-    return payload
+    return result
