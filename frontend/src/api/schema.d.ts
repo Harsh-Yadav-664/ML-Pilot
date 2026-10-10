@@ -11,7 +11,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Root */
+        /**
+         * Root
+         * @description The web UI when the package ships one (``pip install mlpilot``, the Docker image); a
+         *     source checkout has the Vite dev server for that and answers with the app's name.
+         */
         get: operations["root__get"];
         put?: never;
         post?: never;

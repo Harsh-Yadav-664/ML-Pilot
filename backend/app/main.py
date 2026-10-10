@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.api.v1 import (
     agent,
@@ -31,6 +31,7 @@ from app.core.config import settings
 from app.core.local_token import ENV_TOKEN
 from app.core.logging import get_logger, setup_logging
 from app.core.security import api_token, is_loopback, require_token
+from app.core.ui import ui_index
 from app.db.migrations import upgrade_to_head
 from app.jobs import handlers  # noqa: F401  (registers the job kinds)
 from app.jobs.runner import JobWorker
@@ -112,8 +113,15 @@ async def health() -> JSONResponse:
     return JSONResponse({"status": "ok", "version": settings.APP_VERSION})
 
 
-@app.get("/", tags=["root"])
-async def root() -> JSONResponse:
+@app.get("/", tags=["root"], response_model=None)
+async def root() -> Response:
+    """The web UI when the package ships one (``pip install mlpilot``, the Docker image); a
+    source checkout has the Vite dev server for that and answers with the app's name."""
+    index = ui_index()
+    if index is not None:
+        # The UI file has no secrets (the token comes in the address fragment); no-store keeps a
+        # new version from hiding behind an old cached one.
+        return FileResponse(index, media_type="text/html", headers={"Cache-Control": "no-store"})
     return JSONResponse(
         {"app": settings.APP_NAME, "version": settings.APP_VERSION, "docs": "/docs"}
     )

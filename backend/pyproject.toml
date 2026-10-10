@@ -1,8 +1,49 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "mlpilot-backend"
-version = "0.1.0"
-description = "MLPilot agentic ML experimentation platform — backend"
+name = "mlpilot"
+dynamic = ["version", "dependencies"]
+description = "Ask your relational database a prediction question and get a point-in-time-correct model with an evidence report."
+readme = "README.md"
 requires-python = ">=3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["machine-learning", "automl", "relational-data", "feature-engineering", "sql"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/Harsh-Yadav-664/ML-Pilot"
+Issues = "https://github.com/Harsh-Yadav-664/ML-Pilot/issues"
+
+[project.scripts]
+mlpilot = "mlpilot.cli:app"
+
+# requirements.txt stays the one list of runtime dependencies (CI and the wheel read the same file).
+[tool.setuptools.dynamic]
+version = { attr = "mlpilot.__version__" }
+dependencies = { file = ["requirements.txt"] }
+
+# The code is four top-level packages: app (API and services), ai (LLM gateway), ml (engine) and
+# the thin mlpilot package (CLI, migrations, built UI). Tests, scripts and datasets stay out.
+[tool.setuptools.packages.find]
+include = ["ai*", "app*", "ml*", "mlpilot*"]
+
+# Files that are not Python: prompts, the report template, the Alembic revisions' template and the
+# web UI that scripts/build_ui.py puts in mlpilot/ui/ (a build product, git-ignored).
+[tool.setuptools.package-data]
+"ml.tasks.prompts" = ["*.txt", "*.yaml"]
+"ml.features.prompts" = ["*.txt"]
+"ml.reports.templates" = ["*.j2"]
+"mlpilot.migrations" = ["script.py.mako"]
+"mlpilot.ui" = ["*.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -17,11 +58,13 @@ python_version = "3.13"
 strict = false
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
-files = ["ai", "ml", "app"]
+files = ["ai", "ml", "app", "mlpilot"]
+# mlpilot/migrations is Alembic's folder (env.py is not a package module).
+exclude = ["mlpilot/migrations/"]
 
 # New roadmap modules are fully typed from day one.
 [[tool.mypy.overrides]]
-module = ["ml.tasks.*", "ml.features.*", "ml.data.sql_guard"]
+module = ["ml.tasks.*", "ml.features.*", "ml.data.sql_guard", "mlpilot.cli"]
 disallow_untyped_defs = true
 
 [tool.ruff.lint]

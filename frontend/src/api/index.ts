@@ -40,8 +40,29 @@ export function setDemoMode(on: boolean) {
 
 export const connection = { live: false, demo: readDemo() };
 
-/** The local access token; `python start.py` writes it to frontend/.env.local. */
-const API_TOKEN: string | undefined = import.meta.env.VITE_MLPILOT_TOKEN;
+const TOKEN_KEY = 'mlpilot.token';
+
+/**
+ * The local access token. `python start.py` writes it to frontend/.env.local. The packaged UI (`mlpilot ui`, the
+ * Docker image) is opened as `/#token=<token>`: the fragment is kept out of server logs, and the token is moved
+ * to localStorage and out of the address bar at once.
+ */
+function readToken(): string | undefined {
+  const fromUrl = /^#token=([^&]+)/.exec(window.location.hash);
+  try {
+    if (fromUrl) {
+      localStorage.setItem(TOKEN_KEY, decodeURIComponent(fromUrl[1]));
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    const stored = localStorage.getItem(TOKEN_KEY);
+    if (stored) return stored;
+  } catch {
+    /* storage unavailable: the token from the address is used for this page load only */
+  }
+  return fromUrl ? decodeURIComponent(fromUrl[1]) : import.meta.env.VITE_MLPILOT_TOKEN;
+}
+
+const API_TOKEN: string | undefined = readToken();
 
 const api = axios.create({
   baseURL: API_BASE_URL,

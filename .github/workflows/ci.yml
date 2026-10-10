@@ -203,11 +203,13 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install dependencies and AutoGluon
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
           pip install "autogluon.tabular>=1.2"
       - name: E2E test with AutoGluon (presets=medium_quality, time_limit=60 per fit)
         env:
@@ -427,3 +429,106 @@ jobs:
         with:
           name: playwright-traces
           path: frontend/test-results/
+
+  # The v1 definition of "install it and go" (issue #68): build the wheel, install it in a clean
+  # virtualenv OUTSIDE the repository (so nothing is imported from the checkout), then run the
+  # README's commands against the compose demo Postgres with the offline stub provider. The
+  # wheel is the one `release.yml` publishes, built from this commit (nothing comes from PyPI).
+  pip-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      COMPOSE: docker compose -f docker/demo-db/docker-compose.yml
+      CLEAN_VENV: ${{ runner.temp }}/clean-venv
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: The README's command block is the five documented commands
+        run: python scripts/readme_cli.py --check
+      - name: Build the UI and the wheel
+        run: |
+          python -m pip install --upgrade pip build
+          (cd frontend && npm ci)
+          python scripts/build_ui.py
+          python -m build --wheel --outdir "$RUNNER_TEMP/wheelhouse" backend
+          ls -l "$RUNNER_TEMP/wheelhouse"
+          python -m zipfile -l "$RUNNER_TEMP"/wheelhouse/mlpilot-*.whl | grep -E 'mlpilot/(ui/index.html|migrations/script.py.mako)'
+      - name: docker compose up demo-db
+        run: $COMPOSE up -d --build --wait --wait-timeout 600 demo-db
+      - name: pip install the wheel in a clean virtualenv
+        run: |
+          python -m venv "$CLEAN_VENV"
+          "$CLEAN_VENV/bin/pip" install --quiet "$RUNNER_TEMP"/wheelhouse/mlpilot-*.whl
+          "$CLEAN_VENV/bin/pip" list | grep -i -E '^(mlpilot|typer) '
+      - name: The code that runs is the wheel's, not the checkout's
+        run: |
+          mkdir -p "$RUNNER_TEMP/work" && cd "$RUNNER_TEMP/work"
+          export PATH="$CLEAN_VENV/bin:$PATH"
+          which mlpilot
+          mlpilot --version
+          python -I -c "import app, ml, ai, mlpilot; [print(m.__file__) for m in (app, ml, ai, mlpilot)]" | tee imports.txt
+          if grep -q "$GITHUB_WORKSPACE" imports.txt; then echo "imported from the checkout"; exit 1; fi
+          mlpilot --help
+      # What README.md shows between its cli-steps markers, one line at a time, with `set -x` so the log
+      # shows each command. No API key is set in this job, so the stub provider answers.
+      - name: The README's commands, ending in a report
+        run: |
+          cd "$RUNNER_TEMP/work"
+          export PATH="$CLEAN_VENV/bin:$PATH"
+          test -z "$GROQ_API_KEY$GEMINI_API_KEY$OPENROUTER_API_KEY$OPENAI_API_KEY$ANTHROPIC_API_KEY"
+          python "$GITHUB_WORKSPACE/scripts/readme_cli.py" > readme-commands.sh
+          bash -eux readme-commands.sh
+          test -s report.md
+          for h in Summary Task 'Leakage and safety'; do grep -q "^## $h" report.md; done
+          grep -E '\| PR-AUC \| [0-9]\.[0-9]{4} ' report.md
+          head -c 1500 report.md
+      - name: Schema, export and score on the same run
+        run: |
+          cd "$RUNNER_TEMP/work"
+          export PATH="$CLEAN_VENV/bin:$PATH" DEMO_PW=mlpilot_demo_ro
+          mlpilot schema
+          mlpilot export --out bundle.zip
+          python -m zipfile -l bundle.zip | grep -E 'score.py|model/model.txt|dbt/dbt_project.yml'
+          mlpilot score --out scores.csv
+          test "$(head -1 scores.csv)" = "entity_id,score,rank,decile,reason_1,reason_2,reason_3"
+          test "$(wc -l < scores.csv)" -gt 100
+      - name: Container log (on failure)
+        if: failure()
+        run: $COMPOSE logs --no-color demo-db | tail -100
+
+  # The Docker image (issue #68): API and built UI in one image, published on 127.0.0.1 only.
+  docker-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image
+        run: docker build -f docker/Dockerfile -t mlpilot .
+      - name: Run it as the README says
+        run: docker run -d --name mlpilot -p 127.0.0.1:8000:8000 -v mlpilot-data:/data mlpilot
+      - name: Health, UI page, token and port binding
+        run: |
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8000/health && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8000/health
+          curl -fsS http://127.0.0.1:8000/ > index.html
+          grep -q '<div id="root">' index.html
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/projects/)" = 401
+          token=$(docker logs mlpilot 2>&1 | grep -o 'token=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
+          test -n "$token"
+          if grep -q "$token" index.html; then echo "the page contains the token"; exit 1; fi
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" http://127.0.0.1:8000/api/v1/projects/)" = 200
+          docker port mlpilot 8000/tcp
+          docker port mlpilot 8000/tcp | grep -q '^127.0.0.1:8000$'
+          docker exec mlpilot mlpilot --version
+          test "$(docker exec mlpilot id -u)" != 0
+          docker inspect --format '{{.State.Health.Status}}' mlpilot
+      - name: Container log (on failure)
+        if: failure()
+        run: docker logs mlpilot | tail -100

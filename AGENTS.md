@@ -49,6 +49,7 @@ Branch names: `issue-<number>-<short-slug>` unless your tool assigns one.
 |---|---|
 | `backend/app/` | FastAPI app. All routes are project-scoped under `/api/v1/projects/{id}/...` (`api/v1/`), with request/response models in `schemas/api.py`. After changing them run `python -m scripts.export_openapi` and `npm run gen:api` (CI fails on drift) |
 | `backend/ai/` | LLM gateway: providers, routing (`router.py`), cost tracking. Use `AIGateway.complete` / `complete_structured` |
+| `backend/mlpilot/` | The `mlpilot` command line (`cli.py`: calls the services of `app/` in-process, never its own logic), Alembic migrations (`migrations/`) and the built UI (`ui/`, git-ignored, made by `scripts/build_ui.py`). New CLI commands call a service; they do not copy one |
 | `backend/ml/data/` | Ingestion (CSV, Parquet, SQL), profiling, preparation |
 | `backend/ml/validation/` | Leakage detection, validation strategies |
 | `backend/ml/experiments/` | Planner, executor (safe AST evaluator, training), runner |
