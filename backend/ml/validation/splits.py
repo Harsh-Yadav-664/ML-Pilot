@@ -6,9 +6,10 @@ train and validation rows. The test rows are scored once, at the end.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import numpy as np
 import pandas as pd
@@ -258,6 +259,25 @@ def expanding_folds(
     return out
 
 
+class RowSplit(Protocol):
+    """What the run loop needs of a split, temporal or random: positional row indices.
+
+    ``train`` and ``val`` fit and early-stop the champion, ``test`` is scored once, and
+    ``folds`` (each with ``train`` and ``val`` rows) are the paired folds of the acceptance rule,
+    drawn from ``fold_rows``.
+    """
+
+    train: np.ndarray
+    val: np.ndarray
+    test: np.ndarray
+
+    @property
+    def fold_rows(self) -> np.ndarray: ...
+
+    @property
+    def folds(self) -> Sequence[Any]: ...
+
+
 @dataclass
 class TemporalFold:
     train: np.ndarray
@@ -281,6 +301,11 @@ class TemporalSplit:
     max_train_window_end: pd.Timestamp
     max_val_window_end: pd.Timestamp | None
     entity_overlap: dict[str, int] | None = None
+
+    @property
+    def fold_rows(self) -> np.ndarray:
+        """The rows the acceptance folds are drawn from: the training rows."""
+        return self.train
 
     def summary(self) -> dict[str, Any]:
         return {

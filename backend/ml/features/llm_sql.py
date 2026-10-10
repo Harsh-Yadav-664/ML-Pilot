@@ -69,17 +69,26 @@ class Proposal(BaseModel):
     expected_direction: Literal["increase", "decrease", "unknown"] = "unknown"
     ir: FeatureIR | None = None
     sql: str | None = None
+    # a formula over the columns of one table, for single-table tasks (ml/features/formula_proposer.py);
+    # a relational task never offers it to the model and refuses it if the model sends one
+    formula: str | None = None
     tables_used: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _one_of_ir_and_sql(self) -> Proposal:
-        if (self.ir is None) == (self.sql is None):
+    def _one_of_ir_sql_and_formula(self) -> Proposal:
+        if self.formula is not None:
+            if self.ir is not None or self.sql is not None:
+                raise ValueError("give a formula alone, without 'ir' or 'sql'")
+        elif (self.ir is None) == (self.sql is None):
             raise ValueError("give exactly one of 'ir' and 'sql'")
         return self
 
 
 def answer_schema() -> dict[str, Any]:
-    return Proposal.model_json_schema()
+    """The JSON Schema of a relational answer: a spec ('ir') or, if enabled, free SQL."""
+    schema = Proposal.model_json_schema()
+    schema["properties"].pop("formula", None)
+    return schema
 
 
 @dataclass
@@ -226,6 +235,8 @@ class FeatureProposer:
             )
         if p.name in self.names:
             return "schema", [f"name: {p.name!r} is already used by another feature"], None
+        if p.formula is not None:
+            return "schema", ["formula: not available for a relational task; give an 'ir'"], None
         if p.ir is not None:
             if p.ir.entity_table != self.entity:
                 return (

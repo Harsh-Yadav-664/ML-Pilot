@@ -2211,7 +2211,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "step" | "proposal" | "guard" | "cv_result" | "decision" | "checkpoint" | "log";
+            type: "step" | "proposal" | "guard" | "cv_result" | "decision" | "checkpoint" | "log" | "baseline" | "resume" | "feature_proposal" | "feature_decision" | "budget_stop" | "checkpoint_answered" | "suggestion" | "settings_changed" | "run_finished";
         };
         /**
          * JobRead

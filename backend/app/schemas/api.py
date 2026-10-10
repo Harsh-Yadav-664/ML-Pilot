@@ -165,7 +165,25 @@ class JobEventRead(BaseModel):
 
     seq: int
     ts: datetime
-    type: Literal["step", "proposal", "guard", "cv_result", "decision", "checkpoint", "log"]
+    # every kind a job emits: the steps and the old agent's events, then those of the run loop
+    type: Literal[
+        "step",
+        "proposal",
+        "guard",
+        "cv_result",
+        "decision",
+        "checkpoint",
+        "log",
+        "baseline",
+        "resume",
+        "feature_proposal",
+        "feature_decision",
+        "budget_stop",
+        "checkpoint_answered",
+        "suggestion",
+        "settings_changed",
+        "run_finished",
+    ]
     payload: dict[str, Any]
 
 
