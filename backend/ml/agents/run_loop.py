@@ -1,4 +1,8 @@
-"""The loop of a relational run (#58): baseline, propose, check, execute, accept by gain, repeat.
+"""The one loop of a run (#58, #151): baseline, propose, check, execute, accept by gain, repeat.
+
+It runs relational tasks (temporal folds, SQL features) and single-table tasks (random folds,
+formula features, ``ml/features/table_baseline.py``) alike; only the baseline, the proposer and
+the kind of folds differ. The text below describes the relational case.
 
     champion = the baseline's features and model                       (#55)
     each round:
@@ -23,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol
 
@@ -30,7 +35,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from ml.agents.decision_agent import LoopHooks, NoHooks
+from ml.agents.hooks import LoopHooks, NoHooks
 from ml.experiments.acceptance import GainResult
 from ml.features.baseline import (
     LGBM_PARAMS,
@@ -41,9 +46,11 @@ from ml.features.baseline import (
 from ml.features.engine import Budget, BudgetTracker
 from ml.features.gain import FoldScorer, compare
 from ml.features.ir import describe
-from ml.features.llm_sql import FeatureProposer, ProposalRecord
+from ml.features.llm_sql import ProposalRecord
+from ml.metrics.calibration import choose_threshold
+from ml.metrics.classification import compute_classification_metrics
 from ml.metrics.ranking import ranking_metrics
-from ml.validation.splits import SplitError
+from ml.validation.splits import RowSplit, SplitError
 
 RunStatus = Literal["completed", "stopped", "cancelled"]
 
@@ -118,6 +125,17 @@ class Answer:
     how: Literal["reply", "timeout"]  # a timeout continues with the recommended action
 
 
+class Proposer(Protocol):
+    """What the loop needs of whatever proposes features: ``FeatureProposer`` (SQL features of a
+    relational task) or ``FormulaProposer`` (formulas over the columns of one table)."""
+
+    async def propose(self, remaining: int = 1, hints: Sequence[str] = ()) -> ProposalRecord: ...
+
+    def adopt(self, record: ProposalRecord, importance: float = 0.0) -> None: ...
+
+    def reject_for_gain(self, record: ProposalRecord, reason: str, stage: str = "gain") -> None: ...
+
+
 class Control(Protocol):
     """What a person can do to a running loop: change its settings, suggest, approve or veto.
 
@@ -143,12 +161,28 @@ class NoSink:
         return None
 
 
-def score_test(model: Any, features: pd.DataFrame, y: np.ndarray) -> dict[str, float]:
-    """Score the test rows. The one place the test rows are scored; called once per run."""
+def score_test(
+    model: Any, features: pd.DataFrame, y: np.ndarray, *, threshold: float | None = None
+) -> dict[str, float]:
+    """Score the test rows. The one place the test rows are scored; called once per run.
+
+    With a ``threshold`` (chosen on the validation rows, never here) the same predictions are
+    also reported as class decisions: accuracy, precision, recall, F1 and ROC-AUC.
+    """
     prob = np.asarray(model.predict_proba(features))[:, 1]
-    metrics = ranking_metrics(y, prob, absolute_k=(100,))
+    metrics: dict[str, float | None] = dict(ranking_metrics(y, prob, absolute_k=(100,)))
     metrics["n_test"] = float(len(y))
-    return {k: float(v) for k, v in metrics.items()}
+    if threshold is not None:
+        metrics.update(classification_at(y, prob, threshold))
+    return {k: float(v) for k, v in metrics.items() if v is not None}
+
+
+def classification_at(y: np.ndarray, prob: np.ndarray, threshold: float) -> dict[str, float | None]:
+    """Class decisions at a threshold (accuracy, precision, recall, F1) and ROC-AUC."""
+    both = np.column_stack([1.0 - prob, prob])
+    out = compute_classification_metrics(y, (prob >= threshold).astype(int), both)
+    out["threshold"] = float(threshold)
+    return out
 
 
 def start_state(baseline: BaselineResult, config: RunConfig) -> tuple[LoopState, FoldScorer]:
@@ -162,7 +196,11 @@ def start_state(baseline: BaselineResult, config: RunConfig) -> tuple[LoopState,
         raise BaselineError("the baseline result must carry its frame, labels, model and split")
     y = baseline.labels["label"].astype(int).to_numpy()
     scorer = FoldScorer(
-        y, baseline.temporal.folds, train_rows=baseline.temporal.train, seed=config.seed
+        y,
+        baseline.temporal.folds,
+        train_rows=baseline.temporal.fold_rows,
+        seed=config.seed,
+        kind=baseline.fold_kind,
     )
     champion = Champion(
         names=[str(c) for c in baseline.frame.columns],
@@ -178,7 +216,7 @@ def start_state(baseline: BaselineResult, config: RunConfig) -> tuple[LoopState,
 
 async def run_loop(
     baseline: BaselineResult,
-    proposer: FeatureProposer,
+    proposer: Proposer,
     config: RunConfig,
     *,
     hooks: LoopHooks | None = None,
@@ -254,9 +292,9 @@ async def _decide(
     rnd: Round,
     state: LoopState,
     scorer: FoldScorer,
-    proposer: FeatureProposer,
+    proposer: Proposer,
     y: np.ndarray,
-    split: Any,
+    split: RowSplit,
     config: RunConfig,
 ) -> None:
     """Score champion + the new feature on the temporal folds and accept it by the rule."""
@@ -266,11 +304,11 @@ async def _decide(
     champion = state.champion
     candidate_frame = champion.frame.assign(**{name: record.values.to_numpy()})
     candidate_scores = await asyncio.to_thread(scorer.score, candidate_frame)
-    rnd.gain = compare(champion.fold_scores, candidate_scores, config.rule)
+    rnd.gain = compare(champion.fold_scores, candidate_scores, config.rule, kind=scorer.kind)
     if not rnd.gain.accepted:
         proposer.reject_for_gain(
             record,
-            f"no gain: {rnd.gain.mean_gain:+.4f} PR-AUC on the temporal folds, "
+            f"no gain: {rnd.gain.mean_gain:+.4f} PR-AUC on the {scorer.kind} folds, "
             f"needs more than {rnd.gain.margin:.4f}",
         )
         return
@@ -346,7 +384,7 @@ async def _finish(
     error: str | None = None
     if score:
         await hooks.step("Refitting on train + validation and scoring the test rows once", 0.95)
-        test, error = await _score_once(champion, y, split, config.seed)
+        test, error = await _score_once(champion, y, split, config.seed, baseline.report_threshold)
     await hooks.emit("run_finished", status=status, stop_reason=stop_reason, test=test, error=error)
     return RunOutcome(
         status, stop_reason, state.rounds, champion, test, error, state.tracker.used()
@@ -354,10 +392,13 @@ async def _finish(
 
 
 async def _score_once(
-    champion: Champion, y: np.ndarray, split: Any, seed: int
+    champion: Champion, y: np.ndarray, split: RowSplit, seed: int, with_threshold: bool = False
 ) -> tuple[dict[str, float] | None, str | None]:
     try:
-        return await asyncio.to_thread(_refit_and_score_test, champion, y, split, seed), None
+        scored = await asyncio.to_thread(
+            _refit_and_score_test, champion, y, split, seed, with_threshold
+        )
+        return scored, None
     except (SplitError, ValueError) as e:  # for example a test period with one class only
         return None, f"the test rows were not scored: {e}"
 
@@ -370,12 +411,14 @@ async def score_chosen(baseline: BaselineResult, outcome: RunOutcome, seed: int)
     """
     assert baseline.labels is not None and baseline.temporal is not None
     y = baseline.labels["label"].astype(int).to_numpy()
-    test, error = await _score_once(outcome.champion, y, baseline.temporal, seed)
+    test, error = await _score_once(
+        outcome.champion, y, baseline.temporal, seed, baseline.report_threshold
+    )
     return replace(outcome, test=test, test_error=error)
 
 
 def _refit_and_score_test(
-    champion: Champion, y: np.ndarray, split: Any, seed: int
+    champion: Champion, y: np.ndarray, split: RowSplit, seed: int, with_threshold: bool = False
 ) -> dict[str, float]:
     rows = np.concatenate([split.train, split.val])
     if len(set(y[split.test])) < 2:
@@ -385,4 +428,14 @@ def _refit_and_score_test(
         **params, random_state=seed, deterministic=True, force_row_wise=True, verbose=-1
     )
     model.fit(champion.frame.iloc[rows], y[rows])
-    return score_test(model, champion.frame.iloc[split.test], y[split.test])
+    extra: dict[str, float] = {}
+    if with_threshold:
+        # chosen on the validation rows by the model that did not see them, as for any decision
+        extra["threshold"] = validation_threshold(champion, y, split)
+    return score_test(model, champion.frame.iloc[split.test], y[split.test], **extra)
+
+
+def validation_threshold(champion: Champion, y: np.ndarray, split: RowSplit) -> float:
+    """The probability cut-off with the best F1 on the validation rows (never the test rows)."""
+    prob = np.asarray(champion.model.predict_proba(champion.frame.iloc[split.val]))[:, 1]
+    return float(choose_threshold(y[split.val], prob)["value"])

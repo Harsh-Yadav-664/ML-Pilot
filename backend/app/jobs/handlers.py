@@ -8,14 +8,12 @@ from __future__ import annotations
 from typing import Any
 
 from ai.gateway import AIGateway
-from app.core.config import settings
 from app.db.models import Experiment, Job
 from app.jobs.runner import JobContext, handler, sessions
 from app.schemas.snapshot import SnapshotRequest
 from app.services import llm_gateway
 from app.services.experiment_service import ExperimentService
 from app.services.snapshot_service import SnapshotService
-from ml.agents.decision_agent import DecisionAgent
 
 
 def make_gateway() -> AIGateway:
@@ -42,15 +40,10 @@ async def run_experiment(ctx: JobContext, params: dict[str, Any]) -> dict[str, A
 
 @handler("auto_optimize")
 async def run_auto_optimize(ctx: JobContext, params: dict[str, Any]) -> dict[str, Any]:
-    """The agent loop: baseline, then one hypothesis at a time, each decided by the rule."""
-    agent = DecisionAgent(make_gateway(), settings)
-    return await agent.run_optimization_loop(
-        params["dataset_path"],
-        params["target_column"],
-        params["n_hypotheses"],
-        project_id=params["project_id"],
-        hooks=ctx,
-    )
+    """The agent loop for a single table: the one run loop, with formulas as the features."""
+    from app.services import table_run_service
+
+    return await table_run_service.execute(ctx, params, make_gateway)
 
 
 @handler("relational_run")

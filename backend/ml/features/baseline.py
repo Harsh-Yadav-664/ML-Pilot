@@ -35,7 +35,12 @@ from ml.tasks.pit_guard import CUTOFF, ENTITY
 from ml.tasks.pit_verify import run_feature
 from ml.tasks.spec import TaskSpec
 from ml.validation import leakage
-from ml.validation.splits import TemporalSplit, TemporalSplitPlan, make_temporal_splits
+from ml.validation.splits import (
+    RowSplit,
+    TemporalSplit,
+    TemporalSplitPlan,
+    make_temporal_splits,
+)
 
 NEAR_CONSTANT_SHARE = 0.99
 DUPLICATE_CORRELATION = 0.99
@@ -92,7 +97,12 @@ class BaselineResult:
     labels: pd.DataFrame | None = field(repr=False, default=None)  # entity_id, cutoff_time, label
     train: np.ndarray | None = field(repr=False, default=None)  # positional training rows
     graph: SchemaGraph | None = field(repr=False, default=None)  # keyed by bare table name
-    temporal: TemporalSplit | None = field(repr=False, default=None)  # the split, as row indices
+    temporal: RowSplit | None = field(repr=False, default=None)  # the split, as row indices
+    # how the loop validates: "temporal" folds for a relational task, "random" folds for a
+    # single table; and whether the test rows are also reported at a decision threshold that was
+    # chosen on the validation rows (single-table tasks show accuracy, precision, recall, F1)
+    fold_kind: str = "temporal"
+    report_threshold: bool = False
 
     def dropped_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}

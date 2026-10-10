@@ -11,17 +11,16 @@ once, at the end of a run, so neither takes part in a decision.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Protocol
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score
 
-from ml.experiments.acceptance import DEFAULT_RULE, GainResult
-from ml.validation.splits import SplitError, TemporalFold
+from ml.experiments.acceptance import GainResult, decide
+from ml.validation.splits import SplitError
 
 # Smaller and faster than the final model: it is fitted twice per fold for every candidate.
 FOLD_PARAMS: dict[str, Any] = {
@@ -35,20 +34,32 @@ FOLD_PARAMS: dict[str, Any] = {
     "reg_lambda": 1.0,
 }
 METRIC = "pr_auc"
-RULE_TEXT = "accept if mean paired gain > max(min_gain, std_multiplier * std of paired gains)"
+
+
+class Fold(Protocol):
+    """Rows to fit on and rows to score on: a temporal fold or a random one (single table)."""
+
+    train: np.ndarray
+    val: np.ndarray
 
 
 class FoldScorer:
-    """Scores feature sets on the folds of one split; the same folds every time."""
+    """Scores feature sets on the folds of one split; the same folds every time.
+
+    ``kind`` says what the folds are, and is recorded with every decision: ``temporal`` for the
+    expanding-window folds of a relational task, ``random`` for the repeated stratified folds of
+    a single-table task (which has no event time to order by).
+    """
 
     def __init__(
         self,
         y: np.ndarray,
-        folds: Sequence[TemporalFold],
+        folds: Sequence[Fold],
         *,
         train_rows: np.ndarray,
         seed: int = 42,
         params: dict[str, Any] | None = None,
+        kind: str = "temporal",
     ) -> None:
         if not folds:
             raise SplitError("acceptance needs at least one temporal fold")
@@ -60,6 +71,7 @@ class FoldScorer:
         self.folds = list(folds)
         self.seed = seed
         self.params = {**FOLD_PARAMS, **(params or {})}
+        self.kind = kind
         self.fits = 0
 
     def score(self, frame: pd.DataFrame) -> list[float]:
@@ -68,9 +80,11 @@ class FoldScorer:
         for f in self.folds:
             y_train, y_val = self.y[f.train], self.y[f.val]
             if len(set(y_train)) < 2 or len(set(y_val)) < 2:
+                start = getattr(f, "val_start", None)
+                where = f"validation from {start:%Y-%m-%d}" if start is not None else "random fold"
                 raise SplitError(
-                    f"a fold has only one class (validation from {f.val_start:%Y-%m-%d}): "
-                    "use fewer folds or more cutoffs"
+                    f"a fold has only one class ({where}): use fewer folds or more "
+                    f"{'cutoffs' if start is not None else 'rows'}"
                 )
             model = lgb.LGBMClassifier(
                 **self.params,
@@ -90,26 +104,15 @@ def compare(
     base_scores: Sequence[float],
     candidate_scores: Sequence[float],
     rule: dict[str, Any] | None = None,
+    kind: str = "temporal",
 ) -> GainResult:
-    """Apply the paired rule to scores of two feature sets on the same folds."""
-    rule = {**DEFAULT_RULE, **(rule or {})}
-    rule.pop("n_splits", None)  # the folds are the temporal ones, not repeated K-fold
+    """Apply the paired rule (``ml.experiments.acceptance.decide``) to scores of two feature
+    sets on the same folds."""
+    rule = dict(rule or {})
+    rule.pop("n_splits", None)  # the folds are the scorer's, not repeated K-fold
     rule.pop("n_repeats", None)
-    if len(base_scores) != len(candidate_scores):
-        raise ValueError("both feature sets need a score on every fold")
-    diffs = np.array(candidate_scores) - np.array(base_scores)
-    mean_gain = float(diffs.mean())
-    std_gain = float(diffs.std(ddof=1)) if len(diffs) > 1 else 0.0
-    half_width = 1.96 * std_gain / math.sqrt(len(diffs)) if len(diffs) > 1 else 0.0
-    margin = max(rule["min_gain"], rule["std_multiplier"] * std_gain)
-    return GainResult(
-        metric=METRIC,
-        base_scores=list(base_scores),
-        candidate_scores=list(candidate_scores),
-        mean_gain=mean_gain,
-        std_gain=std_gain,
-        ci95=(mean_gain - half_width, mean_gain + half_width),
-        margin=margin,
-        accepted=mean_gain > margin,
-        rule={**rule, "description": RULE_TEXT, "folds": len(diffs), "validation": "temporal"},
-    )
+    result = decide(base_scores, candidate_scores, rule, metric=METRIC)
+    for key in ("n_splits", "n_repeats"):
+        result.rule.pop(key, None)
+    result.rule.update(folds=len(base_scores), validation=kind)
+    return result

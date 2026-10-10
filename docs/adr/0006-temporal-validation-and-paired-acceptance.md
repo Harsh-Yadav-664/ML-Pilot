@@ -1,6 +1,6 @@
 # 0006. Time-based validation and a paired acceptance rule
 
-**Status:** Accepted. The acceptance rule and the train/validation/test discipline are implemented for single-table tasks (random splits). Time-based splits for relational tasks are implemented (#52) and the relational run loop (#58) accepts features by the same paired rule on time-ordered folds of the training rows (`ml/features/gain.py`).
+**Status:** Accepted. The acceptance rule and the train/validation/test discipline are implemented for single-table tasks (random splits). Time-based splits for relational tasks are implemented (#52) and the run loop (#58) accepts features by the same paired rule on time-ordered folds of the training rows (`ml/features/gain.py`). Since #151 single-table tasks run on that same loop, with repeated stratified folds of the train and validation rows (never the test rows) in place of the temporal folds: one acceptance function (`ml/experiments/acceptance.py::decide`) and one scoring of the test rows (`run_loop.score_test`).
 
 ## Context
 
@@ -10,7 +10,7 @@ Two ways a tool can fool itself: tuning on the data it reports, and keeping a fe
 
 - **One split contract** (`ml/validation/splits.py`): tuning and every decision use training and validation rows only; the test rows are scored once, at the end. Small data uses inner K-fold CV instead of a holdout.
 - **Acceptance by paired comparison.** A candidate feature is kept only if its mean gain over the current feature set, measured on the same repeated K-fold splits of the training rows, beats a margin tied to the noise (`ml/experiments/acceptance.py`). The test rows never take part.
-- **Relational tasks split by cutoff date**, never at random (#52). Today's single-table tasks still use random stratified splits, so their numbers say nothing about performance on future data.
+- **Relational tasks split by cutoff date**, never at random (#52). Single-table tasks still use random stratified splits (they have no event time), so their numbers say nothing about performance on future data.
 - The threshold and any probability calibration are fitted on validation predictions and applied unchanged to test.
 
 ## Consequences
