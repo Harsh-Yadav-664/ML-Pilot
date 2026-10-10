@@ -5527,6 +5527,7 @@
   "paths": {
     "/": {
       "get": {
+        "description": "The web UI when the package ships one (``pip install mlpilot``, the Docker image); a\nsource checkout has the Vite dev server for that and answers with the app's name.",
         "operationId": "root__get",
         "responses": {
           "200": {

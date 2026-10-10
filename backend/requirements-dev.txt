@@ -1,4 +1,8 @@
-# Lint and type-check tools, pinned so CI and local runs agree (rule set changes between ruff releases).
+# Test, lint and type-check tools. Ruff and mypy are pinned so CI and local runs agree (the rule
+# set changes between ruff releases). pytest is here, not in requirements.txt, so the wheel
+# (`pip install mlpilot`) does not depend on it.
 -r requirements.txt
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
 ruff==0.16.10
 mypy==2.4.0

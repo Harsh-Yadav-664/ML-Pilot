@@ -172,7 +172,9 @@ erDiagram
 | `backend/ml/metrics/` | Classification, ranking and calibration metrics |
 | `backend/ml/features/` | Safe formula evaluator |
 | `backend/ml/agents/` | The experiment loop and the cleaning agent |
+| `backend/mlpilot/` | The thin package `pip install mlpilot` is named after: the `mlpilot` command line (`cli.py`, calls the services of `app/` in-process), the Alembic migrations and the built web UI (`ui/`, a build product) ([ADR 0012](adr/0012-packaging-cli-and-docker.md)) |
 | `frontend/` | The web UI |
+| `docker/Dockerfile`, `docker/docker-compose.yml` | One image (API and built UI) and a compose file with the demo database |
 | `docker/demo-db/` | Synthetic e-commerce demo database: seeded generator, schema, read-only and write roles, SQLite and DuckDB export |
 | `docs/adr/` | Decision records |
 

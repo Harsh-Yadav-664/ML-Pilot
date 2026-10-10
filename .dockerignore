@@ -1,0 +1,25 @@
+# The Docker build context is the repository root (docker/Dockerfile copies frontend/ and backend/).
+.git
+.github
+**/node_modules
+**/__pycache__
+**/.venv
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/build
+**/*.egg-info
+frontend/dist
+frontend/.env.local
+frontend/test-results*
+frontend/playwright-report*
+# The UI is rebuilt inside the image; local state and secrets stay out of the image.
+backend/mlpilot/ui
+backend/.env
+backend/data
+backend/uploads
+backend/*.db
+*.db
+*.sqlite3
+.env
+.env.*

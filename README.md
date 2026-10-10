@@ -101,6 +101,8 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 | The UI has a "Connect a database" page (Postgres, SQLite, DuckDB): save and test a connection, see the tables as a graph with declared, inferred and added relationships, open a table for its columns and aggregate statistics (no row values are shown), and change a table's event-time column or mark it static. A login that can write gets a red warning with the SQL for a read-only role; a wrong password is reported without echoing it. Nothing is trained from a connected database yet | `frontend/e2e/connect.spec.ts` (Playwright against the demo Postgres in the CI `demo-db` job); screenshot of the warning: [`docs/img/connect-write-warning.png`](docs/img/connect-write-warning.png) |
 | A seeded demo e-commerce database (nine tables, about 750,000 rows, two years) comes as a Postgres image (`docker compose -f docker/demo-db/docker-compose.yml up demo-db`) and as SQLite and DuckDB files. It has a read-only role and a write-capable one, planted leaks for the leakage checks, and real signal: the same seed gives identical table checksums, and a plain days-since-last-order feature reaches AUC above 0.65 for "no order in the next 30 days" | `test_demo_db.py`, `test_demo_db_postgres.py`, CI `demo-db` job (psql as the read-only role, an INSERT fails, `test_demo_db_compose.py`); see `docker/demo-db/README.md` |
 | A pilot kit for a customer's first call ([`docs/pilot/`](docs/pilot/)): a script that creates a read-only Postgres login role (`SELECT` on the tables you list and no others; new sessions read-only with a statement timeout and a connection limit; commands to lock or drop the role), a one-page data-handling note in which each statement links to its test or says "not tested", a checklist and a cover-note template for the evidence report. The script is run with psql on the demo Postgres in CI: the role reads its listed tables and no others, cannot write (with and without the read-only default), is cancelled at the timeout, is refused past its connection limit, is reported `can_write: false` by MLPilot's own check, and is removed by the drop command. Not tested: the MySQL notes (MLPilot does not connect to MySQL), column-level grants, and the network side (firewall, `pg_hba.conf`, TLS) | `test_pilot_role.py` (CI job `demo-db`) |
+| A command line, `mlpilot`, that calls the API's services directly: connect, schema, draft and confirm a task, run, report, export, score, and `ui`. `pip install` of the built wheel in a clean virtualenv outside the repository, then the five documented commands on the demo Postgres with the stub provider, end in a report | CI job `pip-install` (runs the README block, then export and score); `test_cli.py` runs the same commands on a SQLite demo database |
+| One Docker image holds the API and the built UI, listens only where you publish it, and refuses API calls without the token | CI job `docker-image` |
 | Every completed experiment stores a run manifest (data version, split, seed, engine and parameters, features, LLM calls, metrics) that contains no secrets, and replaying it without the LLM reproduces the validation and test metrics to 1e-9 | `test_rerun.py`; format in `docs/experiment_schema.md` |
 
 ### Not working yet, or planned
@@ -110,7 +112,35 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 - **Real LLM providers:** the gateway registers a real provider when you set its key (see `backend/.env.example`), but CI never calls a real provider, so that path is untested.
 - **Demo mode** in the UI shows sample charts and numbers. It is switched on explicitly and labelled on screen. Everything outside Demo mode comes from the backend or says "not available".
 
-## Quick start
+## Install and use from the command line
+
+You need Python 3.13 and a Postgres, SQLite or DuckDB database you can read. To try it on the demo database first: `docker compose -f docker/demo-db/docker-compose.yml up -d --wait demo-db`.
+
+```bash
+pip install mlpilot
+```
+
+The five commands below take the demo database from a connection to an evidence report, with the offline stub LLM (no API key, no network). The block is the one CI runs, line by line, in a clean virtualenv that holds only the installed wheel (job `pip-install`, which installs the wheel built from the same commit, not a published one):
+
+<!-- cli-steps:begin -->
+```bash
+export DEMO_PW=mlpilot_demo_ro
+mlpilot connect --name demo --dialect postgres --host 127.0.0.1 --port 5433 --database demo --user mlpilot_ro --password-env DEMO_PW
+mlpilot task draft --question "Which customers will stop ordering in the next 30 days?"
+mlpilot task confirm
+mlpilot run
+mlpilot report --out report.md
+```
+<!-- cli-steps:end -->
+
+- `connect` reads the password from the environment variable you name; it is never a command-line argument and is never stored. `task draft` saves the drafted task as a draft, `task confirm` shows the label counts per cutoff and then confirms it, `run` takes a read-only snapshot, builds the baseline and (with an LLM key) tries features one at a time, and `report` writes the evidence report (`--format html` for one self-contained page).
+- Without an API key the run is the automatic baseline only, and it says so (`no_llm`). With a key in the environment or in a `.env` file in the folder you run from (see `backend/.env.example`) the model proposes features; CI never calls a real model.
+- Also: `mlpilot schema` (tables, time columns, relationships), `mlpilot export` (the zip with SQL, dbt, the model and `score.py`), `mlpilot score` (rank the entities eligible now, with reasons, to a CSV) and `mlpilot ui` (the API and the web UI on http://127.0.0.1:8000; it prints the address with the access token after the `#`). `mlpilot --help` lists the options.
+- The commands use the same services as the API and the same database the web UI reads: a run started here is visible in `mlpilot ui`. State lives in `~/.mlpilot` (`MLPILOT_HOME` changes it; `DATABASE_URL` points the metadata database elsewhere).
+- Docker: `docker compose -f docker/docker-compose.yml up --build` starts MLPilot (API and UI) and the demo database; the log prints the address to open. The image alone: `docker build -f docker/Dockerfile -t mlpilot .` then `docker run --rm -p 127.0.0.1:8000:8000 -v mlpilot-data:/data mlpilot`. The server listens on all interfaces inside the container so that Docker can forward the port: always publish it on `127.0.0.1` as shown. CI job `docker-image` builds the image, starts it that way and checks `/health`, the UI page and that the API refuses a request without the token.
+- Not covered: `pip install mlpilot` from PyPI works only after the first tagged release has been published by the `release` workflow (nothing has been published yet, and the workflow has never run); the PyPI project name is not reserved. The old CSV sample ("Start with sample data" in the UI) is not shipped in the wheel. The CI job runs on Linux with Python 3.13 only.
+
+## Quick start from a clone
 
 You need Python 3.13 and Node.js 20.19 or newer (Vite 7 requires it). From the repository root:
 
