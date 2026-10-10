@@ -126,6 +126,8 @@ def _software() -> dict[str, Any]:
 
 
 def _git_sha() -> str | None:
+    if not (REPO_DIR / "backend" / "ml").is_dir():
+        return None  # installed from a wheel: whatever repository the venv sits in is not ours
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],

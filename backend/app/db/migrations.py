@@ -23,11 +23,16 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
+# The revisions ship inside the ``mlpilot`` package, so an installed wheel has them too.
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "mlpilot" / "migrations"
 INITIAL_REVISION = "0001"
 
 
 def alembic_config(database_url: str | None = None) -> Config:
-    cfg = Config(str(ALEMBIC_INI))
+    # alembic.ini only exists in a source checkout (for the `alembic` command); the app needs
+    # nothing from it but the script location.
+    cfg = Config(str(ALEMBIC_INI)) if ALEMBIC_INI.exists() else Config()
+    cfg.set_main_option("script_location", str(MIGRATIONS_DIR))
     cfg.set_main_option("sqlalchemy.url", database_url or settings.DATABASE_URL)
     cfg.attributes["skip_logging_config"] = True  # keep the app's logging setup
     return cfg

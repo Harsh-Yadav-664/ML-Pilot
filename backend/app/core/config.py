@@ -7,6 +7,8 @@ from typing import Annotated, Any
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from mlpilot import __version__
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -18,7 +20,7 @@ class Settings(BaseSettings):
 
     # ── App ──────────────────────────────────────────────────────────
     APP_NAME: str = "MLPilot"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = __version__
     DEBUG: bool = False
     SECRET_KEY: str = "dev-secret-key-change-in-production"
     LOG_LEVEL: str = "INFO"
