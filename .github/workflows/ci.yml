@@ -325,6 +325,59 @@ jobs:
       - run: npx tsc --noEmit
 
   # Real backend (stub LLM, throwaway DB) + real UI in Chromium: sample data -> baseline.
+  # The v1 definition of done (issue #102): one Playwright spec walks the product from "connect"
+  # to a ranked list on the compose demo database (UI, python start.py, stub LLM plus a scripted
+  # provider that replays four feature proposals). Trace and video are kept for every run.
+  v1-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      COMPOSE: docker compose -f docker/demo-db/docker-compose.yml
+      MLPILOT_E2E_PG_HOST: 127.0.0.1
+      MLPILOT_E2E_PG_PORT: "5433"
+      MLPILOT_E2E_PG_DB: demo
+      # The documented demo defaults of docker/demo-db/docker-compose.yml (fake data, localhost only).
+      MLPILOT_E2E_PG_RO_USER: mlpilot_ro
+      MLPILOT_E2E_PG_RO_PASSWORD: mlpilot_demo_ro
+      PYTHON: python
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: The README's v1 steps are the test's steps
+        run: python scripts/works_today.py --check
+      - name: docker compose up demo-db
+        run: $COMPOSE up -d --build --wait --wait-timeout 600 demo-db
+      - name: Install backend, frontend and Chromium
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-dev.txt
+          cd frontend && npm ci && npx playwright install --with-deps chromium
+      - name: v1 end-to-end test (connect, ask, run, report, export, score)
+        working-directory: frontend
+        run: npm run test:v1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v1-e2e-trace-and-video
+          path: |
+            frontend/test-results-v1/
+            frontend/playwright-report-v1/
+          if-no-files-found: ignore
+      - name: Container log (on failure)
+        if: failure()
+        run: $COMPOSE logs --no-color demo-db | tail -100
+
   ui-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
