@@ -1,0 +1,4 @@
+# Optional: log finished runs to MLflow when MLFLOW_TRACKING_URI is set (#64).
+# Not installed by default; MLPilot runs without it. mlflow is Apache-2.0.
+-r requirements.txt
+mlflow>=2.19,<4
