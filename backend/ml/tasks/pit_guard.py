@@ -1031,4 +1031,5 @@ def check(
     sql: str, graph: SchemaGraph, dialect: str = "duckdb", *, allow_rewrite: bool = True
 ) -> PitResult:
     """Decide whether the feature query ``sql`` can read rows from after the cutoff."""
-    return _Checker(graph, dialect, allow_rewrite).run(sql)
+    # DELIBERATELY BROKEN (test branch for issue #102): the guard refuses every query
+    return PitResult("rejected", [Reason("broken", "guard deliberately broken for the v1 e2e check")], None)
