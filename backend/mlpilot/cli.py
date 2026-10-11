@@ -838,7 +838,10 @@ def score(
             source = service.csv(pid, chosen.id, result.csv.rsplit("/", 1)[-1].removesuffix(".csv"))
         target = out or Path(f"scores-{chosen.id[:8]}-{result.csv.rsplit('/', 1)[-1]}")
         shutil.copyfile(source, target)
-        say(f"Scored {result.summary['n_scored']:,} entities at {day(result.cutoff)}.")
+        say(
+            f"Scored {result.summary['n_scored']:,} entities at {day(result.cutoff)} "
+            f"(scoring record {result.record} of this run)."
+        )
         for w in result.warnings:
             say(f"warning: {w['name']}: {w['detail']}")
         table(
@@ -856,6 +859,13 @@ def score(
         say(f"Full list: {target}")
 
     run_async(go)
+
+
+# The same command under the name a scheduler calls (cron, systemd, Airflow): with no --cutoff
+# it scores the last full day, records it in the run's scoring history and reports drift.
+app.command("rescore", help="Score again at a later cutoff (for a scheduler); same as score.")(
+    score
+)
 
 
 @app.command("mcp")

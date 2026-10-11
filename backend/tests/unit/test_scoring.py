@@ -83,13 +83,29 @@ def test_drift_is_warned_about_never_raised() -> None:
 
     shifted = pd.DataFrame({"x": np.arange(100, dtype=float) + 1000})
     names = {w.name for w in s.drift_warnings(shifted, trained, 100, 100.0)}
-    assert names == {"mean_shift"}
+    assert names == {"mean_shift", "psi"}
 
     holes = pd.DataFrame({"x": [np.nan] * 60 + list(np.arange(40, dtype=float))})
     assert "null_rate" in {w.name for w in s.drift_warnings(holes, trained, 100, 100.0)}
 
     counts = cast(Any, s.drift_warnings(train, trained, 400, 100.0))
     assert [w.name for w in counts] == ["entity_count"]
+
+
+def test_the_stability_index_flags_a_shifted_feature_and_not_an_identical_one() -> None:
+    rng = np.random.default_rng(0)
+    train = pd.DataFrame({"x": rng.normal(size=2000), "y": rng.exponential(size=2000)})
+    trained = stats(train)
+    same = s.feature_psi(train, trained)
+    assert same["x"] < 0.01 and same["y"] < 0.01
+    moved = pd.DataFrame({"x": rng.normal(0.8, 1.0, 2000), "y": rng.exponential(size=2000)})
+    psi = s.feature_psi(moved, trained)
+    assert psi["x"] > s.PSI_THRESHOLD > psi["y"]
+    assert [
+        w.detail.split(":")[0]
+        for w in s.drift_warnings(moved, trained, 2000, 2000.0)
+        if w.name == "psi"
+    ] == ["x"]
 
 
 def test_the_summary_says_its_probabilities_are_not_calibrated() -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import importlib.util
+import re
 import shlex
 import zipfile
 from pathlib import Path
@@ -111,13 +112,19 @@ async def test_the_documented_commands_take_a_database_to_a_report_export_and_sc
     )
 
     ranked = tmp_path / "scores.csv"
-    out = (await mlpilot("score", "--out", str(ranked))).output
-    assert "Scored" in out and "Full list:" in out
+    out = (await mlpilot("score", "--cutoff", "2024-05-01", "--out", str(ranked))).output
+    assert "Scored" in out and "Full list:" in out and "(scoring record 1 of this run)" in out
     rows = list(csv.reader(ranked.open()))
     assert rows[0] == ["entity_id", "score", "rank", "decile", "reason_1", "reason_2", "reason_3"]
     scores = [float(r[1]) for r in rows[1:]]
     assert len(scores) > 50 and scores == sorted(scores, reverse=True)
     assert all(0.0 <= s <= 1.0 for s in scores)
+
+    # a scheduler runs the same thing later: a second record, at the last full day of the data
+    again = (await mlpilot("rescore", "--out", str(tmp_path / "later.csv"))).output
+    assert "(scoring record 2 of this run)" in again, again
+    first, later = (re.search(r"entities at (\S+) ", o).group(1) for o in (out, again))  # type: ignore[union-attr]
+    assert later > first
 
 
 async def test_a_run_started_by_the_command_is_what_the_api_and_the_ui_read(
