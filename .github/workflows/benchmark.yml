@@ -83,12 +83,11 @@ jobs:
         run: make benchmark DATASET="$DATASET" TASK="$TASK" METHODS="$METHODS" SEEDS="$SEEDS"
       - name: Results table
         if: always()
-        run: test -f benchmarks/RESULTS.md && cat benchmarks/RESULTS.md >> "$GITHUB_STEP_SUMMARY" || true
+        run: test -f benchmarks/results/RESULTS.md && cat benchmarks/results/RESULTS.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: relbench-results
           path: |
             benchmarks/results/
-            benchmarks/RESULTS.md
           if-no-files-found: warn

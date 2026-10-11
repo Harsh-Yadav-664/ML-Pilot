@@ -1,4 +1,4 @@
-"""``benchmarks/RESULTS.md`` from the result files of real runs (issue #65).
+"""``benchmarks/results/RESULTS.md`` from the result files of real runs (issue #65).
 
 The table is computed from ``<results>/<dataset>/<task>/<method>_seed<n>.json`` and from nothing
 else: no number is typed in, no published number is copied. A method with no ok result is shown as
