@@ -165,7 +165,9 @@ async def test_the_uri_set_but_mlflow_missing_is_recorded_as_failed_and_the_run_
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setitem(sys.modules, "mlflow", None)  # `import mlflow` raises ImportError
-    monkeypatch.setenv(ENV_URI, "https://alice:s3cret-pw@mlflow.example.com:5000/path?token=abc")
+    monkeypatch.setenv(
+        ENV_URI, "https://alice:s3cret-pw@mlflow.example.com:5000/path?token=tok-xyz-5512"
+    )
     with caplog.at_level("WARNING"):
         run_id, job = await scripted_run(client, project_id, connection, monkeypatch)
     state = (await client.get(runs_url(project_id, f"/{run_id}"))).json()
@@ -176,7 +178,7 @@ async def test_the_uri_set_but_mlflow_missing_is_recorded_as_failed_and_the_run_
     assert event["tracking_uri"] == "https://mlflow.example.com:5000/path"
     assert "not installed" in caplog.text
     for text in (json.dumps(event), caplog.text, json.dumps(job["result"])):
-        assert "s3cret-pw" not in text and "alice" not in text and "abc" not in text
+        assert "s3cret-pw" not in text and "alice" not in text and "tok-xyz-5512" not in text
 
 
 async def test_a_logging_error_is_recorded_as_failed_and_the_run_is_unchanged(

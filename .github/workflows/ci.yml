@@ -5,13 +5,68 @@ on:
   pull_request:
 
 jobs:
-  backend:
+  # The backend job is split so a PR does not wait for one 30-minute runner: `backend-tests` runs
+  # the pytest suite on N runners (whole test files, dealt out by scripts/ci_shard.py, each runner
+  # with its own Postgres service), `backend-checks` runs everything else once, and `backend`
+  # (the check name branch protection knows) only passes when all of them passed.
+  backend-tests:
+    name: backend-tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: backend
     # A real Postgres for the connection tests (tests/fixtures/postgres.py). The tests fail,
     # not skip, in CI when it is missing.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mlpilot_ci
+          POSTGRES_PASSWORD: ci-password-71c9e4
+          POSTGRES_DB: mlpilot_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mlpilot_ci -d mlpilot_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      MLPILOT_TEST_PG_HOST: localhost
+      MLPILOT_TEST_PG_PORT: "5432"
+      MLPILOT_TEST_PG_USER: mlpilot_ci
+      MLPILOT_TEST_PG_PASSWORD: ci-password-71c9e4
+      MLPILOT_TEST_PG_DB: mlpilot_ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Every test file is in exactly one shard
+        run: python -m scripts.ci_shard 4 --check
+      # Includes tests/integration/test_agent_loop_telecom.py: baseline + 2 agent
+      # iterations on telecom_churn.csv with the offline stub provider.
+      - name: Tests, shard ${{ matrix.shard }} of 4 (stub LLM provider, no network keys)
+        run: pytest -q $(python -m scripts.ci_shard 4 ${{ matrix.shard }})
+
+  backend-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    # The extra steps below that print Postgres results need the same service as the tests.
     services:
       postgres:
         image: postgres:16
@@ -53,10 +108,6 @@ jobs:
         run: ruff format --check .
       - name: Type check (mypy)
         run: mypy
-      # Includes tests/integration/test_agent_loop_telecom.py: baseline + 2 agent
-      # iterations on telecom_churn.csv with the offline stub provider.
-      - name: Tests (stub LLM provider, no network keys)
-        run: pytest -q
       - name: 1M-row CSV load and profile (prints the timing, must stay under 10 s)
         run: pytest -q -s tests/unit/test_duckdb_engine.py::test_a_million_row_csv_loads_and_profiles_in_under_ten_seconds
       - name: Demo database (prints the table checksums and the recency AUC)
@@ -86,6 +137,20 @@ jobs:
         run: |
           pip install -r requirements-mcp.txt
           pytest -q -s -p no:logging tests/integration/test_mcp_server.py
+
+  # The one check branch protection requires: it passes only if the test shards and the other
+  # backend checks all passed (a skipped or cancelled job is a failure, not a pass).
+  backend:
+    if: always()
+    needs: [backend-tests, backend-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All backend jobs passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "backend-tests, backend-checks: $RESULTS"
+          for r in $RESULTS; do test "$r" = success || exit 1; done
 
   # The demo database as Docker ships it (issue #47): `docker compose up demo-db`, then psql as
   # the read-only role and the integration test against it.
