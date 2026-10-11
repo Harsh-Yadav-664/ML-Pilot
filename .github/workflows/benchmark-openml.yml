@@ -1,0 +1,92 @@
+# The single-table OpenML benchmark (issue #67): LightGBM, MLPilot and AutoGluon on binary
+# classification datasets. Manual only: it downloads datasets and runs AutoGluon with a time limit
+# per run, so it takes about an hour and never runs on push or pull request. Numbers exist only in
+# this run's log and artifact.
+name: Benchmark OpenML
+
+on:
+  workflow_dispatch:
+    inputs:
+      datasets:
+        description: "OpenML dataset ids (see DATASETS in benchmarks/openml/openml_harness.py)"
+        default: "37 31 29 1464 1494 1480 1489 44 1067 1487"
+      methods:
+        description: "Methods: lightgbm, mlpilot, autogluon"
+        default: "lightgbm mlpilot autogluon"
+      seeds:
+        description: Seeds (one stratified split per dataset and seed)
+        default: "0 1 2"
+      ag_seconds:
+        description: AutoGluon time limit per run, in seconds
+        default: "90"
+      ag_preset:
+        description: AutoGluon preset
+        default: high_quality
+      model:
+        description: "provider:model for mlpilot (needs that provider's key as a repository secret); empty runs it on the offline stub, which proposes nothing"
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  openml:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      # An unset secret is an empty string, which the gateway treats as "no key".
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      MLPILOT_BENCH_CHEAP_MODEL: ${{ inputs.model }}
+      OPENML_DATASETS: ${{ inputs.datasets }}
+      OPENML_METHODS: ${{ inputs.methods }}
+      OPENML_SEEDS: ${{ inputs.seeds }}
+      AG_SECONDS: ${{ inputs.ag_seconds }}
+      AG_PRESET: ${{ inputs.ag_preset }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+            benchmarks/openml/requirements.txt
+      - name: Install dependencies (backend, openml, AutoGluon)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r benchmarks/openml/requirements.txt
+          pip list 2>/dev/null | grep -i -E '^(autogluon|openml|lightgbm|catboost|xgboost|torch|scikit-learn) '
+      - name: Lint the harness (ruff, mypy)
+        working-directory: backend
+        run: |
+          ruff check . ../benchmarks
+          ruff format --check . ../benchmarks
+          mypy
+      # The data-independent parts on a synthetic table that stands in for an OpenML dataset
+      # (AutoGluon, installed here, is run for real on it).
+      - name: Harness tests (stub provider, no network)
+        working-directory: backend
+        run: pytest -q -p no:logging tests/unit/test_openml_benchmark.py
+      - name: make benchmark-openml
+        run: |
+          make benchmark-openml \
+            OPENML_DATASETS="$OPENML_DATASETS" OPENML_METHODS="$OPENML_METHODS" \
+            OPENML_SEEDS="$OPENML_SEEDS" AG_SECONDS="$AG_SECONDS" AG_PRESET="$AG_PRESET"
+      - name: Results table
+        if: always()
+        run: test -f benchmarks/openml/RESULTS.md && cat benchmarks/openml/RESULTS.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Versions used
+        if: always()
+        run: pip freeze | grep -i -E '^(autogluon|openml|lightgbm|catboost|xgboost|torch|scikit-learn|pandas)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openml-results
+          path: |
+            benchmarks/openml/results/
+            benchmarks/openml/RESULTS.md
+          if-no-files-found: warn

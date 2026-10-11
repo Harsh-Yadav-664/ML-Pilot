@@ -1,0 +1,7 @@
+# What `make benchmark-openml` needs on top of the backend (issue #67): openml-python (BSD-3-Clause)
+# reads the datasets, AutoGluon (Apache-2.0) is the strongest free tool to compare with. Pinned to the
+# versions of the CI run that produced the numbers; without PyTorch AutoGluon uses its tree models
+# (LightGBM, CatBoost, XGBoost, random forests) and not its neural networks.
+-r ../../backend/requirements-dev.txt
+openml==0.15.1
+autogluon.tabular[lightgbm,catboost,xgboost]==1.6.3

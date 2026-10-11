@@ -49,7 +49,7 @@ include = ["ai*", "app*", "ml*", "mlpilot*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 # benchmarks/relbench is a script directory (run.py and its modules), not a package
-pythonpath = [".", "../benchmarks/relbench"]
+pythonpath = [".", "../benchmarks/relbench", "../benchmarks/openml"]
 
 [tool.ruff]
 line-length = 100
@@ -60,7 +60,7 @@ python_version = "3.13"
 strict = false
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
-files = ["ai", "ml", "app", "mlpilot", "../benchmarks/relbench"]
+files = ["ai", "ml", "app", "mlpilot", "../benchmarks/relbench", "../benchmarks/openml"]
 # mlpilot/migrations is Alembic's folder (env.py is not a package module).
 exclude = ["mlpilot/migrations/"]
 
