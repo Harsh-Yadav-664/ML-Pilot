@@ -162,6 +162,8 @@ mlpilot report --out report.md
 - Docker: `docker compose -f docker/docker-compose.yml up --build` starts MLPilot (API and UI) and the demo database; the log prints the address to open. The image alone: `docker build -f docker/Dockerfile -t mlpilot .` then `docker run --rm -p 127.0.0.1:8000:8000 -v mlpilot-data:/data mlpilot`. The server listens on all interfaces inside the container so that Docker can forward the port: always publish it on `127.0.0.1` as shown. CI job `docker-image` builds the image, starts it that way and checks `/health`, the UI page and that the API refuses a request without the token.
 - Not covered: `pip install mlpilot` from PyPI works only after the first tagged release has been published by the `release` workflow (nothing has been published yet, and the workflow has never run); the PyPI project name is not reserved. The old CSV sample ("Start with sample data" in the UI) is not shipped in the wheel. The CI job runs on Linux with Python 3.13 only.
 
+New here and want to run it on your own Postgres? [Quick start for your database](docs/quickstart.md) and the [safety model](docs/safety.md) (each guarantee with its test).
+
 ## Quick start from a clone
 
 You need Python 3.13 and Node.js 20.19 or newer (Vite 7 requires it). From the repository root:
