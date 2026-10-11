@@ -446,9 +446,10 @@ jobs:
     timeout-minutes: 60
     env:
       COMPOSE: docker compose -f docker/demo-db/docker-compose.yml
-      CLEAN_VENV: ${{ runner.temp }}/clean-venv
     steps:
       - uses: actions/checkout@v5
+      - name: Where the clean virtualenv lives
+        run: echo "CLEAN_VENV=$RUNNER_TEMP/clean-venv" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
