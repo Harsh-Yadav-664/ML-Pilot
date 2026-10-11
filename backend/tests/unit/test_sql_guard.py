@@ -38,7 +38,7 @@ def allowed(dialect: str) -> list[str]:
 
 @pytest.mark.parametrize(
     ("dialect", "sql", "code"),
-    [(d, sql, code) for d in ("postgres", "sqlite", "duckdb") for sql, code in cases(d)],
+    [(d, sql, code) for d in ("postgres", "mysql", "sqlite", "duckdb") for sql, code in cases(d)],
 )
 def test_every_hostile_query_is_refused_with_its_code(dialect: str, sql: str, code: str) -> None:
     with pytest.raises(SqlRejected) as err:
@@ -47,7 +47,8 @@ def test_every_hostile_query_is_refused_with_its_code(dialect: str, sql: str, co
 
 
 @pytest.mark.parametrize(
-    ("dialect", "sql"), [(d, q) for d in ("postgres", "sqlite", "duckdb") for q in allowed(d)]
+    ("dialect", "sql"),
+    [(d, q) for d in ("postgres", "mysql", "sqlite", "duckdb") for q in allowed(d)],
 )
 def test_ordinary_analytical_queries_pass(dialect: str, sql: str) -> None:
     q = guard(sql, dialect)

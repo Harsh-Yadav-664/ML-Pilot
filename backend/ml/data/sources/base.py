@@ -9,7 +9,7 @@ from typing import Any, Literal, Protocol
 
 from ml.data.engine import DataSource
 
-Dialect = Literal["postgres", "sqlite", "duckdb"]
+Dialect = Literal["postgres", "mysql", "sqlite", "duckdb"]
 SSL_MODES = ("disable", "prefer", "require", "verify-ca", "verify-full")
 
 # Short, fixed messages. A driver's own error text can contain host names, user names or
@@ -82,6 +82,10 @@ def open_source(spec: ConnectionSpec) -> SourceWithChecks:
         from ml.data.sources.postgres import PostgresSource
 
         return PostgresSource(spec)
+    if spec.dialect == "mysql":
+        from ml.data.sources.mysql import MySQLSource
+
+        return MySQLSource(spec)
     if spec.dialect == "sqlite":
         from ml.data.sources.sqlite import SqliteSource
 

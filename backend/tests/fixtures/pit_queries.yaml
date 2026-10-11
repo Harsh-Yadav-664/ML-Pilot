@@ -189,6 +189,29 @@
       AND o.ordered_at >= l.cutoff_time - INTERVAL '90 days'
     GROUP BY l.entity_id, l.cutoff_time
 
+- id: mysql_syntax
+  expect: accepted
+  dialect: mysql
+  runnable: false
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l
+    LEFT JOIN orders o ON o.customer_id = l.entity_id
+      AND o.ordered_at < l.cutoff_time
+      AND o.ordered_at >= DATE_SUB(l.cutoff_time, INTERVAL 90 DAY)
+    GROUP BY l.entity_id, l.cutoff_time
+
+- id: mysql_missing_bound_is_added
+  expect: rewritten
+  dialect: mysql
+  runnable: false
+  leaky: true
+  contains: "o.ordered_at < l.cutoff_time"
+  sql: |
+    SELECT l.entity_id, l.cutoff_time, count(o.order_id) AS value
+    FROM __labels l LEFT JOIN orders o ON o.customer_id = l.entity_id
+    GROUP BY l.entity_id, l.cutoff_time
+
 # ---- rewritten: a bound is added, never trusted ------------------------------------------
 - id: missing_bound_in_join
   expect: rewritten

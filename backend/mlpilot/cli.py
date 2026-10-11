@@ -283,12 +283,19 @@ def number(value: Any, digits: int = 4) -> str:
 def connect(
     name: Annotated[str, typer.Option(help="A name for this connection.")],
     database: Annotated[
-        str, typer.Option(help="Postgres: the database name. SQLite and DuckDB: the file path.")
+        str,
+        typer.Option(
+            help="Postgres and MySQL: the database name. SQLite and DuckDB: the file path."
+        ),
     ],
-    dialect: Annotated[str, typer.Option(help="postgres, sqlite or duckdb.")] = "postgres",
-    host: Annotated[str | None, typer.Option(help="Postgres only.")] = None,
-    port: Annotated[int | None, typer.Option(help="Postgres only (default 5432).")] = None,
-    user: Annotated[str | None, typer.Option(help="Postgres only. Use a read-only role.")] = None,
+    dialect: Annotated[str, typer.Option(help="postgres, mysql, sqlite or duckdb.")] = "postgres",
+    host: Annotated[str | None, typer.Option(help="Postgres and MySQL only.")] = None,
+    port: Annotated[
+        int | None, typer.Option(help="Postgres and MySQL only (default 5432 / 3306).")
+    ] = None,
+    user: Annotated[
+        str | None, typer.Option(help="Postgres and MySQL only. Use a read-only user.")
+    ] = None,
     password_env: Annotated[
         str | None,
         typer.Option(
@@ -298,7 +305,9 @@ def connect(
     ] = None,
     ssl_mode: Annotated[
         str | None,
-        typer.Option(help="Postgres only: disable, prefer, require, verify-ca or verify-full."),
+        typer.Option(
+            help="Postgres and MySQL only: disable, prefer, require, verify-ca or verify-full."
+        ),
     ] = None,
 ) -> None:
     """Save a database connection and test it (read-only: nothing is ever written to it)."""
@@ -307,8 +316,8 @@ def connect(
     from app.schemas.connection import ConnectionCreate
     from app.services.connection_service import ConnectionService
 
-    if dialect not in ("postgres", "sqlite", "duckdb"):
-        die("--dialect must be postgres, sqlite or duckdb")
+    if dialect not in ("postgres", "mysql", "sqlite", "duckdb"):
+        die("--dialect must be postgres, mysql, sqlite or duckdb")
     if password_env and password_env not in os.environ:
         die(f"The environment variable {password_env} is not set in this shell")
     try:
