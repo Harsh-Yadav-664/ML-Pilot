@@ -61,10 +61,14 @@ test('start a run from a confirmed task and read it: features, champion, test sc
   let sawLive = false;
   const deadline = Date.now() + 600_000;
   for (;;) {
-    const s = (await status.getAttribute('data-status')) ?? '';
+    // One DOM snapshot: status and test rows read together, so a run that ends between two reads is not a failure.
+    const { s, testShown } = await page.evaluate(() => ({
+      s: document.querySelector('[data-testid=run-status]')?.getAttribute('data-status') ?? '',
+      testShown: document.querySelector('[data-testid=run-test-metrics]') !== null,
+    }));
     if (['queued', 'running'].includes(s)) {
       sawLive = true;
-      await expect(page.getByTestId('run-test-metrics')).toHaveCount(0);
+      expect(testShown).toBe(false);
     }
     if (['completed', 'stopped', 'failed', 'cancelled'].includes(s)) break;
     expect(Date.now()).toBeLessThan(deadline);
