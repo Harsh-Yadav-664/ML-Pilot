@@ -78,6 +78,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{record['status']}: {path}")
     if record["status"] == "ok":
         print(f"test {record['test']}  val {record['val']}  {record['wall_seconds']['total']} s")
+        rows, feats = record["rows"], record["features"]
+        print(f"rows {rows['train']}/{rows['val']}/{rows['test']}; split {rows['split']}")
+        print(
+            f"features {feats['n']} of {feats['baseline_candidates']}; dropped {feats['baseline_dropped']}"
+        )
+        if record["llm"]:
+            print(f"llm {record['llm']}; agent stopped: {record['agent']['stop_reason']}")
     return 0
 
 

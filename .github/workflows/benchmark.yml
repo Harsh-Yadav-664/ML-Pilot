@@ -45,8 +45,8 @@ jobs:
       MLPILOT_BENCH_STRONG_MODEL: ${{ inputs.strong_model }}
       DATASET: ${{ inputs.dataset || 'rel-f1' }}
       TASK: ${{ inputs.task || 'driver-dnf' }}
-      METHODS: ${{ inputs.methods || 'b' }}
-      SEEDS: ${{ inputs.seeds || '0' }}
+      METHODS: ${{ inputs.methods || 'a b c d' }}
+      SEEDS: ${{ inputs.seeds || '0 1 2' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
