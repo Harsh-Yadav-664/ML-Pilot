@@ -256,6 +256,79 @@ _OPS: dict[str, type[exp.Binary]] = {
 }
 
 
+def _aggregate(
+    target: exp.Table, agg: str, value_col: exp.Column, on: list[exp.Expression]
+) -> exp.Select:
+    """One value per (entity, cutoff): the aggregate of the target rows in the window."""
+    if agg == "count":
+        value: exp.Expression = exp.Count(this=value_col)
+    elif agg == "count_distinct":
+        value = exp.Count(this=exp.Distinct(expressions=[value_col]))
+    elif agg == "sum":
+        value = exp.Coalesce(this=exp.Sum(this=value_col), expressions=[exp.Literal.number(0)])
+    elif agg == "avg":
+        value = exp.Avg(this=value_col)
+    elif agg == "min":
+        value = exp.Min(this=value_col)
+    else:
+        value = exp.Max(this=value_col)
+    return (
+        exp.select(
+            exp.alias_(_col("el", "entity_id"), "entity_id"),
+            exp.alias_(_col("el", "cutoff_time"), "cutoff_time"),
+            exp.alias_(_col("el", "window_end"), "window_end"),
+            exp.alias_(value, "value"),
+        )
+        .from_(exp.alias_(exp.to_table("eligible"), "el"))
+        .join(exp.alias_(target, TARGET_ALIAS), on=_and(on), join_type="left")
+        .group_by(_col("el", "entity_id"), _col("el", "cutoff_time"), _col("el", "window_end"))
+    )
+
+
+def _first_class(
+    target: exp.Table, event_time: exp.Expression, column: exp.Column, on: list[exp.Expression]
+) -> exp.Select:
+    """The class of a multiclass task: ``column`` (as text) of the first row in the window.
+
+    Rows without a class are skipped, ties in time go to the smaller class name (so the label
+    repeats), and an entity with no row in the window gets NULL, which the final step leaves out:
+    the class is that of the next event, and there is none to predict.
+    """
+    text = exp.cast(column, "text")
+    ranked = (
+        exp.select(
+            exp.alias_(_col("el", "entity_id"), "entity_id"),
+            exp.alias_(_col("el", "cutoff_time"), "cutoff_time"),
+            exp.alias_(_col("el", "window_end"), "window_end"),
+            exp.alias_(text.copy(), "value"),
+            exp.alias_(
+                exp.Window(
+                    this=exp.RowNumber(),
+                    partition_by=[_col("el", "entity_id"), _col("el", "cutoff_time")],
+                    order=exp.Order(
+                        expressions=[
+                            exp.Ordered(this=event_time.copy()),
+                            exp.Ordered(this=text.copy()),
+                        ]
+                    ),
+                ),
+                "rn",
+            ),
+        )
+        .from_(exp.alias_(exp.to_table("eligible"), "el"))
+        .join(
+            exp.alias_(target, TARGET_ALIAS),
+            on=_and([*on, exp.Not(this=exp.Is(this=column.copy(), expression=exp.Null()))]),
+            join_type="left",
+        )
+    )
+    return (
+        exp.select("entity_id", "cutoff_time", "window_end", "value")
+        .from_(exp.Subquery(this=ranked, alias=exp.TableAlias(this=exp.to_identifier("r"))))
+        .where(exp.EQ(this=exp.column("rn"), expression=exp.Literal.number(1)))
+    )
+
+
 def compile_labels(
     spec: TaskSpec,
     graph: SchemaGraph,
@@ -278,8 +351,6 @@ def compile_labels(
         raise LabelError(
             "The spec has errors: " + "; ".join(f"{p.path}: {p.message}" for p in problems[:5])
         )
-    if spec.target.type != "binary" and spec.target.type != "regression":
-        raise LabelError(f"{spec.target.type} labels are not supported yet")
     if spec.target.expression_sql is not None:
         raise LabelError(
             "labels from target.expression_sql are not compiled here; they need the "
@@ -380,29 +451,10 @@ def compile_labels(
     if ex.where:
         on.append(_render_condition(dialect, ex.where, target, TARGET_ALIAS))
     value_col = _col(TARGET_ALIAS, ex.column) if ex.column else fk
-    if ex.agg == "count":
-        value: exp.Expression = exp.Count(this=value_col)
-    elif ex.agg == "count_distinct":
-        value = exp.Count(this=exp.Distinct(expressions=[value_col]))
-    elif ex.agg == "sum":
-        value = exp.Coalesce(this=exp.Sum(this=value_col), expressions=[exp.Literal.number(0)])
-    elif ex.agg == "avg":
-        value = exp.Avg(this=value_col)
-    elif ex.agg == "min":
-        value = exp.Min(this=value_col)
+    if ex.agg == "first":
+        agg = _first_class(resolve(target.key), t_time, value_col, on)
     else:
-        value = exp.Max(this=value_col)
-    agg = (
-        exp.select(
-            exp.alias_(_col("el", "entity_id"), "entity_id"),
-            exp.alias_(_col("el", "cutoff_time"), "cutoff_time"),
-            exp.alias_(_col("el", "window_end"), "window_end"),
-            exp.alias_(value, "value"),
-        )
-        .from_(exp.alias_(exp.to_table("eligible"), "el"))
-        .join(exp.alias_(resolve(target.key), TARGET_ALIAS), on=_and(on), join_type="left")
-        .group_by(_col("el", "entity_id"), _col("el", "cutoff_time"), _col("el", "window_end"))
-    )
+        agg = _aggregate(resolve(target.key), ex.agg, value_col, on)
 
     # the label ---------------------------------------------------------------------------------
     v = _col("a", "value")
@@ -442,23 +494,43 @@ def compile_labels(
     )
 
 
-def counts_select(labels: exp.Select, *, binary: bool) -> exp.Select:
-    """Per cutoff: eligible entities, and for binary tasks positives and the base rate."""
+def counts_select(labels: exp.Select, *, task: str = "binary") -> exp.Select:
+    """Per cutoff (and, for multiclass, per class): eligible entities and what describes the label.
+
+    Binary: positives. Regression: mean, standard deviation and share of zeros. Multiclass: one
+    row per class with its entity count.
+    """
     sub = exp.alias_(exp.Subquery(this=labels.copy()), "l")
-    selects: list[exp.Expr] = [
-        exp.alias_(_col("l", "cutoff_time"), "cutoff_time"),
-        exp.alias_(exp.Count(this=exp.Star()), "eligible"),
-    ]
-    if binary:
-        selects.append(exp.alias_(exp.Sum(this=_col("l", "label")), "positives"))
+    label = _col("l", "label")
+    cutoff = _col("l", "cutoff_time")
+    selects: list[exp.Expr] = [exp.alias_(cutoff, "cutoff_time")]
+    group = [cutoff.copy()]
+    if task == "multiclass":
+        selects += [
+            exp.alias_(label.copy(), "class_label"),
+            exp.alias_(exp.Count(this=exp.Star()), "n"),
+        ]
+        group.append(label.copy())
     else:
-        selects.append(exp.alias_(exp.Avg(this=_col("l", "label")), "mean_label"))
-    return (
-        exp.select(*selects)
-        .from_(sub)
-        .group_by(_col("l", "cutoff_time"))
-        .order_by(_col("l", "cutoff_time"))
-    )
+        selects.append(exp.alias_(exp.Count(this=exp.Star()), "eligible"))
+        if task == "binary":
+            selects.append(exp.alias_(exp.Sum(this=label), "positives"))
+        else:
+            zero = exp.Case(
+                ifs=[
+                    exp.If(
+                        this=exp.EQ(this=label.copy(), expression=exp.Literal.number(0)),
+                        true=exp.Literal.number(1),
+                    )
+                ],
+                default=exp.Literal.number(0),
+            )
+            selects += [
+                exp.alias_(exp.Avg(this=label), "mean_label"),
+                exp.alias_(exp.StddevPop(this=label.copy()), "label_std"),
+                exp.alias_(exp.Avg(this=zero), "zero_share"),
+            ]
+    return exp.select(*selects).from_(sub).group_by(*group).order_by(cutoff.copy())
 
 
 def describe(compiled: CompiledLabels) -> dict[str, Any]:
@@ -565,6 +637,9 @@ class CutoffCount:
     positives: int | None  # binary tasks
     base_rate: float | None
     mean_label: float | None  # regression tasks
+    label_std: float | None = None  # regression: population standard deviation of the label
+    zero_share: float | None = None  # regression: share of entities whose label is 0
+    classes: dict[str, int] | None = None  # multiclass: entities per class
 
 
 @dataclass(frozen=True)
@@ -594,17 +669,35 @@ class LabelRun:
 
 
 def _read_counts(
-    compiled: CompiledLabels, binary: bool, query: Callable[[str], Any]
+    compiled: CompiledLabels, task: str, query: Callable[[str], Any]
 ) -> list[CutoffCount]:
-    frame = arrow_to_pandas(
-        query(counts_select(compiled.select, binary=binary).sql(compiled.dialect))
-    )
+    frame = arrow_to_pandas(query(counts_select(compiled.select, task=task).sql(compiled.dialect)))
     windows = {w.cutoff.replace(tzinfo=None): w for w in compiled.kept}
+
+    def window_of(value: Any) -> CutoffWindow:
+        return windows[value.to_pydatetime().replace(tzinfo=None)]
+
+    if task == "multiclass":
+        per_cutoff: dict[Any, dict[str, int]] = {}
+        for r in frame.itertuples():
+            per_cutoff.setdefault(r.cutoff_time, {})[str(r.class_label)] = int(r.n)
+        return [
+            CutoffCount(
+                window_of(t).cutoff,
+                window_of(t).window_end,
+                sum(c.values()),
+                None,
+                None,
+                None,
+                classes=c,
+            )
+            for t, c in per_cutoff.items()
+        ]
     out: list[CutoffCount] = []
     for r in frame.itertuples():
-        window = windows[r.cutoff_time.to_pydatetime().replace(tzinfo=None)]
+        window = window_of(r.cutoff_time)
         eligible = int(r.eligible)
-        if binary:
+        if task == "binary":
             positives = int(r.positives)
             out.append(
                 CutoffCount(
@@ -624,7 +717,9 @@ def _read_counts(
                     eligible,
                     None,
                     None,
-                    None if r.mean_label is None else float(r.mean_label),
+                    float(r.mean_label),
+                    float(r.label_std),
+                    float(r.zero_share),
                 )
             )
     return out
@@ -676,7 +771,7 @@ def run_on_snapshot(
     def query(sql: str) -> Any:
         return workspace.source.query(sql, limit=COUNT_LIMIT, timeout_s=QUERY_TIMEOUT_S)
 
-    counts = _read_counts(compiled, spec.target.type == "binary", query)
+    counts = _read_counts(compiled, spec.target.type, query)
     table: TableRef | None = None
     if materialize:
         table = label_table_ref(task_id, version_id)
@@ -710,7 +805,7 @@ def run_on_source(
     return LabelRun(
         compiled,
         source.dialect,
-        _read_counts(compiled, spec.target.type == "binary", query),
+        _read_counts(compiled, spec.target.type, query),
         None,
         _read_coverage(spec, graph, compiled, resolve, query),
     )

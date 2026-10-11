@@ -111,10 +111,8 @@ def test_the_demo_specs_parse_and_validate_without_errors(graph: SchemaGraph, te
     )
 
 
-def test_a_regression_spec_is_valid_but_flagged_as_not_trainable_yet(graph: SchemaGraph) -> None:
-    warnings = [i for i in issues_of(graph, SPEND) if i.severity == "warning"]
-    assert [w.path for w in warnings] == ["target.type"]
-    assert "cannot be trained yet" in warnings[0].message
+def test_a_regression_spec_is_valid_with_no_warning(graph: SchemaGraph) -> None:
+    assert issues_of(graph, SPEND) == []
 
 
 def test_the_fixture_dates_give_the_cutoffs_the_docs_describe() -> None:

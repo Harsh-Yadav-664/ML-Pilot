@@ -138,7 +138,22 @@ def _summary(r: dict[str, Any], n: Numbers) -> Section:
             f"(status {n.text('run.status')}{error})."
         )
         return s
-    if final.get("test_metrics"):
+    m = r["metric"]
+    if final.get("test_metrics") and m["task"] != "binary":
+        s.blocks.append(
+            f"Answer: on the test period, which starts {n.text('run.split_plan.test_from')}, "
+            f"the model's {m['label']} is {n.num(f'final.test_metrics.{m["key"]}', 'f4')}, "
+            f"against {n.num(f'final.test_metrics.{m["trivial_key"]}', 'f4')} for {m['trivial']} "
+            f"({n.num('final.test_metrics.n_test', 'int')} rows scored). "
+            "The test rows were scored once, after every decision was made."
+        )
+        s.blocks.append(
+            Table(
+                ["Metric", "Test", "Final model, validation", "Baseline, validation"],
+                _metric_rows(n, r),
+            )
+        )
+    elif final.get("test_metrics"):
         s.blocks.append(
             f"Answer: on the test period, which starts {n.text('run.split_plan.test_from')}, "
             f"the entities the model ranks in its {n.cut('10pct')} are labelled 1 in "
@@ -160,8 +175,13 @@ def _summary(r: dict[str, Any], n: Numbers) -> Section:
         s.blocks.append(
             "Answer: not available. The final model could not be scored on the test rows"
             + (f": {n.text('final.manifest.test_error')}" if why else "")
-            + f". Validation PR-AUC of the final model is {n.num('final.val_metrics.pr_auc', 'f4')} "
-            f"against a base rate of {n.num('final.val_metrics.base_rate', 'pct1')}%."
+            + f". Validation {m['label']} of the final model is "
+            f"{n.num(f'final.val_metrics.{m["key"]}', 'f4')} against "
+            + (
+                f"a base rate of {n.num('final.val_metrics.base_rate', 'pct1')}%."
+                if m["task"] == "binary"
+                else f"{n.num(f'final.val_metrics.{m["trivial_key"]}', 'f4')} for {m['trivial']}."
+            )
         )
     s.blocks.append(
         f"Model: {n.text('final.model_name')}, {n.num('summary.n_features', 'int')} features: "
@@ -187,6 +207,9 @@ def _metric_rows(n: Numbers, r: dict[str, Any]) -> list[list[str]]:
             n.num(f"{c}.{key}", fmt) if _get(r, c) is not None else "n/a" for c in roots
         ]
 
+    m = r["metric"]
+    if m["task"] != "binary":
+        return [row(label, key, "f4") for label, key in m["rows"]]
     rows = [row("Base rate (%)", "base_rate", "pct1"), row("PR-AUC", "pr_auc", "f4")]
     for key in TOP_CUTS:
         label = n.cut(key)
@@ -360,7 +383,7 @@ def _validation(r: dict[str, Any], n: Numbers) -> Section:
         s.blocks.append("Acceptance rule: no feature reached the gain test in this run.")
     else:
         s.blocks.append(
-            "A feature is kept only if its paired gain in PR-AUC over the model without it, "
+            f"A feature is kept only if its paired gain in {r['metric']['gain_text']} over the model without it, "
             f"measured on {n.num('acceptance.n_folds', 'int')} time-ordered folds of the training "
             "rows, is larger than the margin. The margin is the larger of "
             f"{n.num('acceptance.std_multiplier', 'f1')} standard deviation(s) of the gain and "
@@ -422,7 +445,7 @@ def _features(r: dict[str, Any], n: Numbers) -> Section:
             for k in range(len(g["candidate_scores"]))
         )
         s.blocks.append(
-            f"Paired gain in PR-AUC {n.sign(p + '.gain.mean_gain', 'f4')}, {n.interval('ci95')} "
+            f"Paired gain in {r['metric']['gain_text']} {n.sign(p + '.gain.mean_gain', 'f4')}, {n.interval('ci95')} "
             f"{n.sign(p + '.gain.ci95[0]', 'f4')} to {n.sign(p + '.gain.ci95[1]', 'f4')}, margin "
             f"{n.num(p + '.gain.margin', 'f4')}. Fold scores without the feature: {base_scores}. "
             f"With it: {with_scores}."
@@ -474,15 +497,17 @@ def _features(r: dict[str, Any], n: Numbers) -> Section:
         s.blocks.append(f"{label}:")
         s.blocks.append(Bullets(items))
     if r["champions"]:
-        s.blocks.append("Champion path (validation PR-AUC after each kept feature):")
+        s.blocks.append(
+            f"Champion path (validation {r['metric']['label']} after each kept feature):"
+        )
         s.blocks.append(
             Table(
-                ["Round", "Added", "Validation PR-AUC"],
+                ["Round", "Added", f"Validation {r['metric']['label']}"],
                 [
                     [
                         n.num(f"champions[{i}].round", "int"),
                         n.text(f"champions[{i}].feature"),
-                        n.num(f"champions[{i}].val_pr_auc", "f4"),
+                        n.num(f"champions[{i}].val_metric", "f4"),
                     ]
                     for i in range(len(r["champions"]))
                 ],

@@ -15,7 +15,7 @@ from app.db.models import Run
 from tests.fixtures.api import API
 from tests.fixtures.demo_db import demo_sqlite
 from tests.integration.test_snapshots_api import finish
-from tests.unit.test_task_spec import CHURN, REFUND, SPEND, changed
+from tests.unit.test_task_spec import CHURN, REFUND, changed
 
 
 @pytest.fixture
@@ -215,13 +215,22 @@ async def test_warnings_do_not_block_confirming(
     client: httpx.AsyncClient, project_id: str, connection: str
 ) -> None:
     version = await snapshot_version(client, project_id, connection)
-    task = (await client.post(url(project_id), json=body(connection, SPEND, version))).json()
+    free_sql = changed(
+        CHURN,
+        lambda d: (
+            d["target"].pop("expression"),
+            d["target"].update(
+                expression_sql="SELECT customer_id, 1 FROM orders WHERE ordered_at > :cutoff"
+            ),
+        ),
+    )
+    task = (await client.post(url(project_id), json=body(connection, free_sql, version))).json()
     assert [i["severity"] for i in task["issues"]] == ["warning"]
     confirmed = await client.post(
         url(project_id, f"{task['id']}/confirm"), json={"data_version_id": version}
     )
     assert confirmed.status_code == 200
-    assert confirmed.json()["issues"][0]["path"] == "target.type"
+    assert confirmed.json()["issues"][0]["path"] == "target.expression_sql"
 
 
 async def test_tasks_belong_to_their_project_and_connection(

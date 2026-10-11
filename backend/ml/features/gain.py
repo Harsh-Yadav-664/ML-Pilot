@@ -14,12 +14,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Protocol
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.metrics import average_precision_score
 
 from ml.experiments.acceptance import GainResult, decide
+from ml.metrics.kinds import TaskKind
 from ml.validation.splits import SplitError
 
 # Smaller and faster than the final model: it is fitted twice per fold for every candidate.
@@ -33,7 +32,6 @@ FOLD_PARAMS: dict[str, Any] = {
     "colsample_bytree": 0.8,
     "reg_lambda": 1.0,
 }
-METRIC = "pr_auc"
 
 
 class Fold(Protocol):
@@ -60,6 +58,7 @@ class FoldScorer:
         seed: int = 42,
         params: dict[str, Any] | None = None,
         kind: str = "temporal",
+        task: TaskKind | None = None,
     ) -> None:
         if not folds:
             raise SplitError("acceptance needs at least one temporal fold")
@@ -72,31 +71,29 @@ class FoldScorer:
         self.seed = seed
         self.params = {**FOLD_PARAMS, **(params or {})}
         self.kind = kind
+        self.task = task or TaskKind()
         self.fits = 0
 
     def score(self, frame: pd.DataFrame) -> list[float]:
-        """PR-AUC on each fold's validation block, after fitting on its training rows."""
+        """The task's metric (PR-AUC, MAE or log loss) on each fold's validation block, after
+        fitting on its training rows."""
         scores = []
         for f in self.folds:
             y_train, y_val = self.y[f.train], self.y[f.val]
-            if len(set(y_train)) < 2 or len(set(y_val)) < 2:
+            need_both = self.task.task == "binary"  # PR-AUC is undefined without both classes
+            if (need_both and len(set(y_val)) < 2) or (
+                self.task.task != "regression" and len(set(y_train)) < 2
+            ):
                 start = getattr(f, "val_start", None)
                 where = f"validation from {start:%Y-%m-%d}" if start is not None else "random fold"
                 raise SplitError(
                     f"a fold has only one class ({where}): use fewer folds or more "
                     f"{'cutoffs' if start is not None else 'rows'}"
                 )
-            model = lgb.LGBMClassifier(
-                **self.params,
-                random_state=self.seed,
-                deterministic=True,
-                force_row_wise=True,
-                verbose=-1,
-            )
+            model = self.task.estimator(self.params, self.seed)
             model.fit(frame.iloc[f.train], y_train)
             self.fits += 1
-            prob = np.asarray(model.predict_proba(frame.iloc[f.val]))[:, 1]
-            scores.append(float(average_precision_score(y_val, prob)))
+            scores.append(self.task.fold_score(y_val, self.task.predict(model, frame.iloc[f.val])))
         return scores
 
 
@@ -105,13 +102,21 @@ def compare(
     candidate_scores: Sequence[float],
     rule: dict[str, Any] | None = None,
     kind: str = "temporal",
+    task: TaskKind | None = None,
 ) -> GainResult:
     """Apply the paired rule (``ml.experiments.acceptance.decide``) to scores of two feature
     sets on the same folds."""
     rule = dict(rule or {})
     rule.pop("n_splits", None)  # the folds are the scorer's, not repeated K-fold
     rule.pop("n_repeats", None)
-    result = decide(base_scores, candidate_scores, rule, metric=METRIC)
+    task = task or TaskKind()
+    result = decide(
+        base_scores,
+        candidate_scores,
+        rule,
+        metric=task.metric,
+        lower_is_better=not task.higher_is_better,
+    )
     for key in ("n_splits", "n_repeats"):
         result.rule.pop(key, None)
     result.rule.update(folds=len(base_scores), validation=kind)

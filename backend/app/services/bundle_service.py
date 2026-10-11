@@ -17,7 +17,13 @@ from app.db.models import Connection, Experiment, Feature, Run, TaskSpec
 from app.services.connection_service import ConnectionService
 from app.services.feature_proposals import feature_description
 from app.services.report_service import ReportService
-from ml.export.artifacts import CATEGORIES_FILE, MODEL_FILE, REFERENCE_FILE, artifact_dir
+from ml.export.artifacts import (
+    CATEGORIES_FILE,
+    CLASSES_FILE,
+    MODEL_FILE,
+    REFERENCE_FILE,
+    artifact_dir,
+)
 from ml.export.bundle import (
     DIALECTS,
     BundleInput,
@@ -108,6 +114,9 @@ class BundleService:
                     categories=json.loads((folder / CATEGORIES_FILE).read_text()),
                     report_html=text,
                     notes=notes,
+                    classes=json.loads((folder / CLASSES_FILE).read_text())
+                    if (folder / CLASSES_FILE).exists()
+                    else [],
                 ),
             )
         except ExportError as e:

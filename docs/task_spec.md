@@ -28,14 +28,26 @@ metric: pr_auc
 | `name` | Lower-case letters, digits and underscores. A task keeps its name across versions. |
 | `entity` | Who the prediction is about. `table` and `key` are required; `created_at` (optional) is when the entity came to exist. |
 | `eligibility` | Who is scored at a cutoff. A list; every entry must hold. An entry is a condition on the entity table (see below) or `exists:` / `not_exists:` with `table`, optional `where` and optional `via` (the column of that table that holds the entity key, needed only if it has several). |
-| `target.type` | `binary` (trainable now), `regression` or `multiclass` (accepted and flagged: the trainer refuses them until #104). |
-| `target.expression` | `table`, `agg` (`count`, `sum`, `avg`, `min`, `max`, `count_distinct`), `column` (all but `count`), optional `where`, and for binary tasks `compare` (the test that makes the label 1, such as `= 0` or `>= 3`). The aggregate is taken over that table's rows of the entity in the label window. |
+| `target.type` | `binary`, `regression` (a number such as spend in the window) or `multiclass` (the category of the next event). [How each is trained and judged](#regression-and-multi-class-tasks). |
+| `target.expression` | `table`, `agg` (`count`, `sum`, `avg`, `min`, `max`, `count_distinct`, and `first` for multi-class tasks only), `column` (all but `count`), optional `where`, and for binary tasks `compare` (the test that makes the label 1, such as `= 0` or `>= 3`). The aggregate is taken over that table's rows of the entity in the label window. |
 | `target.window` | Optional. `start` is `:cutoff` (a label never looks before the cutoff). `end` is `:cutoff + interval 'N days'` (hours, days or weeks) and may not be later than the horizon. Default: the window is `(cutoff, cutoff + horizon]`. |
 | `target.expression_sql` | Escape hatch instead of `expression`: one `SELECT` that uses `:cutoff`. Accepted with a warning. It runs through the SQL guard and the point-in-time guard, is not understood by the label checks, and is flagged in the evidence report. |
 | `horizon` | How far ahead the label looks: `30d`, `4 weeks`, `1 month`. |
 | `cutoffs` | `start`, `end` and `every` (`7d`, `2 weeks`, `1 month`). Cutoff dates are `start`, `start + every`, ... up to `end`. Months keep the day of the month (clamped to short months). |
 | `split` | `val_from` and `test_from`. Training uses cutoffs before `val_from` whose label window ends by `val_from`; validation those from `val_from` whose window ends by `test_from`; test those from `test_from`. Cutoffs whose window crosses the next boundary are left out and counted (see [How the split works](#how-the-split-works)). |
 | `metric` | `binary`: `pr_auc` (default), `roc_auc`, `f1`, `log_loss`. `regression`: `mae` (default), `rmse`, `r2`. `multiclass`: `macro_f1` (default), `accuracy`, `log_loss`. |
+
+## Regression and multi-class tasks
+
+| | Regression | Multi-class |
+|---|---|---|
+| Target | `agg` over the window, e.g. `sum` of `orders.total` (spend in the next 30 days) | `agg: first`, `column` is the category of the **first row in the window** (e.g. `orders.status`); entities with no row in the window have no next event and are left out |
+| Model | LightGBM regressor; a target that is never negative and is 0 in more than 30% of training rows (spend) is fitted with the Tweedie objective, decided on training rows only | LightGBM classifier; classes are the training rows' categories, fixed before fitting and stored |
+| A feature is kept when | the mean paired **relative reduction of MAE** over the time-ordered folds beats the margin (`(base - candidate) / base`, so the margin means the same for dollars and counts) | the same with **log loss** |
+| Reported (validation and test) | MAE, RMSE, R squared, the MAE of always predicting the training median, and the share of total value held by the top 1%, 5%, 10%... by prediction | macro-F1, accuracy, log loss, the log loss of predicting the training class shares |
+| Feasibility | blocks a constant training label or too few rows that are not 0; warns when more than 90% are 0 | blocks fewer than two training classes or more than 30 classes (looks like an id); warns on classes with under 30 training rows and on validation/test rows of a class the training rows lack (counted apart, never silently dropped) |
+
+Spend is mostly zero, so the training median (0) is hard to beat on MAE alone; the report shows both numbers and R squared and the value held by the top of the list, and does not call a model good on one of them. A ranked list (`POST .../score`, `mlpilot score`) is **not available** for these tasks yet and says so; the exported `score.py` scores them and `score.py --verify` recomputes the validation MAE or log loss.
 
 ## Conditions
 

@@ -2,7 +2,13 @@ name: CI
 
 on:
   push:
+    branches: [main]  # a PR branch is tested by its pull_request run; once is enough
   pull_request:
+
+# a newer push to the same PR cancels the run it replaces
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # The backend job is split so a PR does not wait for one 30-minute runner: `backend-tests` runs

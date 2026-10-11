@@ -31,7 +31,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
@@ -49,6 +48,7 @@ from ml.features.ir import describe
 from ml.features.llm_sql import ProposalRecord
 from ml.metrics.calibration import choose_threshold
 from ml.metrics.classification import compute_classification_metrics
+from ml.metrics.kinds import UNSEEN, TaskKind
 from ml.metrics.ranking import ranking_metrics
 from ml.validation.splits import RowSplit, SplitError
 
@@ -79,7 +79,7 @@ class Champion:
     metrics: dict[str, float]  # validation metrics of its model
     shares: dict[str, float]  # share of gain per feature
     best_iteration: int
-    fold_scores: list[float]  # PR-AUC per temporal fold, the bar for the next candidate
+    fold_scores: list[float]  # the task's metric per fold, the bar for the next candidate
     model: Any = field(repr=False, default=None)
 
 
@@ -162,13 +162,26 @@ class NoSink:
 
 
 def score_test(
-    model: Any, features: pd.DataFrame, y: np.ndarray, *, threshold: float | None = None
+    model: Any,
+    features: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    threshold: float | None = None,
+    kind: TaskKind | None = None,
+    reference: np.ndarray | None = None,
 ) -> dict[str, float]:
     """Score the test rows. The one place the test rows are scored; called once per run.
 
     With a ``threshold`` (chosen on the validation rows, never here) the same predictions are
-    also reported as class decisions: accuracy, precision, recall, F1 and ROC-AUC.
+    also reported as class decisions: accuracy, precision, recall, F1 and ROC-AUC. Regression and
+    multi-class tasks report their own metrics (``TaskKind.evaluate``); ``reference`` is the
+    training labels, for the trivial baseline shown beside them.
     """
+    if kind is not None and kind.task != "binary":
+        other = kind.evaluate(
+            y, kind.predict(model, features), y if reference is None else reference
+        )
+        return {**other, "n_test": float(len(y))}
     prob = np.asarray(model.predict_proba(features))[:, 1]
     metrics: dict[str, float | None] = dict(ranking_metrics(y, prob, absolute_k=(100,)))
     metrics["n_test"] = float(len(y))
@@ -194,13 +207,13 @@ def start_state(baseline: BaselineResult, config: RunConfig) -> tuple[LoopState,
         or baseline.model is None
     ):
         raise BaselineError("the baseline result must carry its frame, labels, model and split")
-    y = baseline.labels["label"].astype(int).to_numpy()
     scorer = FoldScorer(
-        y,
+        baseline.y,
         baseline.temporal.folds,
         train_rows=baseline.temporal.fold_rows,
         seed=config.seed,
         kind=baseline.fold_kind,
+        task=baseline.kind,
     )
     champion = Champion(
         names=[str(c) for c in baseline.frame.columns],
@@ -234,7 +247,7 @@ async def run_loop(
         state, scorer = state or started_state, scorer or started_scorer
     assert state is not None and scorer is not None
     assert baseline.labels is not None and baseline.temporal is not None
-    y = baseline.labels["label"].astype(int).to_numpy()
+    y = baseline.y
     split = baseline.temporal
     tracker = state.tracker if state.tracker is not None else BudgetTracker(config.budget)
     state.tracker = tracker
@@ -267,7 +280,9 @@ async def run_loop(
         if record.status == "no_llm":
             stop_reason = "no_llm"
             rnd = Round(number, record, seconds=time.monotonic() - started)
-            await hooks.emit("feature_decision", **_event(rnd, state.champion, tracker, cost))
+            await hooks.emit(
+                "feature_decision", **_event(rnd, state.champion, tracker, cost, baseline.kind)
+            )
             break
         rnd = Round(number, record)
         if record.status == "proposed" and record.proposal is not None:
@@ -283,7 +298,9 @@ async def run_loop(
         rnd.seconds = time.monotonic() - started
         state.rounds.append(rnd)
         await sink.round_done(rnd, state.champion)
-        await hooks.emit("feature_decision", **_event(rnd, state.champion, tracker, cost))
+        await hooks.emit(
+            "feature_decision", **_event(rnd, state.champion, tracker, cost, baseline.kind)
+        )
     await hooks.check_cancelled()
     return await _finish(baseline, state, config, stop_reason, y, hooks, score=score_test)
 
@@ -304,16 +321,19 @@ async def _decide(
     champion = state.champion
     candidate_frame = champion.frame.assign(**{name: record.values.to_numpy()})
     candidate_scores = await asyncio.to_thread(scorer.score, candidate_frame)
-    rnd.gain = compare(champion.fold_scores, candidate_scores, config.rule, kind=scorer.kind)
+    task = scorer.task
+    rnd.gain = compare(
+        champion.fold_scores, candidate_scores, config.rule, kind=scorer.kind, task=task
+    )
     if not rnd.gain.accepted:
         proposer.reject_for_gain(
             record,
-            f"no gain: {rnd.gain.mean_gain:+.4f} PR-AUC on the {scorer.kind} folds, "
+            f"no gain: {rnd.gain.mean_gain:+.4f} {task.gain_text} on the {scorer.kind} folds, "
             f"needs more than {rnd.gain.margin:.4f}",
         )
         return
     model, metrics, shares = await asyncio.to_thread(
-        fit_validated, candidate_frame, y, split.train, split.val, config.seed
+        fit_validated, candidate_frame, y, split.train, split.val, config.seed, task
     )
     rnd.accepted = True
     rnd.champion_metrics = metrics
@@ -343,7 +363,9 @@ def _summary(record: ProposalRecord) -> dict[str, Any]:
     }
 
 
-def _event(rnd: Round, champion: Champion, tracker: BudgetTracker, cost: float) -> dict[str, Any]:
+def _event(
+    rnd: Round, champion: Champion, tracker: BudgetTracker, cost: float, task: TaskKind
+) -> dict[str, Any]:
     p = rnd.record.proposal
     out: dict[str, Any] = {
         "round": rnd.number,
@@ -354,9 +376,13 @@ def _event(rnd: Round, champion: Champion, tracker: BudgetTracker, cost: float) 
         "accepted": rnd.accepted,
         "vetoed": rnd.vetoed,
         "cost_usd": round(cost, 6),
-        "champion_val_pr_auc": champion.metrics.get("pr_auc"),
+        "metric": task.metric,
+        "gain_text": task.gain_text,
+        "champion_val_metric": champion.metrics.get(task.metric),
         "budget_used": tracker.used(),
     }
+    if task.task == "binary":
+        out["champion_val_pr_auc"] = champion.metrics.get("pr_auc")
     if rnd.gain is not None:
         out["gain"] = {
             "mean": rnd.gain.mean_gain,
@@ -384,7 +410,9 @@ async def _finish(
     error: str | None = None
     if score:
         await hooks.step("Refitting on train + validation and scoring the test rows once", 0.95)
-        test, error = await _score_once(champion, y, split, config.seed, baseline.report_threshold)
+        test, error = await _score_once(
+            champion, y, split, config.seed, baseline.report_threshold, baseline.kind
+        )
     await hooks.emit("run_finished", status=status, stop_reason=stop_reason, test=test, error=error)
     return RunOutcome(
         status, stop_reason, state.rounds, champion, test, error, state.tracker.used()
@@ -392,11 +420,16 @@ async def _finish(
 
 
 async def _score_once(
-    champion: Champion, y: np.ndarray, split: RowSplit, seed: int, with_threshold: bool = False
+    champion: Champion,
+    y: np.ndarray,
+    split: RowSplit,
+    seed: int,
+    with_threshold: bool = False,
+    task: TaskKind | None = None,
 ) -> tuple[dict[str, float] | None, str | None]:
     try:
         scored = await asyncio.to_thread(
-            _refit_and_score_test, champion, y, split, seed, with_threshold
+            _refit_and_score_test, champion, y, split, seed, with_threshold, task
         )
         return scored, None
     except (SplitError, ValueError) as e:  # for example a test period with one class only
@@ -410,33 +443,56 @@ async def score_chosen(baseline: BaselineResult, outcome: RunOutcome, seed: int)
     winner only, never once per rollout and never to choose between them.
     """
     assert baseline.labels is not None and baseline.temporal is not None
-    y = baseline.labels["label"].astype(int).to_numpy()
     test, error = await _score_once(
-        outcome.champion, y, baseline.temporal, seed, baseline.report_threshold
+        outcome.champion,
+        baseline.y,
+        baseline.temporal,
+        seed,
+        baseline.report_threshold,
+        baseline.kind,
     )
     return replace(outcome, test=test, test_error=error)
 
 
 def refit_on_train_val(
-    frame: pd.DataFrame, best_iteration: int, y: np.ndarray, split: RowSplit, seed: int
-) -> lgb.LGBMClassifier:
+    frame: pd.DataFrame,
+    best_iteration: int,
+    y: np.ndarray,
+    split: RowSplit,
+    seed: int,
+    task: TaskKind | None = None,
+) -> Any:
     """The final model: the champion's features, refit on the train and validation rows."""
+    task = task or TaskKind()
     rows = np.concatenate([split.train, split.val])
-    params = {**LGBM_PARAMS, "n_estimators": max(10, best_iteration)}
-    model = lgb.LGBMClassifier(
-        **params, random_state=seed, deterministic=True, force_row_wise=True, verbose=-1
-    )
+    rows = rows[y[rows] != UNSEEN]  # a class the training rows lack is not a class of the model
+    model = task.estimator({**LGBM_PARAMS, "n_estimators": max(10, best_iteration)}, seed)
     model.fit(frame.iloc[rows], y[rows])
     return model
 
 
 def _refit_and_score_test(
-    champion: Champion, y: np.ndarray, split: RowSplit, seed: int, with_threshold: bool = False
+    champion: Champion,
+    y: np.ndarray,
+    split: RowSplit,
+    seed: int,
+    with_threshold: bool = False,
+    task: TaskKind | None = None,
 ) -> dict[str, float]:
-    if len(set(y[split.test])) < 2:
-        raise ValueError("the test rows have only one class")
-    model = refit_on_train_val(champion.frame, champion.best_iteration, y, split, seed)
-    extra: dict[str, float] = {}
+    task = task or TaskKind()
+    known = y[split.test] != UNSEEN
+    if (task.task == "binary" and len(set(y[split.test])) < 2) or (
+        task.task == "multiclass" and not known.any()
+    ):
+        raise ValueError(
+            "the test rows have only one class"
+            if task.task == "binary"
+            else "no test row has a class the training rows have"
+        )
+    model = refit_on_train_val(champion.frame, champion.best_iteration, y, split, seed, task)
+    extra: dict[str, Any] = {}
+    if task.task != "binary":
+        extra.update(kind=task, reference=y[split.train])
     if with_threshold:
         # chosen on the validation rows by the model that did not see them, as for any decision
         extra["threshold"] = validation_threshold(champion, y, split)

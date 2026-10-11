@@ -37,6 +37,7 @@ from tests.integration.test_run_loop_api import GOOD, finished, runs_url
 from tests.integration.test_tasks_api import take_snapshot
 from tests.unit.test_feature_engine import Costly
 from tests.unit.test_llm_sql import answer
+from tests.unit.test_task_spec import CHURN
 
 TABLES, started_run = base.TABLES, base.started_run
 connection = base.connection  # the fixture, re-exported
@@ -63,13 +64,14 @@ async def exported_run(
     connection: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    spec_yaml: str = CHURN,
 ) -> tuple[Path, Path, str]:
     monkeypatch.setitem(DEFAULT_RULE, "min_gain", -1.0)
     monkeypatch.setitem(DEFAULT_RULE, "std_multiplier", -1e6)
     gateway = Costly([answer(k) for k in GOOD[:2]], cost=0.01)
     monkeypatch.setattr(handlers, "make_gateway", lambda: gateway)
     version = await take_snapshot(client, project_id, connection, "2025-01-01T00:00:00Z", TABLES)
-    _, run_id = await started_run(client, project_id, connection, version)
+    _, run_id = await started_run(client, project_id, connection, version, spec_yaml)
     started = await client.post(
         runs_url(project_id, f"/{run_id}/start"), json={"max_rounds": 2, "patience": 2}
     )

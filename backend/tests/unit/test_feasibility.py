@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -210,16 +211,55 @@ def test_the_report_status_is_the_worst_check_and_reasons_name_the_blockers() ->
     assert all("positives" in r for r in blocked.reasons)  # the warning is not listed as a blocker
 
 
-def test_a_regression_task_has_no_positives_to_count() -> None:
-    spec = from_yaml(
-        CHURN.replace("type: binary", "type: regression")
-        .replace(', compare: "= 0"', "")
-        .replace("metric: pr_auc", "metric: mae")
-    )
-    c = [CutoffCount(x.cutoff, x.window_end, x.eligible, None, None, 3.0) for x in counts(1000)]
-    report = check_feasibility(spec, c)
+REGRESSION = (
+    CHURN.replace("type: binary", "type: regression")
+    .replace(', compare: "= 0"', "")
+    .replace("metric: pr_auc", "metric: mae")
+)
+
+
+def regression_counts(**label: float) -> list[CutoffCount]:
+    stats = {"mean_label": 3.0, "label_std": 2.0, "zero_share": 0.2, **label}
+    return [replace(c, positives=None, base_rate=None, **stats) for c in counts(1000)]
+
+
+def test_a_regression_task_is_checked_on_its_label_distribution_not_positives() -> None:
+    report = check_feasibility(from_yaml(REGRESSION), regression_counts())
     assert report.status == "ok"
     assert get(report, "positives_per_split").numbers == {}
+    assert get(report, "target_distribution").status == "ok"
+
+
+def test_a_regression_label_that_never_varies_blocks_the_run() -> None:
+    report = check_feasibility(from_yaml(REGRESSION), regression_counts(label_std=0.0))
+    check = get(report, "target_distribution")
+    assert (report.status, check.status) == ("block", "block")
+    assert "nothing to learn" in check.message
+
+
+def test_a_mostly_zero_regression_label_warns() -> None:
+    report = check_feasibility(from_yaml(REGRESSION), regression_counts(zero_share=0.95))
+    assert get(report, "target_distribution").status == "warn"
+
+
+MULTICLASS = CHURN.replace("type: binary", "type: multiclass")
+
+
+def test_a_class_the_training_rows_lack_is_counted_and_warned_about() -> None:
+    rows = [
+        replace(c, positives=None, base_rate=None, classes={"a": 300, "b": 300})
+        for c in counts(1000)
+    ]
+    rows[-1] = replace(rows[-1], classes={"a": 300, "b": 300, "z": 100})  # only in the test part
+    check = get(check_feasibility(_multiclass_spec(), rows), "classes_per_split")
+    assert check.status == "warn"
+    assert check.numbers["unseen_rows"]["test"] == 100
+
+
+def _multiclass_spec():  # type: ignore[no-untyped-def]
+    return from_yaml(
+        MULTICLASS.replace("metric: pr_auc", "metric: macro_f1").replace(', compare: "= 0"', "")
+    )
 
 
 # -- coverage read from the demo database -----------------------------------------------------------

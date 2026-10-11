@@ -22,6 +22,7 @@ from app.services.feature_proposals import feature_description
 from app.services.privacy_service import PrivacyService
 from app.services.task_service import TaskService
 from ml.data.sources import ConnectionFailure
+from ml.metrics.kinds import TaskKind
 from ml.reports import Report, build_report, to_html, to_markdown
 from ml.tasks.nl_to_spec import describe_spec
 from ml.tasks.spec import from_yaml
@@ -35,6 +36,42 @@ def _iso(value: Any) -> str | None:
 
 def _day(value: Any) -> str:
     return str(value)[:10]
+
+
+# what a report shows for each task type: the number a run is judged by, the trivial model it
+# must beat, and the rows of the metric table
+_TRIVIAL = {
+    "binary": ("base_rate", "a base rate"),
+    "regression": ("trivial_mae", "always predicting the training median"),
+    "multiclass": ("trivial_log_loss", "predicting the training class shares"),
+}
+_ROWS = {
+    "regression": [
+        ("MAE", "mae"),
+        ("RMSE", "rmse"),
+        ("R squared", "r2"),
+        ("MAE of the training median", "trivial_mae"),
+    ],
+    "multiclass": [
+        ("Macro-F1", "macro_f1"),
+        ("Accuracy", "accuracy"),
+        ("Log loss", "log_loss"),
+        ("Log loss of the class shares", "trivial_log_loss"),
+    ],
+}
+
+
+def _metric_records(kind: TaskKind) -> dict[str, Any]:
+    trivial_key, trivial = _TRIVIAL[kind.task]
+    return {
+        "task": kind.task,
+        "key": kind.metric,
+        "label": kind.metric_label,
+        "gain_text": kind.gain_text,
+        "trivial_key": trivial_key,
+        "trivial": trivial,
+        "rows": _ROWS.get(kind.task, []),
+    }
 
 
 class ReportService:
@@ -52,6 +89,7 @@ class ReportService:
         spec_row = await self.db.get(TaskSpec, run.task_spec_id)
         assert spec_row is not None
         spec = from_yaml(spec_row.yaml)
+        kind = TaskKind(task=spec.target.type)
         experiments = list(
             (
                 await self.db.scalars(
@@ -166,7 +204,7 @@ class ReportService:
                 {
                     "round": (e.manifest or {}).get("round"),
                     "feature": (e.change_description or "").removeprefix("Added feature "),
-                    "val_pr_auc": (e.val_metrics or {}).get("pr_auc"),
+                    "val_metric": (e.val_metrics or {}).get(kind.metric),
                 }
                 for e in sorted(
                     kinds["champion"], key=lambda e: (e.manifest or {}).get("round") or 0
@@ -203,6 +241,7 @@ class ReportService:
             },
             "derived": {},
         }
+        records["metric"] = _metric_records(kind)
         test = final.test_metrics if final is not None else None
         if test and test.get("n_test") is not None and test.get("base_rate") is not None:
             records["derived"]["test_positives"] = round(test["n_test"] * test["base_rate"])

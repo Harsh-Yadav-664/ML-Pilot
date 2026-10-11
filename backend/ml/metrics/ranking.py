@@ -88,3 +88,28 @@ def ranking_metrics(
         out[f"recall_at_{name}"] = recall_at_k(y, s, k)
         out[f"lift_at_{name}"] = lift_at_k(y, s, k)
     return out
+
+
+def captured_value_at_k(y_true: np.ndarray, score: np.ndarray, k: int) -> float:
+    """Share of the total value held by the k entities with the highest predicted value."""
+    total = float(np.sum(y_true))
+    if total <= 0:
+        raise ValueError("captured value is undefined when the values do not add up to more than 0")
+    return float(np.sum(_top_k(y_true, score, k)) / total)
+
+
+def captured_value_metrics(
+    y_true: np.ndarray,
+    score: np.ndarray,
+    fractions: Sequence[float] = DEFAULT_FRACTIONS,
+    absolute_k: Sequence[int] = (),
+) -> dict[str, float]:
+    """``captured_value_at_<cut>`` for a regression task whose values are never negative (spend,
+    revenue, counts): "the top 10% by prediction hold 62% of all the value". Random picking holds
+    the same share as the cut (10%). Empty if a value is negative or the values add up to 0."""
+    y = np.asarray(y_true, dtype=float)
+    if y.min(initial=0.0) < 0 or y.sum() <= 0:
+        return {}
+    cuts = [(fraction_key(f), k_for_fraction(len(y), f)) for f in fractions]
+    cuts += [(str(k), k) for k in absolute_k if k <= len(y)]
+    return {f"captured_value_at_{name}": captured_value_at_k(y, score, k) for name, k in cuts}

@@ -23,7 +23,7 @@ from urllib.parse import unquote, urlparse
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import average_precision_score, log_loss, mean_absolute_error
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # python -I does not add the script's folder
@@ -114,20 +114,36 @@ def feature_frame(conn: Any, entities: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([out, pd.DataFrame(columns, index=out.index)], axis=1)
 
 
-def predict(frame: pd.DataFrame) -> pd.Series:
+TASK: str = CONFIG.get("task", "binary")  # binary, regression or multiclass
+METRIC: str = CONFIG.get("metric", "pr_auc")
+CLASSES: list[str] = CONFIG.get("classes", [])
+
+
+def predict(frame: pd.DataFrame) -> pd.DataFrame:
+    """One ``score`` column; for a multi-class model one ``score_<i>`` column per class."""
     booster = lgb.Booster(model_file=str(HERE / "model" / "model.txt"))
-    names = booster.feature_name()
-    return pd.Series(booster.predict(frame[names]), index=frame.index)
+    out = np.asarray(booster.predict(frame[booster.feature_name()]))
+    if out.ndim == 2:
+        return pd.DataFrame(out, index=frame.index).add_prefix("score_")
+    return pd.DataFrame({"score": out}, index=frame.index)
+
+
+def metric(label: pd.Series, score: pd.DataFrame) -> float:
+    if TASK == "regression":
+        return float(mean_absolute_error(label, score["score"]))
+    if TASK == "multiclass":
+        return float(log_loss(label, score.to_numpy(), labels=list(range(len(CLASSES)))))
+    return float(average_precision_score(label, score["score"]))
 
 
 def verify(conn: Any) -> int:
     reference = pd.read_csv(HERE / "reference_validation.csv", parse_dates=["cutoff_time"])
     frame = feature_frame(conn, reference)
     score = predict(frame)
-    got = float(average_precision_score(reference["label"], score))
-    want = float(CONFIG["validation"]["pr_auc"])
-    worst = float(np.abs(score.to_numpy() - reference["score"].to_numpy()).max())
-    print(f"validation PR-AUC reported {want:.9f}, recomputed from your database {got:.9f}")
+    got = metric(reference["label"], score)
+    want = float(CONFIG["validation"][METRIC])
+    worst = float(np.abs(score.to_numpy() - reference[score.columns].to_numpy()).max())
+    print(f"validation {METRIC} reported {want:.9f}, recomputed from your database {got:.9f}")
     print(f"largest difference in a single score: {worst:.3e}  (rows: {len(reference)})")
     ok = abs(got - want) <= 1e-6
     print("OK: reproduced within 1e-6" if ok else "NOT reproduced: the data differs from the run")
@@ -152,8 +168,13 @@ def main() -> int:
             return verify(conn)
         entities = eligible(conn, args.cutoff)
         frame = feature_frame(conn, entities)
-        result = frame[["entity_id", "cutoff_time"]].assign(score=predict(frame))
-        result.sort_values("score", ascending=False).to_csv(args.out, index=False)
+        scores = predict(frame)
+        result = pd.concat([frame[["entity_id", "cutoff_time"]], scores], axis=1)
+        if TASK == "multiclass":
+            result["predicted_class"] = [CLASSES[i] for i in scores.to_numpy().argmax(axis=1)]
+        result.loc[scores.max(axis=1).sort_values(ascending=False).index].to_csv(
+            args.out, index=False
+        )
         print(f"wrote {len(result)} scores to {args.out}")
         return 0
     finally:

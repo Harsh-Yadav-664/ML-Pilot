@@ -67,10 +67,12 @@ from ml.agents import run_loop as loop
 from ml.data.engine import EngineError
 from ml.data.profiling.db_stats import TableStats
 from ml.data.workspace import workspace_for
+from ml.experiments.acceptance import GainResult
 from ml.export.artifacts import artifact_dir, save_artifacts
 from ml.features.baseline import BaselineError, build_baseline, flatten_graph, typed_times
 from ml.features.engine import Budget, BudgetTracker, FeatureEngine
 from ml.features.llm_sql import FeatureProposer
+from ml.metrics.kinds import METRIC_NAMES
 from ml.tasks import labels
 from ml.validation.splits import SplitError, TemporalSplitPlan
 
@@ -504,6 +506,12 @@ def _changes(old: loop.RunConfig, new: loop.RunConfig) -> dict[str, dict[str, An
     return {k: {"from": a, "to": b} for k, (a, b) in pairs.items() if a != b}
 
 
+def _gain_unit(gain: GainResult) -> str:
+    """``PR-AUC``, or ``relative reduction of MAE`` for a metric where lower is better."""
+    name = METRIC_NAMES[gain.metric]
+    return f"relative reduction of {name}" if gain.rule.get("gain") else name
+
+
 class _Sink:
     """Writes each round as it ends: the proposal, and for an accepted one the new champion."""
 
@@ -540,14 +548,14 @@ class _Sink:
                     dataset_version=str(run.data_version_id)[:50],
                     hypothesis=rnd.record.proposal.rationale,
                     change_description=f"Added feature {rnd.record.proposal.name}",
-                    model_name="LGBMClassifier",
+                    model_name=type(champion.model).__name__,
                     feature_set=champion.names,
                     metrics=champion.metrics,
                     val_metrics=champion.metrics,
                     status="completed",
                     decision="keep",
                     decision_reason=(
-                        f"Paired gain {rnd.gain.mean_gain:+.4f} PR-AUC on the temporal folds "
+                        f"Paired gain {rnd.gain.mean_gain:+.4f} {_gain_unit(rnd.gain)} on the temporal folds "
                         f"beats the margin {rnd.gain.margin:.4f}"
                     ),
                     decision_mode="rule",
@@ -659,8 +667,10 @@ async def _execute(
     if not is_resume:
         await ctx.emit(
             "baseline",
-            val_pr_auc=baseline.metrics["pr_auc"],
-            base_rate=baseline.metrics["base_rate"],
+            val_pr_auc=baseline.metrics.get("pr_auc"),
+            base_rate=baseline.metrics.get("base_rate"),
+            metric=baseline.kind.metric,
+            val_metric=baseline.metrics[baseline.kind.metric],
             features=len(baseline.features),
         )
     else:
@@ -798,6 +808,7 @@ async def _execute(
         baseline.labels,
         baseline.temporal.train,
         baseline.temporal.val,
+        baseline.kind,
     )
     await _finish(
         run_id,
@@ -842,7 +853,7 @@ async def _finish(
             dataset_version=str(run.data_version_id)[:50],
             hypothesis="Final model: the champion refit on train and validation, test scored once",
             change_description=f"{len(outcome.champion.names)} features; stopped: {outcome.stop_reason}",
-            model_name="LGBMClassifier",
+            model_name=type(outcome.champion.model).__name__,
             feature_set=outcome.champion.names,
             metrics=outcome.test,  # None if the test rows could not be scored
             val_metrics=outcome.champion.metrics,
