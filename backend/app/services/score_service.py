@@ -16,10 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import datasets
 from app.db.models import Connection, DataVersion, Experiment, Run, TaskSpec
-from app.schemas.runs import RunScore
+from app.schemas.runs import RunScore, RunWriteback
 from app.services.bundle_service import latest_features
 from app.services.connection_service import ConnectionService
-from ml.data import sql_guard
+from ml.data import sql_guard, writeback
 from ml.data.engine import EngineError
 from ml.data.schema_graph import SchemaGraph
 from ml.data.snapshot import DataDescription
@@ -205,6 +205,37 @@ class ScoreService:
             drift=drift,
             record=n_records,
         )
+
+    async def writeback(
+        self, project_id: str, run_id: str, connection_id: str, cutoff: datetime | None
+    ) -> RunWriteback:
+        """Score as ``score`` does, then insert the scores into ``mlpilot_predictions`` through
+        the write-back connection (#172). 403 unless that connection was saved for write-back."""
+        connections = ConnectionService(self.db)
+        conn = await connections.get(project_id, connection_id)
+        if not conn.writeback:
+            raise HTTPException(
+                403, "Write-back is off for this connection; save a separate one with writeback"
+            )
+        spec = connections.spec(conn)
+        scored = await self.score(project_id, run_id, cutoff, 1)
+        rows = pd.read_csv(
+            csv_path(artifact_dir(datasets.PROJECTS_DIR, project_id, run_id), scored.cutoff),
+            usecols=["entity_id", "score"],
+            dtype={"entity_id": str},
+        )
+        try:
+            n = await asyncio.to_thread(
+                writeback.write_scores,
+                spec,
+                run_id,
+                scored.cutoff,
+                rows["entity_id"].tolist(),
+                rows["score"].astype(float).tolist(),
+            )
+        except ConnectionFailure as e:
+            raise HTTPException(502, f"Could not write the scores: {e}") from None
+        return RunWriteback(cutoff=scored.cutoff, table=writeback.TABLE, rows_written=n)
 
     def csv(self, project_id: str, run_id: str, stamp: str) -> Path:
         try:

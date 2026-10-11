@@ -1062,6 +1062,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/runs/{run_id}/writeback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Writeback Run
+         * @description Opt-in: score as .../score does and insert the rows into mlpilot_predictions.scores
+         *     through a connection saved with writeback=true. Nothing outside that schema is touched;
+         *     with any other connection the answer is 403 and nothing is written.
+         */
+        post: operations["writeback_run_api_v1_projects__project_id__runs__run_id__writeback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/tasks/": {
         parameters: {
             query?: never;
@@ -1660,6 +1682,12 @@ export interface components {
              * @description Postgres only
              */
             username?: string | null;
+            /**
+             * Writeback
+             * @description Postgres only. A separate connection that may write scores to the mlpilot_predictions schema and nothing else; it is never used for reading
+             * @default false
+             */
+            writeback: boolean;
         };
         /** ConnectionRead */
         ConnectionRead: {
@@ -1703,6 +1731,11 @@ export interface components {
             ssl_root_cert: string | null;
             /** Username */
             username: string | null;
+            /**
+             * Writeback
+             * @default false
+             */
+            writeback: boolean;
         };
         /** ConnectionTestResult */
         ConnectionTestResult: {
@@ -2940,6 +2973,34 @@ export interface components {
             test_metrics?: {
                 [key: string]: number;
             } | null;
+        };
+        /** RunWriteback */
+        RunWriteback: {
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /** Rows Written */
+            rows_written: number;
+            /**
+             * Table
+             * @description Where the rows went: always mlpilot_predictions.scores
+             */
+            table: string;
+        };
+        /** RunWritebackRequest */
+        RunWritebackRequest: {
+            /**
+             * Connection Id
+             * @description A saved connection created with writeback=true
+             */
+            connection_id: string;
+            /**
+             * Cutoff
+             * @description As for .../score; default the last day
+             */
+            cutoff?: string | null;
         };
         /** SampleDatasetRequest */
         SampleDatasetRequest: {
@@ -5776,6 +5837,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SuggestionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    writeback_run_api_v1_projects__project_id__runs__run_id__writeback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunWritebackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunWriteback"];
                 };
             };
             /** @description Validation Error */

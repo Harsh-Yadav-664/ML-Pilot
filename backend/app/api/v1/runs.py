@@ -21,6 +21,8 @@ from app.schemas.runs import (
     RunScore,
     RunScoreRequest,
     RunStateRead,
+    RunWriteback,
+    RunWritebackRequest,
     SettingsMessage,
     SettingsPreview,
     SuggestionCreate,
@@ -226,6 +228,16 @@ async def score_run(
     in null rates, means or entity counts are warnings."""
     req = body or RunScoreRequest()
     return await ScoreService(db).score(project_id, run_id, req.cutoff, req.top_k)
+
+
+@router.post("/{run_id}/writeback", response_model=RunWriteback)
+async def writeback_run(
+    run_id: str, project_id: ProjectID, db: DBSession, body: RunWritebackRequest
+) -> RunWriteback:
+    """Opt-in: score as .../score does and insert the rows into mlpilot_predictions.scores
+    through a connection saved with writeback=true. Nothing outside that schema is touched;
+    with any other connection the answer is 403 and nothing is written."""
+    return await ScoreService(db).writeback(project_id, run_id, body.connection_id, body.cutoff)
 
 
 @router.get("/{run_id}/scores/{stamp}.csv", response_class=FileResponse)

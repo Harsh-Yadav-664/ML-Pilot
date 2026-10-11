@@ -362,7 +362,7 @@ export function ConnectView() {
         await deleteConnection(conn.id);
         conn = null;
       }
-      conn = conn ? await updateConnection(conn.id, fields) : await createConnection({ dialect, ...fields });
+      conn = conn ? await updateConnection(conn.id, fields) : await createConnection({ dialect, writeback: false, ...fields });
       setSaved(conn);
       setPassword('');
       refreshExisting();
