@@ -81,6 +81,11 @@ jobs:
         run: |
           pip install -r requirements-mlflow.txt
           pytest -q -s tests/integration/test_mlflow_logging.py
+      # Same for the MCP SDK: the full test step skips tests/integration/test_mcp_server.py.
+      - name: MCP server (optional extra installed; prints each tool call of an MCP client)
+        run: |
+          pip install -r requirements-mcp.txt
+          pytest -q -s -p no:logging tests/integration/test_mcp_server.py
 
   # The demo database as Docker ships it (issue #47): `docker compose up demo-db`, then psql as
   # the read-only role and the integration test against it.

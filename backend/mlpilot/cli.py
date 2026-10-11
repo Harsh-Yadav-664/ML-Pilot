@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.db.models import Connection, Run, TaskSpec
+    from app.schemas.runs import RunLoopRequest
 
 app = typer.Typer(
     name="mlpilot",
@@ -126,6 +127,10 @@ def main(
 # -- helpers -------------------------------------------------------------------------------------
 
 
+class NotFound(LookupError):
+    """A connection, task or run the user named (or the default) does not exist."""
+
+
 def die(message: str, code: int = EXIT_FAILED) -> NoReturn:
     typer.secho(f"Error: {message}", fg=typer.colors.RED, err=True)
     raise typer.Exit(code)
@@ -169,6 +174,8 @@ def run_async[T](main_fn: Callable[[], Awaitable[T]]) -> T:
         return asyncio.run(guarded())
     except HTTPException as e:
         die(detail_text(e.detail))
+    except NotFound as e:
+        die(str(e))
 
 
 @asynccontextmanager
@@ -205,14 +212,14 @@ async def project_id(db: AsyncSession) -> str:
 def _pick(items: list[Any], ref: str | None, what: str, hint: str) -> Any:
     """The item named by ``ref`` (id, id prefix or name), or the newest when ``ref`` is empty."""
     if not items:
-        die(f"There is no {what} yet. {hint}")
+        raise NotFound(f"There is no {what} yet. {hint}")
     if ref is None:
         return items[-1]
     exact = [i for i in items if ref in (i.id, getattr(i, "name", None))]
     found = exact or [i for i in items if i.id.startswith(ref)]
     if len(found) != 1:
         names = ", ".join(f"{getattr(i, 'name', i.id[:8])} ({i.id[:8]})" for i in items)
-        die(f"{ref!r} does not name exactly one {what}. Known: {names}")
+        raise NotFound(f"{ref!r} does not name exactly one {what}. Known: {names}")
     return found[0]
 
 
@@ -583,19 +590,7 @@ def run_command(
     The test rows are scored once, at the end. Without an API key the offline stub answers, and
     the run says so: it is then the automatic baseline only.
     """
-    from app.db.models import Job
-    from app.jobs import (
-        handlers,  # noqa: F401  (registers the job kinds)
-        runner,
-    )
-    from app.jobs.runner import JobWorker
     from app.schemas.runs import RunLoopRequest
-    from app.schemas.snapshot import SnapshotRequest
-    from app.schemas.tasks import RunStartRequest
-    from app.services.llm_gateway import make_gateway
-    from app.services.run_service import RunService
-    from app.services.snapshot_service import SnapshotService, resolve_as_of
-    from app.services.task_service import TaskService
 
     request = RunLoopRequest(
         max_rounds=max_rounds,
@@ -609,55 +604,14 @@ def run_command(
         say(f"[{time.monotonic() - started:6.1f}s] {message}")
 
     async def go() -> int:
+        from app.services.run_service import RunService
+
         async with session() as db:
             pid = await project_id(db)
             row = await pick_task(db, pid, task, "confirmed")
             if row.status != "confirmed":
                 die(f"Task {row.name!r} is a draft: run `mlpilot task confirm` first")
-            assert row.connection_id is not None
-            providers = sorted(p for p in make_gateway().providers if p != "stub")
-            stamp(f"task {row.name!r}; language model: {', '.join(providers) or 'offline stub'}")
-            version = snapshot
-            if version is None:
-                stamp("taking a snapshot of the database (read-only)...")
-
-                async def progress(message: str, fraction: float) -> None:
-                    stamp(f"  snapshot {fraction:4.0%} {message}")
-
-                taken = await SnapshotService(db).take(
-                    pid,
-                    row.connection_id,
-                    SnapshotRequest(mode="snapshot", as_of=resolve_as_of(None)),
-                    progress,
-                )
-                version = taken.id
-                await db.commit()
-                stamp(
-                    f"snapshot {taken.short_hash}: {taken.n_rows:,} rows, as of {day(taken.as_of)}"
-                )
-            made = await TaskService(db).start_run(
-                pid, row.id, RunStartRequest(data_version_id=version, override=override)
-            )
-            run_id = made.id
-            started_job = await RunService(db).start(pid, run_id, request)
-            await db.commit()
-        runner.notify()
-        stamp(f"run {run_id[:8]} queued")
-
-        worker = JobWorker()
-        await worker.start()
-        try:
-            await follow(pid, run_id, started_job.job_id, stamp)
-        except (asyncio.CancelledError, KeyboardInterrupt):
-            stamp("interrupted: asking the run to stop at its next step...")
-            async with session() as db:
-                job = await db.get(Job, started_job.job_id)
-                if job is not None:
-                    await runner.request_cancel(db, job)
-            await wait_for_job(started_job.job_id, timeout=120)
-            raise
-        finally:
-            await worker.stop(drain=10)
+        run_id = await execute_run(pid, row, request, snapshot, override, stamp)
         async with session() as db:
             state = await RunService(db).state(pid, run_id)
         say()
@@ -671,6 +625,77 @@ def run_command(
     code = run_async(go)
     if code:
         raise typer.Exit(code)
+
+
+async def execute_run(
+    pid: str,
+    row: TaskSpec,
+    request: RunLoopRequest,
+    snapshot: str | None,
+    override: bool,
+    stamp: Callable[[str], None],
+) -> str:
+    """Snapshot, record the run, and drive it to its end on an in-process worker; return its id.
+
+    Shared by ``mlpilot run`` and the MCP server: one way to start a run.
+    """
+    from app.db.models import Job
+    from app.jobs import (
+        handlers,  # noqa: F401  (registers the job kinds)
+        runner,
+    )
+    from app.jobs.runner import JobWorker
+    from app.schemas.snapshot import SnapshotRequest
+    from app.schemas.tasks import RunStartRequest
+    from app.services.llm_gateway import make_gateway
+    from app.services.run_service import RunService
+    from app.services.snapshot_service import SnapshotService, resolve_as_of
+    from app.services.task_service import TaskService
+
+    assert row.connection_id is not None
+    async with session() as db:
+        providers = sorted(p for p in make_gateway().providers if p != "stub")
+        stamp(f"task {row.name!r}; language model: {', '.join(providers) or 'offline stub'}")
+        version = snapshot
+        if version is None:
+            stamp("taking a snapshot of the database (read-only)...")
+
+            async def progress(message: str, fraction: float) -> None:
+                stamp(f"  snapshot {fraction:4.0%} {message}")
+
+            taken = await SnapshotService(db).take(
+                pid,
+                row.connection_id,
+                SnapshotRequest(mode="snapshot", as_of=resolve_as_of(None)),
+                progress,
+            )
+            version = taken.id
+            await db.commit()
+            stamp(f"snapshot {taken.short_hash}: {taken.n_rows:,} rows, as of {day(taken.as_of)}")
+        made = await TaskService(db).start_run(
+            pid, row.id, RunStartRequest(data_version_id=version, override=override)
+        )
+        run_id = made.id
+        started_job = await RunService(db).start(pid, run_id, request)
+        await db.commit()
+    runner.notify()
+    stamp(f"run {run_id[:8]} queued")
+
+    worker = JobWorker()
+    await worker.start()
+    try:
+        await follow(pid, run_id, started_job.job_id, stamp)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        stamp("interrupted: asking the run to stop at its next step...")
+        async with session() as db:
+            job = await db.get(Job, started_job.job_id)
+            if job is not None:
+                await runner.request_cancel(db, job)
+        await wait_for_job(started_job.job_id, timeout=120)
+        raise
+    finally:
+        await worker.stop(drain=10)
+    return run_id
 
 
 async def wait_for_job(job_id: str, timeout: float) -> str | None:
@@ -823,6 +848,19 @@ def score(
         say(f"Full list: {target}")
 
     run_async(go)
+
+
+@app.command("mcp")
+def mcp_command() -> None:
+    """Serve MLPilot to an AI assistant as MCP tools over stdio (needs requirements-mcp.txt)."""
+    try:
+        from mlpilot import mcp_server
+    except ModuleNotFoundError as e:
+        if e.name is None or not e.name.startswith("mcp"):
+            raise
+        die("The MCP server needs the optional `mcp` package: pip install -r requirements-mcp.txt")
+    migrate()  # stdout belongs to the protocol: nothing else may print from here on
+    mcp_server.serve()
 
 
 # -- ui ------------------------------------------------------------------------------------------

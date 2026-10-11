@@ -1,0 +1,4 @@
+# Optional: serve MLPilot to AI assistants as MCP tools with `mlpilot mcp` (#69).
+# Not installed by default; MLPilot runs without it. The MCP Python SDK is MIT-licensed.
+-r requirements.txt
+mcp>=1.27,<2
