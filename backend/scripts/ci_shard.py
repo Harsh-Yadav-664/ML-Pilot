@@ -14,8 +14,26 @@ from pathlib import Path
 
 TESTS = Path(__file__).resolve().parents[1] / "tests"
 
-# file (relative to backend/) -> 1-based shard. Measured wall time per file, see ci.yml.
-PINNED: dict[str, int] = {}
+# The files that took 28 s or more in a CI run (seconds in the comment), spread over the 4 shards
+# so each ends up near 350 s. Re-measure when one shard is clearly slower than the others.
+# file (relative to backend/) -> 1-based shard.
+PINNED: dict[str, int] = {
+    "tests/integration/test_run_loop_api.py": 1,  # 188 s
+    "tests/unit/test_dfs.py": 2,  # 114 s
+    "tests/unit/test_acceptance.py": 3,  # 100 s
+    "tests/integration/test_run_score_api.py": 4,  # 88 s
+    "tests/unit/test_pit_guard.py": 4,  # 78 s
+    "tests/integration/test_run_control_api.py": 3,  # 75 s
+    "tests/unit/test_feature_ir.py": 2,  # 60 s
+    "tests/integration/test_export_bundle.py": 4,  # 58 s
+    "tests/integration/test_mlflow_logging.py": 2,  # 48 s
+    "tests/integration/test_run_explain_api.py": 3,  # 46 s
+    "tests/integration/test_run_report.py": 1,  # 42 s
+    "tests/integration/test_cli.py": 3,  # 40 s
+    "tests/integration/test_job_runner.py": 2,  # 33 s
+    "tests/unit/test_snapshot.py": 4,  # 32 s
+    "tests/unit/test_feature_engine.py": 1,  # 28 s
+}
 
 
 def test_files() -> list[str]:

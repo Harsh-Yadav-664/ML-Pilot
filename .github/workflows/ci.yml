@@ -59,21 +59,7 @@ jobs:
       # Includes tests/integration/test_agent_loop_telecom.py: baseline + 2 agent
       # iterations on telecom_churn.csv with the offline stub provider.
       - name: Tests, shard ${{ matrix.shard }} of 4 (stub LLM provider, no network keys)
-        run: pytest -q --durations=15 --junitxml=junit.xml $(python -m scripts.ci_shard 4 ${{ matrix.shard }})
-      - name: Time per test file (diagnostic)
-        if: always()
-        run: |
-          python - <<'PY'
-          import re, collections, xml.etree.ElementTree as ET
-          t = collections.Counter(); n = collections.Counter()
-          for c in ET.parse("junit.xml").iter("testcase"):
-              m = re.match(r"(tests\.\w+\.test_\w+)", c.get("classname", ""))
-              k = m.group(1) if m else c.get("classname", "?")
-              t[k] += float(c.get("time", 0)); n[k] += 1
-          for k, v in t.most_common():
-              print(f"{v:8.1f}s {n[k]:4d} {k}")
-          print(f"TOTAL {sum(t.values()):.1f}s {sum(n.values())} tests")
-          PY
+        run: pytest -q $(python -m scripts.ci_shard 4 ${{ matrix.shard }})
 
   backend-checks:
     runs-on: ubuntu-latest
