@@ -115,6 +115,25 @@ Today MLPilot works on a **single CSV file**. Each item below is exercised by a 
 - **Real LLM providers:** the gateway registers a real provider when you set its key (see `backend/.env.example`), but CI never calls a real provider, so that path is untested.
 - **Demo mode** in the UI shows sample charts and numbers. It is switched on explicitly and labelled on screen. Everything outside Demo mode comes from the backend or says "not available".
 
+## Benchmark
+
+One task so far: RelBench `rel-f1` / `driver-dnf`, test ROC-AUC, scored by RelBench's own evaluator on its official split. MLPilot does not win on it, and the feature search does not help on it. Full table, method notes and the sources: [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
+
+| Method | Test ROC-AUC | Ours or quoted |
+|---|---|---|
+| LightGBM on the entity table's columns | 0.6148 ± 0.0014 | ours, 3 seeds, [CI run](https://github.com/Harsh-Yadav-664/ML-Pilot/actions/runs/38138813383) |
+| DFS features + LightGBM | 0.6137 ± 0.0165 | ours, 3 seeds, same run |
+| MLPilot agent with a cheap or a strong LLM | not run | needs a model and its API key as a repository secret |
+| LightGBM, RelBench paper | 0.6856 | quoted: [arXiv 2407.20060](https://arxiv.org/abs/2407.20060), Table 3 |
+| RDL, RelBench paper | 0.7262 | quoted: [arXiv 2407.20060](https://arxiv.org/abs/2407.20060), Table 3 |
+| RelAgent | 0.7834 | quoted: [arXiv 2605.07840](https://arxiv.org/abs/2605.07840), Table 2 |
+| KumoRFM-2 | 0.8459 | quoted: [arXiv 2604.12596](https://arxiv.org/abs/2604.12596), Table 3 |
+
+- **Where we lose or tie:** DFS + LightGBM is no better than the entity table alone on test (0.6137 against 0.6148, and its three seeds range from 0.6008 to 0.6323). Both are below every quoted number, including the paper's LightGBM; we have not found out why our LightGBM scores about 0.07 lower.
+- **Quoted numbers are not ours.** They come from the authors' papers, with their own setups, models and budgets, and we did not re-run them. They are not a like-for-like comparison. The papers print AUROC times 100 (68.56); it is divided by 100 here.
+- **The agent rows are empty on purpose.** The workflow also runs the agent without a key, where the offline stub answers and nothing is proposed, so that run just repeats the DFS row. It is not an agent result and it is left out. Time per run on the CI runner: about 2 s and 35 s for the two rows. Neither calls an LLM, so there is no LLM cost; the cost of the agent rows is not measured.
+- **Reproduce ours:** `pip install -r benchmarks/requirements.txt && make benchmark DATASET=rel-f1 TASK=driver-dnf METHODS="a b" SEEDS="0 1 2"`, or run the Benchmark workflow in GitHub Actions.
+
 ## Install and use from the command line
 
 You need Python 3.13 and a Postgres, SQLite or DuckDB database you can read. To try it on the demo database first: `docker compose -f docker/demo-db/docker-compose.yml up -d --wait demo-db`.

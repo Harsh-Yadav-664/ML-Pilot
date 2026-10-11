@@ -5,7 +5,8 @@
 
 The first form writes ``benchmarks/results/<dataset>/<task>/<method>_seed<seed>.json``. A run that
 fails writes a ``failed`` record with the error and exits non-zero. ``make benchmark`` loops over
-methods and seeds, then aggregates into ``benchmarks/RESULTS.md``.
+methods and seeds, then aggregates into ``benchmarks/results/RESULTS.md``. (The committed,
+hand-written ``benchmarks/RESULTS.md`` is a different file.)
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import relbench_harness as h
 import relbench_report as report
 
 RESULTS = REPO / "benchmarks" / "results"
-RESULTS_MD = REPO / "benchmarks" / "RESULTS.md"
+RESULTS_MD = RESULTS / "RESULTS.md"
 
 
 def parse(argv: list[str] | None) -> argparse.Namespace:

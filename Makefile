@@ -1,5 +1,6 @@
 # `make benchmark DATASET=rel-f1` runs every method over every seed on a RelBench task, then writes
-# benchmarks/RESULTS.md from the result files (issue #65). It needs `pip install -r
+# benchmarks/results/RESULTS.md from the result files (issue #65; the published table is the
+# hand-written benchmarks/RESULTS.md, issue #66). It needs `pip install -r
 # benchmarks/requirements.txt` and downloads the dataset on first use. Method d (strong model) is
 # skipped, and says so, unless MLPILOT_BENCH_STRONG_MODEL=provider:model and that provider's API key
 # are set; method c uses MLPILOT_BENCH_CHEAP_MODEL the same way and runs on the offline stub without.
