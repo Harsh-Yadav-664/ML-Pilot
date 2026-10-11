@@ -59,3 +59,6 @@ backend/data/projects/
 
 # Web UI built into the Python package by scripts/build_ui.py
 backend/mlpilot/ui/
+
+# Benchmark runs (benchmarks/relbench/run.py); the workflow uploads them as an artifact
+benchmarks/results/
