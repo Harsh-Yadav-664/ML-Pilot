@@ -56,3 +56,6 @@ alembic/versions/__pycache__/
 backend/uploads/
 backend/data/versions/
 backend/data/projects/
+
+# Web UI built into the Python package by scripts/build_ui.py
+backend/mlpilot/ui/

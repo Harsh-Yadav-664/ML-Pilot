@@ -1,65 +1,37 @@
-version: "3.9"
+# MLPilot (API and web UI in one image) next to the synthetic demo database (issue #68):
+#
+#   docker compose -f docker/docker-compose.yml up --build
+#
+# Then read the address from the log (`docker compose -f docker/docker-compose.yml logs mlpilot`):
+# it ends in "#token=...", the local access token. In the UI connect to host `demo-db`, port 5432,
+# database `demo`, user `mlpilot_ro`, password `mlpilot_demo_ro` (documented demo values for fake
+# data, see docker/demo-db/README.md). The same from a terminal:
+#
+#   docker compose -f docker/docker-compose.yml exec -e DEMO_PW=mlpilot_demo_ro mlpilot \
+#       mlpilot connect --name demo --host demo-db --database demo --user mlpilot_ro --password-env DEMO_PW
+#
+# Ports are published on 127.0.0.1 only: MLPilot is a local tool by default. To use your own token
+# instead of the generated one, export MLPILOT_TOKEN (16+ characters) before `up`.
 
-# Ports are published on 127.0.0.1 only: MLPilot is a local tool by default.
+include:
+  - demo-db/docker-compose.yml
 
 services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: mlpilot
-      POSTGRES_PASSWORD: mlpilot_dev
-      POSTGRES_DB: mlpilot
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mlpilot"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-
-  backend:
+  mlpilot:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mlpilot
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+asyncpg://mlpilot:mlpilot_dev@db:5432/mlpilot
-      LOG_LEVEL: INFO
-      DEBUG: "false"
-      # Inside the container the API listens on all interfaces; the port is published
-      # on localhost only. Every API call needs this token (openssl rand -hex 32).
-      MLPILOT_HOST: 0.0.0.0
-      MLPILOT_TOKEN: ${MLPILOT_TOKEN:?set MLPILOT_TOKEN to a random value of 16+ characters}
+      - MLPILOT_TOKEN # passed through only when it is set in your shell
     ports:
       - "127.0.0.1:8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
     volumes:
-      - ../backend:/app
-      - artifacts:/app/artifacts
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-  frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:5173:80"
+      - mlpilot-data:/data
     depends_on:
-      - backend
+      demo-db:
+        condition: service_healthy
 
 volumes:
-  pgdata:
-  artifacts:
+  mlpilot-data:
