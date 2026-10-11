@@ -230,8 +230,13 @@ def build_baseline(
     *,
     max_features: int = DEFAULT_MAX_FEATURES,
     seed: int = SEED,
+    groups: frozenset[str] | None = None,
 ) -> BaselineResult:
-    """DFS features and a LightGBM model on the temporal split; see the module docstring."""
+    """DFS features and a LightGBM model on the temporal split; see the module docstring.
+
+    ``groups`` keeps only the candidates of those feature groups (``{"attribute"}``: the entity
+    row's own columns, no history); the benchmark harness uses it for its entity-only baseline.
+    """
     started = time.monotonic()
     need = {ENTITY, CUTOFF, "label", "label_window_end"} - set(labels.columns)
     if need:
@@ -257,6 +262,7 @@ def build_baseline(
         entity_created_at=spec.entity.created_at,
         top_values=top_values_from(tables, graph),
     )
+    candidates = [c for c in generated.candidates if groups is None or c.group in groups]
     keys = frame[[ENTITY, CUTOFF]]
     index = pd.MultiIndex.from_frame(keys)
     rng = np.random.default_rng(seed)
@@ -266,7 +272,7 @@ def build_baseline(
     kept: dict[str, pd.Series] = {}
     by_name: dict[str, Candidate] = {}
     dropped: list[Dropped] = []
-    for cand in generated.candidates:
+    for cand in candidates:
         if len(kept) >= max_features:
             dropped.append(Dropped(cand.name, cand.group, "over_cap", f"cap {max_features}"))
             continue
@@ -303,7 +309,7 @@ def build_baseline(
         features=[KeptFeature(by_name[name], float(share)) for name, share in ranked],
         dropped=dropped,
         skipped_tables=generated.skipped,
-        candidates=len(generated.candidates),
+        candidates=len(candidates),
         metrics=metrics,
         split=split.summary(),
         params={**LGBM_PARAMS, "early_stopping_rounds": EARLY_STOPPING_ROUNDS},

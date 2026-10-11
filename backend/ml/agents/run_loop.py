@@ -417,17 +417,25 @@ async def score_chosen(baseline: BaselineResult, outcome: RunOutcome, seed: int)
     return replace(outcome, test=test, test_error=error)
 
 
-def _refit_and_score_test(
-    champion: Champion, y: np.ndarray, split: RowSplit, seed: int, with_threshold: bool = False
-) -> dict[str, float]:
+def refit_on_train_val(
+    frame: pd.DataFrame, best_iteration: int, y: np.ndarray, split: RowSplit, seed: int
+) -> lgb.LGBMClassifier:
+    """The final model: the champion's features, refit on the train and validation rows."""
     rows = np.concatenate([split.train, split.val])
-    if len(set(y[split.test])) < 2:
-        raise ValueError("the test rows have only one class")
-    params = {**LGBM_PARAMS, "n_estimators": max(10, champion.best_iteration)}
+    params = {**LGBM_PARAMS, "n_estimators": max(10, best_iteration)}
     model = lgb.LGBMClassifier(
         **params, random_state=seed, deterministic=True, force_row_wise=True, verbose=-1
     )
-    model.fit(champion.frame.iloc[rows], y[rows])
+    model.fit(frame.iloc[rows], y[rows])
+    return model
+
+
+def _refit_and_score_test(
+    champion: Champion, y: np.ndarray, split: RowSplit, seed: int, with_threshold: bool = False
+) -> dict[str, float]:
+    if len(set(y[split.test])) < 2:
+        raise ValueError("the test rows have only one class")
+    model = refit_on_train_val(champion.frame, champion.best_iteration, y, split, seed)
     extra: dict[str, float] = {}
     if with_threshold:
         # chosen on the validation rows by the model that did not see them, as for any decision

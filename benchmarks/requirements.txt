@@ -1,0 +1,4 @@
+# What `make benchmark` needs on top of the backend: RelBench (MIT licence; it reads the datasets from
+# the Hugging Face hub, so there is no torch). Pinned: its API changed between 2.x and 3.x.
+-r ../backend/requirements-dev.txt
+relbench==3.0.2
