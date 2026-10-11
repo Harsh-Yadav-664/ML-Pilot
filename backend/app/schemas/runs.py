@@ -221,3 +221,10 @@ class RunScore(BaseModel):
         description="The top rows: entity_id, score, rank, decile, reasons"
     )
     csv: str = Field(description="Path of the full ranked list, relative to the project")
+    drift: dict[str, float] = Field(
+        default_factory=dict,
+        description="Population stability index of each numeric feature against training",
+    )
+    record: int = Field(
+        0, description="Position of this scoring in the run's scoring history (1 is the first)"
+    )

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,9 @@ from ml.tasks.spec import from_yaml
 QUERY_TIMEOUT_S = 600
 MAX_ENTITIES = 1_000_000
 PREVIEW_ROWS = 25
+
+
+HISTORY_FILE = "history.jsonl"  # one line per scoring of a run: cutoff, rows, data hash, drift
 
 
 def csv_path(folder: Path, cutoff: datetime) -> Path:
@@ -177,12 +181,29 @@ class ScoreService:
         out = csv_path(folder, when)
         out.parent.mkdir(parents=True, exist_ok=True)
         rows.to_csv(out, index=False)
+        drift = scoring.feature_psi(frame, stats["features"])
+        record = {
+            "cutoff": when.isoformat(),
+            "scored_at": datetime.now(UTC).isoformat(),
+            "n_scored": len(rows),
+            # what was scored, so a later scoring can tell whether the data changed
+            "data_hash": hashlib.sha256(
+                pd.util.hash_pandas_object(frame.assign(_id=ids["entity_id"].to_numpy())).to_numpy()
+            ).hexdigest(),
+            "psi": drift,
+            "drifted": sorted(n for n, v in drift.items() if v > scoring.PSI_THRESHOLD),
+        }
+        with (out.parent / HISTORY_FILE).open("a") as f:
+            f.write(json.dumps(record) + "\n")
+        n_records = sum(1 for _ in (out.parent / HISTORY_FILE).open())
         return RunScore(
             cutoff=when,
             summary=scoring.summary(rows, top_k),
             warnings=[{"name": w.name, "detail": w.detail} for w in warnings],
             preview=json.loads(rows.head(PREVIEW_ROWS).to_json(orient="records")),
             csv=f"/runs/{run.id}/scores/{when:%Y%m%dT%H%M%S}.csv",
+            drift=drift,
+            record=n_records,
         )
 
     def csv(self, project_id: str, run_id: str, stamp: str) -> Path:

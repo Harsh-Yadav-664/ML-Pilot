@@ -25,6 +25,7 @@ REASONS = 3
 NULL_RATE_TOLERANCE = 0.10  # absolute difference in the share of missing values
 MEAN_TOLERANCE_STDS = 3.0
 COUNT_TOLERANCE = 0.5  # relative difference in eligible entities per cutoff
+PSI_THRESHOLD = 0.2  # population stability index above this: the feature's distribution moved
 
 
 class SchemaMismatch(ValueError):
@@ -121,7 +122,7 @@ def rank_rows(
 
 
 def drift_warnings(
-    features: pd.DataFrame, trained: dict[str, dict[str, float]], n_scored: int, per_cutoff: float
+    features: pd.DataFrame, trained: dict[str, dict[str, Any]], n_scored: int, per_cutoff: float
 ) -> list[Check]:
     """Compare what is being scored with what the model was trained on. Warn, never block."""
     out: list[Check] = []
@@ -148,6 +149,13 @@ def drift_warnings(
                         f"({shift:.1f} standard deviations)",
                     )
                 )
+    for name, value in feature_psi(features, trained).items():
+        if value > PSI_THRESHOLD:
+            out.append(
+                Check(
+                    "psi", f"{name}: population stability index {value:.2f} (over {PSI_THRESHOLD})"
+                )
+            )
     if per_cutoff > 0 and abs(n_scored - per_cutoff) / per_cutoff > COUNT_TOLERANCE:
         out.append(
             Check(
@@ -158,18 +166,45 @@ def drift_warnings(
     return out
 
 
-def feature_stats(frame: pd.DataFrame, rows: np.ndarray) -> dict[str, dict[str, float]]:
+def feature_stats(frame: pd.DataFrame, rows: np.ndarray) -> dict[str, dict[str, Any]]:
     """Null rate, mean and standard deviation of every numeric feature on the training rows."""
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for name in frame.columns:
         col = frame[name].iloc[rows]
         if not pd.api.types.is_numeric_dtype(col):
             continue
+        known = col.dropna().to_numpy(dtype="float64")
+        edges: Any = np.unique(np.quantile(known, np.linspace(0.1, 0.9, 9))) if len(known) else []
         out[str(name)] = {
             "null_rate": float(col.isna().mean()),
             "mean": float(col.mean()) if col.notna().any() else 0.0,
             "std": float(col.std()) if col.notna().sum() > 1 else 0.0,
+            # decile edges and the training share of each bin, for the stability index
+            "edges": [float(e) for e in edges],
+            "shares": _bin_shares(known, edges).tolist(),
         }
+    return out
+
+
+def _bin_shares(values: np.ndarray, edges: Any) -> np.ndarray:
+    counts = np.bincount(np.searchsorted(edges, values, side="right"), minlength=len(edges) + 1)
+    return counts / max(len(values), 1)
+
+
+def feature_psi(features: pd.DataFrame, trained: dict[str, Any]) -> dict[str, float]:
+    """Population stability index of each numeric feature against its training bins:
+    ``sum((now - train) * ln(now / train))`` over the training deciles, missing values left out.
+    Features of runs recorded before the bins were stored are skipped."""
+    out: dict[str, float] = {}
+    for name, stats in trained.items():
+        if name not in features.columns or not stats.get("shares"):
+            continue
+        now = pd.to_numeric(features[name], errors="coerce").dropna().to_numpy(dtype="float64")
+        if not len(now):
+            continue
+        a = np.clip(_bin_shares(now, np.asarray(stats["edges"])), 1e-4, None)
+        b = np.clip(np.asarray(stats["shares"], dtype="float64"), 1e-4, None)
+        out[name] = float(np.sum((a - b) * np.log(a / b)))
     return out
 
 

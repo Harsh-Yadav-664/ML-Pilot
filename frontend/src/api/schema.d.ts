@@ -2782,12 +2782,25 @@ export interface components {
              */
             cutoff: string;
             /**
+             * Drift
+             * @description Population stability index of each numeric feature against training
+             */
+            drift?: {
+                [key: string]: number;
+            };
+            /**
              * Preview
              * @description The top rows: entity_id, score, rank, decile, reasons
              */
             preview: {
                 [key: string]: unknown;
             }[];
+            /**
+             * Record
+             * @description Position of this scoring in the run's scoring history (1 is the first)
+             * @default 0
+             */
+            record: number;
             /** Summary */
             summary: {
                 [key: string]: unknown;

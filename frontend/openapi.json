@@ -3525,6 +3525,14 @@
             "title": "Cutoff",
             "type": "string"
           },
+          "drift": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Population stability index of each numeric feature against training",
+            "title": "Drift",
+            "type": "object"
+          },
           "preview": {
             "description": "The top rows: entity_id, score, rank, decile, reasons",
             "items": {
@@ -3533,6 +3541,12 @@
             },
             "title": "Preview",
             "type": "array"
+          },
+          "record": {
+            "default": 0,
+            "description": "Position of this scoring in the run's scoring history (1 is the first)",
+            "title": "Record",
+            "type": "integer"
           },
           "summary": {
             "additionalProperties": true,
