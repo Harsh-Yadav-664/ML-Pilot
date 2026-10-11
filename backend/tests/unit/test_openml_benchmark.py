@@ -195,7 +195,7 @@ def _record(data: h.Data, method: str, seed: int, pr: float, roc: float, seconds
         "llm": {"answered": False} if method == "mlpilot" else None,
         "agent": {"accepted": [], "stop_reason": "no_llm"} if method == "mlpilot" else None,
         "wall_seconds": seconds,
-        "environment": h.environment(),
+        "environment": h.environment() | {"torch": None},
     }
 
 
@@ -218,7 +218,7 @@ def test_the_table_is_built_from_the_result_files_only(data: h.Data, tmp_path: P
     assert "MLPilot minus AutoGluon" in text and "-0.0900 ± 0.0000" in text
     assert "MLPilot higher on 0 of 1 datasets" in text  # honest: AutoGluon wins this one
     assert "none of the 3 mlpilot runs was answered by a model" in text
-    assert "same train / validation / test rows" in text
+    assert "same train / validation / test rows" in text and "PyTorch was not installed" in text
     # every number in the table is one of the files' numbers or computed from them
     assert not re.search(r"DIFFERENT SPLITS", text)
 

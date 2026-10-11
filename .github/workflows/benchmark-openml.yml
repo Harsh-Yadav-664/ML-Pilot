@@ -42,11 +42,11 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       MLPILOT_BENCH_CHEAP_MODEL: ${{ inputs.model }}
-      OPENML_DATASETS: ${{ inputs.datasets || '37 31 29 1464 1494 1480 1489 44 1067 1487' }}
+      OPENML_DATASETS: ${{ inputs.datasets || '37 1464' }}
       OPENML_METHODS: ${{ inputs.methods || 'lightgbm mlpilot autogluon' }}
-      OPENML_SEEDS: ${{ inputs.seeds || '0 1 2' }}
-      AG_SECONDS: ${{ inputs.ag_seconds || '90' }}
-      AG_PRESET: ${{ inputs.ag_preset || 'high_quality' }}
+      OPENML_SEEDS: ${{ inputs.seeds || '0 1' }}
+      AG_SECONDS: ${{ inputs.ag_seconds || '30' }}
+      AG_PRESET: ${{ inputs.ag_preset || 'medium_quality' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

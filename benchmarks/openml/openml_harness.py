@@ -351,6 +351,7 @@ def environment() -> dict[str, Any]:
         "pandas": pd.__version__,
         "openml": package_version("openml"),
         "autogluon": package_version("autogluon.tabular"),
+        "torch": package_version("torch"),
         "python": platform.python_version(),
         "cpus": os.cpu_count(),
         "mlpilot_commit": _commit(),

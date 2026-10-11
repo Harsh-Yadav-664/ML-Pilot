@@ -150,7 +150,7 @@ def render(records: list[dict[str, Any]]) -> str:
     )
     groups: dict[str, Records] = {}
     meta: dict[str, dict[str, Any]] = {}
-    for r in sorted(records, key=lambda r: str(r["dataset"]["id"])):
+    for r in sorted(records, key=lambda r: str(r["dataset"]["name"])):
         d = r["dataset"]
         name = f"{d['name']} ({d['id']})"
         meta[name] = d
@@ -184,6 +184,11 @@ def render(records: list[dict[str, Any]]) -> str:
             f"optimised for {ag['eval_metric']}; its own seed is its default)."
             if ag
             else "."
+        )
+        + (
+            " PyTorch was not installed, so AutoGluon's neural-network models were not used."
+            if ag and not env.get("torch")
+            else ""
         ),
         llm_line(groups),
         f"- LightGBM {env['lightgbm']}, Python {env['python']}, {env.get('cpus')} CPUs; MLPilot commit "
