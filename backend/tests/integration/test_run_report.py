@@ -17,7 +17,9 @@ from sqlalchemy import select
 import app.db.session as db_session
 from app.db.models import DataVersion, Experiment, Feature, Run, TaskSpec
 from app.jobs import handlers
+from app.services.report_service import _metric_records
 from ml.experiments.acceptance import DEFAULT_RULE
+from ml.metrics.kinds import TaskKind
 from ml.reports import build_report, to_html, to_markdown
 from ml.reports.numbers import FORMATS, find_numbers, lookup
 from tests.fixtures.api import API
@@ -407,6 +409,7 @@ SAMPLE: dict[str, Any] = {
     },
     "features": [],
     "champions": [],
+    "metric": _metric_records(TaskKind()),
     "acceptance": None,
     "experiments": {"total": 2, "with_test_metrics": 1},
     "summary": {
