@@ -109,7 +109,7 @@ jobs:
       - name: Type check (mypy)
         run: mypy
       - name: Collected tests (diagnostic)
-        run: pytest --collect-only -q | tail -3
+        run: pytest --collect-only -q | tail -3 | tee "$RUNNER_TEMP/collected.txt"
       - name: 1M-row CSV load and profile (prints the timing, must stay under 10 s)
         run: pytest -q -s tests/unit/test_duckdb_engine.py::test_a_million_row_csv_loads_and_profiles_in_under_ten_seconds
       - name: Demo database (prints the table checksums and the recency AUC)
@@ -139,6 +139,9 @@ jobs:
         run: |
           pip install -r requirements-mcp.txt
           pytest -q -s -p no:logging tests/integration/test_mcp_server.py
+      - name: Collected tests again (diagnostic)
+        if: always()
+        run: cat "$RUNNER_TEMP/collected.txt"
 
   # The one check branch protection requires: it passes only if the test shards and the other
   # backend checks all passed (a skipped or cancelled job is a failure, not a pass).
