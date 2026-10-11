@@ -3,6 +3,10 @@
 name: Benchmark
 
 on:
+  # TEMPORARY, removed before this branch is final: a workflow that is not on the default branch
+  # cannot be dispatched, so the branch runs it on push while it is being developed.
+  push:
+    branches: [claude/project-thread-ihmial-65]
   workflow_dispatch:
     inputs:
       dataset:
@@ -39,10 +43,10 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       MLPILOT_BENCH_CHEAP_MODEL: ${{ inputs.cheap_model }}
       MLPILOT_BENCH_STRONG_MODEL: ${{ inputs.strong_model }}
-      DATASET: ${{ inputs.dataset }}
-      TASK: ${{ inputs.task }}
-      METHODS: ${{ inputs.methods }}
-      SEEDS: ${{ inputs.seeds }}
+      DATASET: ${{ inputs.dataset || 'rel-f1' }}
+      TASK: ${{ inputs.task || 'driver-dnf' }}
+      METHODS: ${{ inputs.methods || 'b' }}
+      SEEDS: ${{ inputs.seeds || '0' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
