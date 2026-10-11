@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 import app.db.session as db_session
-import ml.agents.decision_agent as decision_agent_module
 from app.core import datasets, security
 from app.core.local_token import ENV_TOKEN, ENV_TOKEN_FILE
 from app.db.migrations import upgrade_to_head
@@ -73,7 +72,6 @@ def isolated_storage(
     app.dependency_overrides[get_db] = test_db
     # Background runs and the agent open their own sessions.
     monkeypatch.setattr(db_session, "AsyncSessionLocal", factory)
-    monkeypatch.setattr(decision_agent_module, "AsyncSessionLocal", factory)
     yield versions
     close_all_workspaces()  # release the project DuckDB files before tmp_path goes away
     if app.dependency_overrides.get(get_db) is test_db:

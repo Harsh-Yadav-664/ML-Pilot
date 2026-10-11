@@ -150,6 +150,13 @@ class ExperimentService:
         exp = await self.get(experiment_id)
         if exp is None or exp.manifest is None:
             raise LookupError(f"Experiment {experiment_id} has no run manifest to replay")
+        if str(exp.manifest.get("kind", "")).startswith("loop_"):
+            # made by the run loop (a different model and split than the executor trains); a
+            # replay through the executor would not reproduce its numbers, so it is not offered
+            raise LookupError(
+                f"Experiment {experiment_id} was made by the run loop; replaying it is not "
+                "available yet"
+            )
         manifest = RunManifest.model_validate(exp.manifest)
         if manifest.data_version_id is None:
             raise LookupError(f"Experiment {experiment_id} did not train on a stored data version")

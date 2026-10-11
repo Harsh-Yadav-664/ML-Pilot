@@ -229,7 +229,7 @@ export const runBaseline = (d: ActiveDataset) =>
 export const runAutoClean = (d: ActiveDataset) =>
   api.post<ExperimentRead>(`${project()}/experiments/auto-clean`, versionBody(d), { timeout: 120000 }).then((r) => queued(r.data));
 
-/** What a finished auto-optimize job reports (DecisionAgent.run_optimization_loop). */
+/** What a finished auto-optimize job reports (app/services/table_run_service.py). */
 export interface AutoOptimizeResult {
   summary: string;
   best_f1: number;

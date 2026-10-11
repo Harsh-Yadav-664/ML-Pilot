@@ -141,7 +141,19 @@ What is recorded: every proposal is a `Feature` row (`llm_sql`, with its SQL, th
 
 Honest limits: the folds are the same for every candidate of a run and a run can make up to 20 proposals, so by chance alone a useless feature is sometimes accepted, and the fold scores of the champion drift upward (optimistic) as features are added; the test score is unaffected. The champion's validation metrics are optimistic too: the validation rows stop the training early, and the final refit on train and validation uses that stopping point as its number of trees. Two runs of the same task can each report test metrics; choosing between runs on them would be tuning on the test set.
 
-Not built yet: several independent proposal histories (`rollouts`), resuming an interrupted run from its last champion (the champion is on record after every accepted feature, but nothing restarts from it), the same loop for single-table CSV tasks (they keep the older formula loop), and a UI for a run (#101).
+Not built yet: several independent proposal histories (`rollouts`), resuming an interrupted run from its last champion (the champion is on record after every accepted feature, but nothing restarts from it), and a UI for a run (#101). (Single-table CSV tasks run on this loop since #151, see the next section.)
+
+### Single-table tasks on the same loop (#151)
+
+`POST /projects/{p}/agent/auto-optimize` (a data version and a target column) runs the same loop as a relational run; the older formula loop (`DecisionAgent`) is gone. The job is `app/services/table_run_service.py`:
+
+* **Baseline** (`ml/features/table_baseline.py`): the existing preprocessing (id-like columns dropped, numbers stored as text converted, text columns as LightGBM categories), a random stratified split (train, validation, test; always a holdout, the loop needs validation rows to stop early), and LightGBM stopped early on the validation rows. The target must have two classes.
+* **Features** are formulas that the language model proposes and the safe evaluator checks (`ml/features/formula_proposer.py`): name, whitelist, duplicates, computes on the rows, not constant. A formula may use the columns and the features the champion already adopted.
+* **Acceptance** is the loop's one paired rule (`acceptance.decide`) on repeated stratified 5 x 3 folds of the train and validation rows, scoring PR-AUC; the decision records `validation: random`. The test rows are not in any fold.
+* **Test rows** are scored once, by `run_loop.score_test`, after the last round (a cancelled run is not scored). The classification metrics (accuracy, precision, recall, F1, ROC-AUC) come from the same predictions at the threshold that is best on the validation rows.
+* **Recorded:** a `Run` without a task spec, a `Feature` row (kind `formula`) per proposal, and the experiment tree as before: the baseline, a `keep` child per accepted feature, a `reject` child per feature that did not help, `rejected_invalid` for a formula that failed a check. Only the last champion's row has test metrics; the other rows carry validation metrics. The events `proposal` and `decision` are unchanged, and the loop's own events (`feature_decision`, `run_finished`) are now in the job's event log too.
+
+What changed for the person using it: a feature is judged on PR-AUC (it was ROC-AUC), the model is LightGBM with fixed parameters (no Optuna tuning, no probability calibration, no ensemble metrics in the rows of the loop), a table under 2,000 rows is split as a holdout (it used inner CV), and the rows of the loop have no replay (`ExperimentService.replay` refuses them, saying so). Multi-class targets are refused with a message (the old loop accepted them). Manual experiments (`POST /experiments`, `/experiments/baseline`) still use the executor, with all of the above, and score their own test rows.
 
 ### Steering a run (#59)
 

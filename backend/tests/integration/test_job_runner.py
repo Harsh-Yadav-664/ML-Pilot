@@ -132,9 +132,6 @@ def endless_planner(monkeypatch):
 async def test_cancelling_auto_optimize_stops_within_one_step(
     client, project_id, endless_planner, monkeypatch
 ):
-    import sys
-
-    monkeypatch.setitem(sys.modules, "optuna", None)
     rng = np.random.default_rng(0)
     df = pd.DataFrame(rng.normal(size=(300, 4)), columns=[f"f{i}" for i in range(4)])
     df["target"] = (df["f0"] + rng.normal(size=300) > 0).astype(int)
@@ -149,23 +146,23 @@ async def test_cancelling_auto_optimize_stops_within_one_step(
     )
     job_id = job.json()["id"]
     await _wait(
-        client, project_id, job_id, lambda j: (j["current_step"] or "").startswith("Hypothesis 2 ")
+        client, project_id, job_id, lambda j: (j["current_step"] or "").startswith("Round 2:")
     )
 
     cancel = await client.post(f"{API}/projects/{project_id}/jobs/{job_id}/cancel")
     assert cancel.status_code == 200, cancel.text
-    at_cancel = int(cancel.json()["current_step"].split()[1])  # "Hypothesis k of 20"
+    at_cancel = int(cancel.json()["current_step"].split()[1].rstrip(":"))  # "Round k: ..."
     assert cancel.json()["cancel_requested"] is True
 
     final = await _wait(client, project_id, job_id, lambda j: j["status"] in FINAL)
     assert final["status"] == "cancelled" and final["error"] is None
     events = (await client.get(f"{API}/projects/{project_id}/jobs/{job_id}/events")).json()
     started = [
-        int(e["payload"]["name"].split()[1])
+        int(e["payload"]["name"].split()[1].rstrip(":"))
         for e in events
-        if e["type"] == "step" and e["payload"]["name"].startswith("Hypothesis")
+        if e["type"] == "step" and e["payload"]["name"].startswith("Round")
     ]
-    # The hypothesis in progress may finish; the next one never starts.
+    # The round in progress may finish; the next one never starts.
     assert max(started) == at_cancel, started
     assert events[-1]["type"] == "log" and "Cancelled" in events[-1]["payload"]["message"]
     tree = (await client.get(f"{API}/projects/{project_id}/experiments")).json()

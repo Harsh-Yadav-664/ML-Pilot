@@ -9,7 +9,7 @@ mean paired gain must exceed a margin.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -26,6 +26,7 @@ DEFAULT_RULE: dict[str, Any] = {
     "min_gain": 0.002,
     "std_multiplier": 1.0,
 }
+RULE_TEXT = "accept if mean paired gain > max(min_gain, std_multiplier * std of paired gains)"
 
 
 @dataclass
@@ -84,22 +85,48 @@ def compare_feature_sets(
             pipe.fit(X.iloc[train_idx], y[train_idx])
             scores.append(_score(y[val_idx], pipe.predict_proba(X.iloc[val_idx])))
 
-    diffs = np.array(cand_scores) - np.array(base_scores)
+    return decide(
+        base_scores,
+        cand_scores,
+        rule,
+        metric="roc_auc" if binary else "f1_weighted",
+        description=RULE_TEXT,
+    )
+
+
+def decide(
+    base_scores: Sequence[float],
+    candidate_scores: Sequence[float],
+    rule: dict[str, Any] | None = None,
+    *,
+    metric: str,
+    description: str = RULE_TEXT,
+    **tags: Any,
+) -> GainResult:
+    """THE acceptance function: the paired rule of ADR 0006 applied to the scores of two feature
+    sets on the same folds. Accept if the mean paired gain is larger than
+    ``max(min_gain, std_multiplier * std of the paired gains)``.
+
+    Every keep/reject decision in the product, whatever the folds or the metric, is this
+    function; the callers differ only in how they produce the scores. ``tags`` are recorded on
+    the result's ``rule`` (for example which kind of folds the scores came from).
+    """
+    rule = {**DEFAULT_RULE, **(rule or {})}
+    if len(base_scores) != len(candidate_scores):
+        raise ValueError("both feature sets need a score on every fold")
+    diffs = np.array(candidate_scores) - np.array(base_scores)
     mean_gain = float(diffs.mean())
     std_gain = float(diffs.std(ddof=1)) if len(diffs) > 1 else 0.0
     half_width = 1.96 * std_gain / math.sqrt(len(diffs)) if len(diffs) > 1 else 0.0
     margin = max(rule["min_gain"], rule["std_multiplier"] * std_gain)
     return GainResult(
-        metric="roc_auc" if binary else "f1_weighted",
-        base_scores=base_scores,
-        candidate_scores=cand_scores,
+        metric=metric,
+        base_scores=list(base_scores),
+        candidate_scores=list(candidate_scores),
         mean_gain=mean_gain,
         std_gain=std_gain,
         ci95=(mean_gain - half_width, mean_gain + half_width),
         margin=margin,
         accepted=mean_gain > margin,
-        rule={
-            **rule,
-            "description": "accept if mean paired gain > max(min_gain, std_multiplier * std of paired gains)",
-        },
+        rule={**rule, "description": description, **tags},
     )

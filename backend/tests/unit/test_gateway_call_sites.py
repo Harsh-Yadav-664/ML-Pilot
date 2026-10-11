@@ -72,7 +72,7 @@ def test_there_are_call_sites_to_check():
         "app/api/v1/chat.py",
         "app/api/v1/experiments.py",
         "ml/agents/cleaning_agent.py",
-        "ml/agents/decision_agent.py",
+        "ml/agents/decision_explainer.py",
         "ml/experiments/planner.py",
     } <= places
 

@@ -1,4 +1,8 @@
-"""Baseline + agent iterations on the bundled telecom sample (string Yes/No target)."""
+"""The single-table agent loop on the bundled telecom sample (string Yes/No target), end to end.
+
+Since #151 this runs on the one run loop (``ml/agents/run_loop.py``): the same acceptance rule
+and the same single scoring of the test rows as a relational run.
+"""
 
 from __future__ import annotations
 
@@ -6,19 +10,15 @@ import asyncio
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import httpx
+import numpy as np
 import pandas as pd
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import app.db.session as db_session
-import ml.agents.decision_agent as decision_agent_module
-from app.api.deps import DEFAULT_OWNER_ID
-from app.db.base import Base
-from app.schemas.project import ProjectCreate, TaskType
-from app.services.project_service import ProjectService
-from ml.agents.decision_agent import DecisionAgent
+from app.jobs import handlers
+from ml.agents import run_loop
 from ml.experiments.planner import ExperimentPlanner
 from tests.fixtures.api import API, load_sample
 from tests.fixtures.gateway import stub_gateway
@@ -27,24 +27,23 @@ SAMPLE = Path(__file__).resolve().parents[2] / "datasets" / "telecom_churn.csv"
 
 
 @pytest.fixture
-async def session_factory(tmp_path, monkeypatch):
-    import app.db.models  # noqa: F401  (register tables)
+def test_calls(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """How many rows each scoring of the test rows was given: the spy."""
+    calls: list[int] = []
+    real = run_loop.score_test
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
-    # The agent and the background runner open their own sessions.
-    monkeypatch.setattr(db_session, "AsyncSessionLocal", factory)
-    monkeypatch.setattr(decision_agent_module, "AsyncSessionLocal", factory)
-    yield factory
-    await engine.dispose()
+    def spy(model: Any, features: pd.DataFrame, y: np.ndarray, **kwargs: Any) -> dict[str, float]:
+        calls.append(len(y))
+        return real(model, features, y, **kwargs)
+
+    monkeypatch.setattr(run_loop, "score_test", spy)
+    return calls
 
 
 @pytest.fixture
 def real_formulas(monkeypatch):
     """The offline stub has no planner output, so propose real formulas on this sample.
-    (Without this the planner falls back to a formula that the safe evaluator rejects.)"""
+    (Without this the planner reports the offline fallback and the loop proposes nothing.)"""
     proposals = iter(
         [
             {"name": "charge_x_tenure", "formula": "MonthlyCharges * tenure"},
@@ -59,11 +58,9 @@ def real_formulas(monkeypatch):
 
 
 async def test_baseline_and_two_iterations_complete_and_export_decodes(
-    client, project_id, tmp_path, monkeypatch, real_formulas
+    client, project_id, tmp_path, real_formulas, test_calls
 ):
     """The Phase 0 end-to-end flow, driven only through the project API like the UI."""
-    # Skip Optuna tuning (20 trials per run) to keep the test fast; training still runs.
-    monkeypatch.setitem(sys.modules, "optuna", None)
     base = f"{API}/projects/{project_id}"
     version = (await load_sample(client, project_id))["data_version_id"]
     job = await client.post(
@@ -82,41 +79,72 @@ async def test_baseline_and_two_iterations_complete_and_export_decodes(
     types = [e["type"] for e in events]
     assert types[0] == "step" and types.count("proposal") == 2 and types.count("decision") == 2
     assert types.index("cv_result") < types.index("proposal") < types.index("decision")
+    # the events of the one loop: a decision per round, and the end of the run
+    assert types.count("feature_decision") == 2 and types[-1] == "run_finished"
     steps = [
         e["payload"]["name"] for e in events if e["type"] == "step" and "progress" in e["payload"]
     ]
-    assert steps[-2:] == ["Hypothesis 1 of 2", "Hypothesis 2 of 2"]
+    assert [s for s in steps if s.startswith("Round")] == [
+        "Round 1: asking for a feature",
+        "Round 2: asking for a feature",
+    ]
+
+    # The test rows were scored exactly once for the whole run, by the loop's score_test.
+    assert len(test_calls) == 1
+    assert result["test"]["n_test"] == test_calls[0]
+    assert result["status"] == "completed" and result["stop_reason"] == "max_rounds"
+    print(
+        f"\n{result['summary']} Test PR-AUC {result['test']['pr_auc']:.4f} "
+        f"(base rate {result['test']['base_rate']:.4f}); score_test called {len(test_calls)} "
+        f"time(s) on {test_calls[0]} rows; "
+        + ", ".join(f"{i['feature_name']}: {i['decision']}" for i in result["experiments"])
+    )
 
     assert len(result["experiments"]) == 2
     tree = (await client.get(f"{base}/experiments", params={"data_version_id": version})).json()
     assert len(tree) == 3  # baseline + 2 iterations
     exps = [(await client.get(f"{base}/experiments/{n['id']}")).json() for n in tree]
+    by_id = {e["id"]: e for e in exps}
+    champion = by_id[result["champion_id"]]
     for exp in exps:
         assert exp["status"] == "completed", exp["decision_reason"]
-        assert exp["metrics"] and "f1" in exp["metrics"]
-        # Business metrics (#93) on both splits: base rate, PR-AUC and lift at the top 10%.
-        for part in ("val", "test"):
-            m = exp["metrics"]
-            assert 0.2 < m[f"{part}_base_rate"] < 0.35  # about 26.5% churn in this sample
-            assert m[f"{part}_pr_auc"] > m[f"{part}_base_rate"]  # beats scoring at random
-            assert m[f"{part}_lift_at_10pct"] > 1
-        assert exp["parameters"]["threshold"]["chosen_on"] == "validation"
-        assert exp["parameters"]["calibration"]["method"] in ("none", "isotonic", "platt")
         # Default positive class is the minority class ("Yes" in this sample)
         assert exp["parameters"]["target_encoding"] == {
             "classes": ["No", "Yes"],
             "positive_class": "Yes",
         }
+        assert exp["parameters"]["split"]["strategy"] == "random_holdout"
+        assert exp["manifest"]["kind"].startswith("loop_")
+        # A rejected candidate was never trained, so it has no metrics; the others carry the
+        # business metrics (#93): base rate, PR-AUC and lift at the top 10%.
+        if exp["decision"] == "reject":
+            assert not exp["metrics"]
+            continue
+        part = "val_" if exp["id"] == champion["id"] else ""
+        m = exp["metrics"]
+        assert 0.2 < m[f"{part}base_rate"] < 0.35  # about 26.5% churn in this sample
+        assert m[f"{part}pr_auc"] > m[f"{part}base_rate"]  # beats scoring at random
+        assert m[f"{part}lift_at_10pct"] > 1
+    # Only the final champion has test metrics (unprefixed keys are the test metrics, as before).
+    assert champion["metrics"]["pr_auc"] > champion["metrics"]["base_rate"]
+    assert champion["metrics"]["test_pr_auc"] == champion["metrics"]["pr_auc"]
+    assert champion["metrics"]["test_pr_auc"] > champion["metrics"]["test_base_rate"]
+    assert {"f1", "accuracy", "precision", "recall", "roc_auc", "threshold"} <= set(
+        champion["metrics"]
+    )
+    for e in exps:
+        if e["id"] != champion["id"]:
+            assert not any(k.startswith("test_") for k in (e["metrics"] or {})), e["id"]
 
     baseline = next(e for e in exps if e["parent_id"] is None)
 
     # Keep/reject comes from the acceptance rule, is stored on the experiment, and the
     # LLM only explains it.
-    by_id = {e["id"]: e for e in exps}
     for info in result["experiments"]:
         exp = by_id[info["id"]]
         assert info["decision_mode"] == "rule"
         acceptance = exp["parameters"]["acceptance"]
+        assert acceptance["rule"]["validation"] == "random"
         assert info["decision"] == ("keep" if acceptance["accepted"] else "reject")
         assert exp["decision"] == info["decision"]
         assert exp["decision_reason"].startswith(("Accepted by rule", "Rejected by rule"))
@@ -180,24 +208,24 @@ async def follow_job(client: httpx.AsyncClient, base: str, job_id: str) -> tuple
 
 
 async def test_explanation_failure_does_not_change_the_decision(
-    session_factory, monkeypatch, real_formulas
+    client, project_id, monkeypatch, real_formulas
 ):
-    monkeypatch.setitem(sys.modules, "optuna", None)
     gateway = stub_gateway()
 
     async def broken_complete(*args, **kwargs):
         raise RuntimeError("LLM down")
 
-    monkeypatch.setattr(gateway, "complete", broken_complete)
-    async with session_factory() as db:
-        project = await ProjectService(db).create(
-            ProjectCreate(name="p", task_type=TaskType.BINARY_CLASSIFICATION), DEFAULT_OWNER_ID
-        )
-        await db.commit()
-    result = await DecisionAgent(gateway, settings=None).run_optimization_loop(
-        str(SAMPLE), "Churn", n_hypotheses=1, project_id=project.id
+    monkeypatch.setattr(gateway, "complete_result", broken_complete)
+    monkeypatch.setattr(handlers, "make_gateway", lambda: gateway)
+    base = f"{API}/projects/{project_id}"
+    version = (await load_sample(client, project_id))["data_version_id"]
+    job = await client.post(
+        f"{base}/agent/auto-optimize",
+        json={"data_version_id": version, "target_column": "Churn", "n_hypotheses": 1},
     )
-    info = result["experiments"][0]
+    status, _ = await follow_job(client, base, job.json()["id"])
+    assert status["status"] == "succeeded", status
+    info = status["result"]["experiments"][0]
     assert info["decision_mode"] == "rule"
     assert info["explanation_mode"] == "fallback"
     assert info["decision"] == ("keep" if info["acceptance"]["accepted"] else "reject")

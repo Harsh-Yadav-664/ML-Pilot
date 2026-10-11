@@ -39,7 +39,7 @@ Solid boxes are built and covered by tests in CI. Dashed boxes are planned.
 | Job runner | `backend/app/jobs/` | Training and the agent loop run as durable jobs: they survive restarts, report an ordered event log and can be cancelled. |
 | Metadata DB | `backend/app/db/`, `backend/migrations/` | Projects, data versions, experiments, jobs and events. Alembic owns the schema ([ADR 0010](adr/0010-metadata-db-alembic-sqlite.md)). |
 | LLM gateway | `backend/ai/` | One entry point for every model call, routing, cost tracking, fallback to an offline stub that is marked as a fallback. |
-| Experiment loop | `backend/ml/agents/decision_agent.py` | Baseline, then one LLM-proposed formula feature at a time; each is kept or rejected by code ([ADR 0001](adr/0001-llm-proposes-code-decides.md), [0006](adr/0006-temporal-validation-and-paired-acceptance.md)). |
+| Run loop | `backend/ml/agents/run_loop.py` | The one loop, for relational and single-table tasks: baseline, then one LLM-proposed feature at a time (SQL features, or formulas for a single table); each is kept or rejected by code with one paired rule (`ml/experiments/acceptance.py::decide`), and the test rows are scored once, at the end ([ADR 0001](adr/0001-llm-proposes-code-decides.md), [0006](adr/0006-temporal-validation-and-paired-acceptance.md)). The single-table job is `app/services/table_run_service.py`. |
 | Executor | `backend/ml/experiments/` | Split, train, tune on validation, score test once, compute metrics, store a run manifest. |
 | Safe evaluator | `backend/ml/features/safe_eval.py` | Parses and evaluates feature formulas against a whitelist. |
 | Leakage scanner | `backend/ml/validation/leakage.py` | Flags columns that look like leaks (single-table). |
@@ -65,21 +65,22 @@ sequenceDiagram
     participant U as User (UI)
     participant A as API
     participant J as Job runner
-    participant L as Loop and executor
+    participant L as Run loop
     participant G as LLM gateway
     U->>A: upload CSV or load sample
     A->>A: store content-hashed data version
     U->>A: start auto-optimize (target column)
     A->>J: enqueue job
     J->>L: run baseline
-    L->>L: split, train, validate, score test once
+    L->>L: random split, LightGBM, validation metrics
     loop each hypothesis
         L->>G: ask for one feature (structured output)
         G-->>L: name and formula (data, not code)
         L->>L: safe evaluator checks formula
-        L->>L: paired CV decides keep or reject
+        L->>L: paired folds of the training rows decide keep or reject
         L-->>J: event (proposal, decision)
     end
+    L->>L: refit the champion, score the test rows once
     J-->>A: job result and events
     A-->>U: experiments, metrics, exportable script
 ```

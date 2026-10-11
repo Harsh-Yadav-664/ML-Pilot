@@ -2182,7 +2182,16 @@
               "cv_result",
               "decision",
               "checkpoint",
-              "log"
+              "log",
+              "baseline",
+              "resume",
+              "feature_proposal",
+              "feature_decision",
+              "budget_stop",
+              "checkpoint_answered",
+              "suggestion",
+              "settings_changed",
+              "run_finished"
             ],
             "title": "Type",
             "type": "string"

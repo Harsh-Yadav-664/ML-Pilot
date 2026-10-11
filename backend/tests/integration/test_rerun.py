@@ -22,6 +22,7 @@ from ml.experiments.schema import ExperimentResult, ExperimentSpec, ExperimentSt
 from tests.conftest import TEST_TOKEN
 from tests.fixtures.api import API, load_sample
 from tests.integration.test_agent_loop_telecom import follow_job
+from tests.integration.test_baseline_lifecycle import wait_for_final_status
 
 TOLERANCE = 1e-9
 
@@ -37,36 +38,30 @@ def assert_same_metrics(recorded: dict, replayed: dict) -> None:
                 assert again == pytest.approx(value, abs=TOLERANCE, rel=0), (part, name)
 
 
-@pytest.fixture
-def two_formulas(monkeypatch):
-    proposals = iter(
-        [
-            {"name": "charge_x_tenure", "formula": "MonthlyCharges * tenure"},
-            {"name": "avg_charge", "formula": "TotalCharges / (tenure + 1)"},
-        ]
-    )
-
-    async def propose(self, **kwargs):
-        return {**next(proposals), "reason": "test proposal", "non_redundant_reasoning": "new"}
-
-    monkeypatch.setattr(ExperimentPlanner, "generate_next_hypothesis", propose)
-
-
-async def test_telecom_run_replays_from_its_manifest(client, project_id, monkeypatch, two_formulas):
-    """The telecom e2e flow, then each experiment retrained from its manifest alone."""
-    monkeypatch.setitem(sys.modules, "optuna", None)  # as in the e2e test: no tuning
+async def test_telecom_experiments_replay_from_their_manifest(client, project_id, monkeypatch):
+    """A baseline and a one-feature experiment, queued like the UI does, then each retrained from
+    its manifest alone. (The agent loop's rows are made by the run loop, not by the executor:
+    their replay is not offered, see ``test_a_run_loop_experiment_is_not_replayed``.)"""
+    monkeypatch.setitem(sys.modules, "optuna", None)  # no tuning
     base = f"{API}/projects/{project_id}"
     version = (await load_sample(client, project_id))["data_version_id"]
-    job = await client.post(
-        f"{base}/agent/auto-optimize",
-        json={"data_version_id": version, "target_column": "Churn", "n_hypotheses": 2},
+    body = {"data_version_id": version, "target_column": "Churn"}
+    baseline = (await client.post(f"{base}/experiments/baseline", json=body)).json()
+    first = await wait_for_final_status(client, project_id, baseline["id"], timeout=240)
+    assert first["status"] == "completed", first["decision_reason"]
+    suggestion = {
+        "name": "charge_x_tenure",
+        "formula": "MonthlyCharges * tenure",
+        "reason": "test proposal",
+    }
+    queued = await client.post(
+        f"{base}/experiments",
+        json={**body, "parent_id": baseline["id"], "feature_suggestion": suggestion},
     )
-    status, _ = await follow_job(client, base, job.json()["id"])
-    assert status["status"] == "succeeded", status
+    second = await wait_for_final_status(client, project_id, queued.json()["id"], timeout=240)
+    assert second["status"] == "completed", second["decision_reason"]
 
-    tree = (await client.get(f"{base}/experiments", params={"data_version_id": version})).json()
-    exps = [(await client.get(f"{base}/experiments/{n['id']}")).json() for n in tree]
-    assert len(exps) == 3
+    exps = [first, second]
     for exp in exps:
         manifest = RunManifest.model_validate(exp["manifest"])
         assert manifest.data_version_id == version
@@ -75,7 +70,6 @@ async def test_telecom_run_replays_from_its_manifest(client, project_id, monkeyp
         assert manifest.split_plan["seed"] == manifest.seeds["split"]
         assert manifest.metrics["val"]["pr_auc"] and manifest.metrics["test"]["pr_auc"]
         if exp["parent_id"]:
-            assert manifest.llm and manifest.llm[0].role == "hypothesis"
             assert manifest.features[-1].formula in exp["parameters"]["formula"]
 
         # Replay without the LLM: a planner call would fail the test.
@@ -101,6 +95,31 @@ async def test_telecom_run_replays_from_its_manifest(client, project_id, monkeyp
     for value in configured_secrets():
         assert value not in text
     assert TEST_TOKEN not in text
+
+
+async def test_a_run_loop_experiment_is_not_replayed(client, project_id, monkeypatch):
+    """The run loop trains a different model on a different split than the executor does, so a
+    replay through the executor would not reproduce its numbers: it says so instead."""
+
+    async def propose(self, **kwargs):
+        return {"name": "x", "formula": "MonthlyCharges * tenure", "reason": "r"}
+
+    monkeypatch.setattr(ExperimentPlanner, "generate_next_hypothesis", propose)
+    base = f"{API}/projects/{project_id}"
+    version = (await load_sample(client, project_id))["data_version_id"]
+    job = await client.post(
+        f"{base}/agent/auto-optimize",
+        json={"data_version_id": version, "target_column": "Churn", "n_hypotheses": 1},
+    )
+    status, _ = await follow_job(client, base, job.json()["id"])
+    assert status["status"] == "succeeded", status
+    exp_id = status["result"]["champion_id"]
+    exp = (await client.get(f"{base}/experiments/{exp_id}")).json()
+    assert exp["manifest"]["kind"].startswith("loop_")
+    assert exp["manifest"]["data_version_id"] == version and exp["manifest"]["seed"] == 42
+    async with db_session.AsyncSessionLocal() as db:
+        with pytest.raises(LookupError, match="made by the run loop"):
+            await ExperimentService(db).replay(exp_id)
 
 
 async def test_tuned_parameters_replay_exactly():
