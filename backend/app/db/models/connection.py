@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -29,6 +29,11 @@ class Connection(Base):
     can_write: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # What the user decided about the schema graph (edges, time columns, static tables), #45.
     schema_overrides: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # A write-back connection (#172) only ever writes scores to mlpilot_predictions; it is
+    # never read from, and the read-only connections never write.
+    writeback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

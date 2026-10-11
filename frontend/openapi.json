@@ -813,6 +813,12 @@
             ],
             "description": "Postgres only",
             "title": "Username"
+          },
+          "writeback": {
+            "default": false,
+            "description": "Postgres only. A separate connection that may write scores to the mlpilot_predictions schema and nothing else; it is never used for reading",
+            "title": "Writeback",
+            "type": "boolean"
           }
         },
         "required": [
@@ -952,6 +958,11 @@
               }
             ],
             "title": "Username"
+          },
+          "writeback": {
+            "default": false,
+            "title": "Writeback",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3901,6 +3912,58 @@
           "finished_at"
         ],
         "title": "RunStateRead",
+        "type": "object"
+      },
+      "RunWriteback": {
+        "properties": {
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "rows_written": {
+            "title": "Rows Written",
+            "type": "integer"
+          },
+          "table": {
+            "description": "Where the rows went: always mlpilot_predictions.scores",
+            "title": "Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cutoff",
+          "table",
+          "rows_written"
+        ],
+        "title": "RunWriteback",
+        "type": "object"
+      },
+      "RunWritebackRequest": {
+        "properties": {
+          "connection_id": {
+            "description": "A saved connection created with writeback=true",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "cutoff": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As for .../score; default the last day",
+            "title": "Cutoff"
+          }
+        },
+        "required": [
+          "connection_id"
+        ],
+        "title": "RunWritebackRequest",
         "type": "object"
       },
       "SampleDatasetRequest": {
@@ -9008,6 +9071,68 @@
           }
         },
         "summary": "Add Suggestion",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/runs/{run_id}/writeback": {
+      "post": {
+        "description": "Opt-in: score as .../score does and insert the rows into mlpilot_predictions.scores\nthrough a connection saved with writeback=true. Nothing outside that schema is touched;\nwith any other connection the answer is 403 and nothing is written.",
+        "operationId": "writeback_run_api_v1_projects__project_id__runs__run_id__writeback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunWritebackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunWriteback"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Writeback Run",
         "tags": [
           "runs"
         ]

@@ -81,6 +81,7 @@ def to_read(conn: Connection) -> ConnectionRead:
         ssl_root_cert=ssl.get("root_cert"),
         last_tested_at=conn.last_tested_at,
         can_write=conn.can_write,
+        writeback=conn.writeback,
         created_at=conn.created_at,
     )
 
@@ -131,6 +132,8 @@ class ConnectionService:
                 raise HTTPException(400, "A Postgres connection needs host and username")
         else:
             database = check_database_file(data.dialect, database)
+        if data.writeback and data.dialect != "postgres":
+            raise HTTPException(400, "Write-back is only available for Postgres")
         ref = _secret_ref(
             data.password.get_secret_value() if data.password else None, data.password_env
         )
@@ -147,6 +150,7 @@ class ConnectionService:
             ssl=_ssl_json(data.ssl_mode, data.ssl_root_cert)
             if data.dialect == "postgres"
             else None,
+            writeback=data.writeback,
         )
         self.db.add(conn)
         await self.db.flush()
@@ -216,6 +220,10 @@ class ConnectionService:
         )
 
     def source(self, conn: Connection) -> SourceWithChecks:
+        if conn.writeback:
+            raise HTTPException(
+                400, "This is a write-back connection; reading uses a read-only connection"
+            )
         return open_source(self.spec(conn))
 
     async def schema_graph(self, conn: Connection) -> SchemaGraph:
@@ -361,7 +369,7 @@ class ConnectionService:
     async def test(self, conn: Connection) -> ConnectionTestResult:
         """Connect, read the server version and the role's privileges. Failures are reported
         in the result (``ok=False`` with a short code and message), never raised."""
-        source = self.source(conn)
+        source = open_source(self.spec(conn))  # a write-back connection can be tested too
 
         def run() -> ConnectionTestResult:
             started = time.perf_counter()

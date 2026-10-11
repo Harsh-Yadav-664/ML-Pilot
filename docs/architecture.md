@@ -113,6 +113,7 @@ flowchart TD
 | SQL guard, layer 1: parser allowlist | Writes, DDL, side-effect functions, secret system tables, tables outside the schema | Implemented (#44): `ml/data/sql_guard.py`, hostile-query matrix in `tests/fixtures/hostile_sql.yaml` |
 | SQL guard, layer 2: read-only session, row/size limit, timeout | A query that changes data or runs away, even if layer 1 missed it | Implemented for Postgres, SQLite and DuckDB (#44) |
 | SQL guard, layer 3: database role check | A role that could write | Reported as `can_write` by the connection test (#43, #44); the UI warning is `planned (#46, #103)` |
+| Opt-in write-back connection, fixed statements only | Writing anywhere but `mlpilot_predictions`, or writing without being asked | Implemented (#172): `ml/data/writeback.py`; a connection saved with `writeback` is never read from, every other one gets 403 |
 | Project DuckDB without external file access, `SELECT`-only `DataSource.query` | A query reading or writing files outside the project's own tables | Implemented (#42) |
 | Safe formula evaluator | Executing model output | Implemented (#37) |
 | Acceptance rule in code | Keeping noise, or the LLM judging itself | Implemented (#35) |
@@ -130,7 +131,7 @@ The metadata database holds the tables below. `docs/experiment_schema.md` descri
 | `users`, `projects` | The local user and projects; `projects.settings` holds privacy level and budgets |
 | `datasets` | Uploaded files with their profile (before the relational work) |
 | `data_versions` | Immutable snapshots keyed by content hash |
-| `connections` | Saved read-only connections; only a `secret_ref`, never a password, and the `can_write` result of the last test |
+| `connections` | Saved read-only connections (plus opt-in write-back ones, `writeback`, #172); only a `secret_ref`, never a password, and the `can_write` result of the last test |
 | `task_specs` | Versioned prediction task specs. The table exists; the feature is `planned (#49)` |
 | `runs` | One run of a task spec on a data version. `budget` holds the settings a person can change while it goes on (#59); relational runs are started by `POST /runs/{id}/start` (#58) |
 | `run_checkpoints`, `run_suggestions` | A question the loop waits on (approve or veto a feature) and a feature idea from the user (#59) |

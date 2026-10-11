@@ -35,6 +35,11 @@ class ConnectionCreate(BaseModel):
     )
     ssl_mode: SslMode | None = Field(None, description="Postgres only; default prefer")
     ssl_root_cert: str | None = Field(None, max_length=1024, description="Postgres only")
+    writeback: bool = Field(
+        False,
+        description="Postgres only. A separate connection that may write scores to the "
+        "mlpilot_predictions schema and nothing else; it is never used for reading",
+    )
 
 
 class ConnectionUpdate(BaseModel):
@@ -70,6 +75,7 @@ class ConnectionRead(BaseModel):
     can_write: bool | None = Field(
         None, description="From the last test: could the role write? None until tested"
     )
+    writeback: bool = False
     created_at: datetime
 
 

@@ -228,3 +228,14 @@ class RunScore(BaseModel):
     record: int = Field(
         0, description="Position of this scoring in the run's scoring history (1 is the first)"
     )
+
+
+class RunWritebackRequest(BaseModel):
+    connection_id: str = Field(description="A saved connection created with writeback=true")
+    cutoff: datetime | None = Field(None, description="As for .../score; default the last day")
+
+
+class RunWriteback(BaseModel):
+    cutoff: datetime
+    table: str = Field(description="Where the rows went: always mlpilot_predictions.scores")
+    rows_written: int
