@@ -62,3 +62,7 @@ backend/mlpilot/ui/
 
 # Benchmark runs (benchmarks/relbench/run.py); the workflow uploads them as an artifact
 benchmarks/results/
+
+# Single-table OpenML benchmark runs (benchmarks/openml/openml_run.py)
+benchmarks/openml/results/
+benchmarks/openml/RESULTS.md

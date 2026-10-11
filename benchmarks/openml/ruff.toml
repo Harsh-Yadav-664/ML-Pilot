@@ -1,0 +1,3 @@
+# The benchmark harness follows the backend lint and format rules.
+extend = "../../backend/pyproject.toml"
+src = ["../../backend", "../relbench", "."]

@@ -1,0 +1,5 @@
+# What `make benchmark-openml` needs on top of the backend (issue #67): openml-python (BSD-3-Clause)
+# reads the datasets, AutoGluon (Apache-2.0) is the strongest free tool to compare with.
+-r ../../backend/requirements-dev.txt
+openml
+autogluon.tabular[lightgbm,catboost,xgboost]
