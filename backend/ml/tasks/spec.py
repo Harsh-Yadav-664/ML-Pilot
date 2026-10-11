@@ -43,7 +43,7 @@ METRICS = {
     "regression": REGRESSION_METRICS,
     "multiclass": MULTICLASS_METRICS,
 }
-AGGREGATES = ("count", "sum", "avg", "min", "max", "count_distinct")
+AGGREGATES = ("count", "sum", "avg", "min", "max", "count_distinct", "first")
 
 
 class Strict(BaseModel):
@@ -87,8 +87,11 @@ Eligibility = Annotated[str | ExistsRule, Field(union_mode="left_to_right")]
 
 class TargetExpression(Strict):
     table: str
-    agg: Literal["count", "sum", "avg", "min", "max", "count_distinct"]
-    column: str | None = None
+    agg: Literal["count", "sum", "avg", "min", "max", "count_distinct", "first"]
+    column: str | None = Field(
+        None,
+        description="Multiclass tasks use agg 'first': the class is this column of the first row in the window",
+    )
     where: str | None = None
     compare: str | None = Field(
         None, description="Binary tasks: the test that makes the label 1, such as '= 0' or '>= 3'"
@@ -318,11 +321,6 @@ class _Validator:
                 "metric",
                 f"{spec.metric!r} does not fit a {spec.target.type} task; use one of {', '.join(metrics)}",
             )
-        if spec.target.type != "binary":
-            self.warn(
-                "target.type",
-                f"{spec.target.type} tasks are described but cannot be trained yet; the trainer refuses them",
-            )
         return self.issues
 
     # tables ---------------------------------------------------------------------------------
@@ -460,6 +458,14 @@ class _Validator:
                 f"{child.key!r} is marked static; the target needs a table of events",
             )
         self.condition("target.expression.where", ex.where, child)
+        if (ex.agg == "first") != (t.type == "multiclass"):
+            self.err(
+                "target.expression.agg",
+                "'first' (the class is the column of the first row in the window) is the aggregation "
+                "of multiclass targets, and only of those"
+                if t.type != "multiclass"
+                else "a multiclass target takes the class from the first row in the window: use agg 'first'",
+            )
         if ex.agg != "count":
             if ex.column is None:
                 self.err("target.expression.column", f"{ex.agg} needs a column")
@@ -472,6 +478,12 @@ class _Validator:
                     self.err(
                         "target.expression.column",
                         f"{ex.agg} needs a numeric column; {ex.column!r} is not",
+                    )
+                kind = type_kind(next(c.type for c in child.columns if c.name == ex.column))
+                if ex.agg == "first" and kind in ("float", "timestamp", "date"):
+                    self.err(
+                        "target.expression.column",
+                        f"a class column holds categories (text, integer codes, flags); {ex.column!r} is {kind}",
                     )
         elif ex.column is not None:
             self.column("target.expression.column", child, ex.column)

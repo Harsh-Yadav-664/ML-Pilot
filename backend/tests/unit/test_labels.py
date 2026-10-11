@@ -221,7 +221,7 @@ def test_required_columns_name_what_a_snapshot_must_hold(
 def test_counts_per_cutoff(tiny: tuple[Any, SchemaGraph]) -> None:
     source, graph = tiny
     _, compiled, _ = run(source, graph, NO_ORDER)
-    sql = counts_select(compiled.select, binary=True).sql(dialect="duckdb")
+    sql = counts_select(compiled.select, task="binary").sql(dialect="duckdb")
     frame = arrow_to_pandas(source.query(sql, limit=100, timeout_s=60))
     assert [(int(e), int(p)) for e, p in zip(frame.eligible, frame.positives, strict=True)] == [
         (3, 2),

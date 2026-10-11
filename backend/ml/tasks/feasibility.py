@@ -13,6 +13,7 @@ stored in the report.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from itertools import pairwise
 from typing import Any, Literal
@@ -38,6 +39,15 @@ class Thresholds(BaseModel):
     max_eligible_drop: float = Field(0.5, gt=0, lt=1, description="Fall between adjacent cutoffs")
     imbalance_rate: float = Field(0.01, gt=0, lt=0.5, description="Rarer class below this: warn")
     min_coverage: float = Field(0.05, ge=0, le=1, description="Best related table below this: warn")
+    max_zero_share: float = Field(
+        0.9, gt=0, le=1, description="Regression: training rows with value 0, above this: warn"
+    )
+    min_class_rows: int = Field(
+        30, ge=0, description="Multiclass: a class with fewer training rows than this: warn"
+    )
+    max_classes: int = Field(
+        30, ge=2, description="Multiclass: more classes than this look like ids: block"
+    )
 
 
 @dataclass(frozen=True)
@@ -97,21 +107,30 @@ def _pct(value: float) -> str:
     return f"{value * 100:.1f}%"
 
 
+def _by_split(
+    spec: TaskSpec, counts: list[CutoffCount], code: str
+) -> dict[str, list[CutoffCount]] | Check:
+    """The cutoff counts of each part of the split (train, val, test), or the check that blocks."""
+    pairs = [(_naive(c.cutoff), _naive(c.window_end)) for c in counts]
+    try:
+        parts = partition_cutoffs(pairs, TemporalSplitPlan.from_spec(spec))
+    except SplitError as e:
+        return Check(code, "block", f"The split cannot be made: {e}", {})
+    groups: dict[str, list[CutoffCount]] = {"train": [], "val": [], "test": []}
+    for c, pair in zip(counts, pairs, strict=True):
+        if parts[pair] in groups:
+            groups[parts[pair]].append(c)
+    return groups
+
+
 def _positives_per_split(spec: TaskSpec, counts: list[CutoffCount], t: Thresholds) -> Check:
     code = "positives_per_split"
     if spec.target.type != "binary":
         return Check(code, "ok", "Not a binary task: positives are not counted", {})
-    pairs = [(_naive(c.cutoff), _naive(c.window_end)) for c in counts]
-    try:
-        plan = TemporalSplitPlan.from_spec(spec)
-        parts = partition_cutoffs(pairs, plan)
-    except SplitError as e:
-        return Check(code, "block", f"The split cannot be made: {e}", {})
-    totals = {"train": 0, "val": 0, "test": 0}
-    for c, pair in zip(counts, pairs, strict=True):
-        part = parts[pair]
-        if part in totals:
-            totals[part] += c.positives or 0
+    groups = _by_split(spec, counts, code)
+    if isinstance(groups, Check):
+        return groups
+    totals = {k: sum(c.positives or 0 for c in v) for k, v in groups.items()}
     numbers = {f"{k}_positives": v for k, v in totals.items()}
     short = [
         name
@@ -182,6 +201,138 @@ def _base_rate_per_cutoff(spec: TaskSpec, counts: list[CutoffCount], t: Threshol
             numbers,
         )
     return Check(code, "ok", f"Base rate between {_pct(low)} and {_pct(high)} per cutoff", numbers)
+
+
+def _moments(rows: list[CutoffCount]) -> dict[str, float]:
+    """Rows, mean, standard deviation, share of zeros and non-zero rows of a regression label over
+    several cutoffs, pooled from each cutoff's own count, mean, deviation and zero share."""
+    n = sum(c.eligible for c in rows)
+    if not n:
+        return {"rows": 0, "mean": 0.0, "std": 0.0, "zero_share": 0.0, "nonzero": 0}
+    mean = sum(c.eligible * (c.mean_label or 0.0) for c in rows) / n
+    second = sum(
+        c.eligible * ((c.label_std or 0.0) ** 2 + (c.mean_label or 0.0) ** 2) for c in rows
+    )
+    zeros = sum(c.eligible * (c.zero_share or 0.0) for c in rows)
+    return {
+        "rows": n,
+        "mean": mean,
+        "std": math.sqrt(max(second / n - mean**2, 0.0)),
+        "zero_share": zeros / n,
+        "nonzero": round(n - zeros),
+    }
+
+
+def _constant(m: dict[str, float]) -> bool:
+    return m["rows"] > 0 and m["std"] <= 1e-9 * max(1.0, abs(m["mean"]))
+
+
+def _target_distribution(spec: TaskSpec, counts: list[CutoffCount], t: Thresholds) -> Check | None:
+    """Regression: is there anything to learn (variance, rows that are not 0) and to judge it by."""
+    if spec.target.type != "regression":
+        return None
+    code = "target_distribution"
+    groups = _by_split(spec, counts, code)
+    if isinstance(groups, Check):
+        return groups
+    m = {k: _moments(v) for k, v in groups.items()}
+    numbers = {f"{k}_{name}": value for k, v in m.items() for name, value in v.items()}
+    problems = []
+    if _constant(m["train"]):
+        problems.append("the training labels are all the same value, so there is nothing to learn")
+    for name, need in (
+        ("train", t.min_train_positives),
+        ("val", t.min_eval_positives),
+        ("test", t.min_eval_positives),
+    ):
+        if m[name]["nonzero"] < need:
+            problems.append(
+                f"{name} has {m[name]['nonzero']:.0f} rows that are not 0 (need {need})"
+            )
+    if problems:
+        return Check(
+            code, "block", "The target cannot be learned or judged: " + "; ".join(problems), numbers
+        )
+    notes = [
+        f"the {name} labels are all the same value, so R2 is undefined there"
+        for name in ("val", "test")
+        if _constant(m[name])
+    ]
+    if m["train"]["zero_share"] > t.max_zero_share:
+        notes.append(
+            f"{_pct(m['train']['zero_share'])} of training rows are 0: few rows carry the signal"
+        )
+    if notes:
+        return Check(code, "warn", "; ".join(notes).capitalize(), numbers)
+    return Check(
+        code,
+        "ok",
+        f"Training labels: mean {m['train']['mean']:.4g}, standard deviation "
+        f"{m['train']['std']:.4g}, {_pct(m['train']['zero_share'])} zeros",
+        numbers,
+    )
+
+
+def _classes_per_split(spec: TaskSpec, counts: list[CutoffCount], t: Thresholds) -> Check | None:
+    """Multiclass: enough classes, and enough rows of each to learn it and to judge the model."""
+    if spec.target.type != "multiclass":
+        return None
+    code = "classes_per_split"
+    groups = _by_split(spec, counts, code)
+    if isinstance(groups, Check):
+        return groups
+    per: dict[str, dict[str, int]] = {}
+    for part, rows in groups.items():
+        per[part] = {}
+        for c in rows:
+            for name, n in (c.classes or {}).items():
+                per[part][name] = per[part].get(name, 0) + n
+    every = sorted({name for part in per.values() for name in part})
+    numbers: dict[str, Any] = {"classes": every, **{f"{k}_classes": v for k, v in per.items()}}
+    problems = []
+    if len(every) > t.max_classes:
+        problems.append(
+            f"{len(every)} classes (more than {t.max_classes}): the column looks like an id, "
+            "not a category"
+        )
+    if len(per["train"]) < 2:
+        problems.append("fewer than two classes in the training rows")
+    for name in ("val", "test"):
+        rows = sum(per[name].values())
+        if rows < t.min_eval_positives:
+            problems.append(f"{name} has {rows} rows (need {t.min_eval_positives})")
+    if problems:
+        return Check(
+            code,
+            "block",
+            "The classes cannot be learned or judged: " + "; ".join(problems),
+            numbers,
+        )
+    small = sorted(c for c, n in per["train"].items() if n < t.min_class_rows)
+    unseen = {
+        part: sum(n for c, n in per[part].items() if c not in per["train"])
+        for part in ("val", "test")
+    }
+    numbers["small_classes"], numbers["unseen_rows"] = small, unseen
+    notes = []
+    if small:
+        notes.append(
+            f"{len(small)} class(es) have fewer than {t.min_class_rows} training rows "
+            f"({', '.join(small[:5])}): the model will rarely predict them"
+        )
+    if any(unseen.values()):
+        notes.append(
+            f"{unseen['val']} validation and {unseen['test']} test rows are of a class the "
+            "training rows do not have; they cannot be scored and are counted apart"
+        )
+    if notes:
+        return Check(code, "warn", "; ".join(notes).capitalize(), numbers)
+    return Check(
+        code,
+        "ok",
+        f"{len(every)} classes, each with at least {min(per['train'].values())} training rows",
+        numbers,
+    )
 
 
 def _eligible_drops(counts: list[CutoffCount], t: Thresholds) -> Check:
@@ -321,6 +472,7 @@ def check_feasibility(
         imbalance,
         _coverage(coverage, t),
         _horizon(dropped_cutoffs, len(counts)),
+        *filter(None, [_target_distribution(spec, counts, t), _classes_per_split(spec, counts, t)]),
     ]
     status: Status = max((c.status for c in checks), key=lambda s: _ORDER[s])
     return FeasibilityReport(status, checks, t, spec.metric_name, suggested)
