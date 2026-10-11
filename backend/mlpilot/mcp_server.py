@@ -209,24 +209,19 @@ async def get_report(
 
 
 @mcp.tool()
-async def score(
-    run: str | None = None,
-    cutoff: datetime | None = None,
-    top_k: Annotated[int, Field(ge=1, le=50)] = 10,
-) -> dict[str, Any]:
-    """Rank the entities eligible now with a finished run's model, with reasons. Returns the
-    `top_k` rows (entity ids and reasons are values from the database). `cutoff` defaults to
-    the last full day."""
+async def score(run: str | None = None, cutoff: datetime | None = None) -> dict[str, Any]:
+    """Score the entities eligible now with a finished run's model. Returns counts, drift
+    warnings and the score range only, never rows: entity ids and reasons are values from the
+    database, which an assistant does not see. `mlpilot score --out` writes the ranked list.
+    `cutoff` defaults to the last full day."""
     from app.services.score_service import ScoreService
 
     with refusals():
         async with cli.session() as db:
             pid = await cli.project_id(db)
             chosen = await cli.pick_run(db, pid, run)
-            result = await ScoreService(db).score(pid, chosen.id, cutoff, top_k)
-    out = result.model_dump(mode="json", exclude={"csv"})
-    out["preview"] = out["preview"][:top_k]
-    return out
+            result = await ScoreService(db).score(pid, chosen.id, cutoff, 1)
+    return result.model_dump(mode="json", exclude={"csv", "preview"})
 
 
 def serve() -> None:

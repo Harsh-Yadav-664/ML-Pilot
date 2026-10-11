@@ -100,10 +100,10 @@ async def test_a_client_lists_the_tools_and_runs_draft_task_and_run_task_on_the_
         report = await call(session, "get_report", run=run["run_id"])
         assert "Leakage and safety" in report.content[0].text
 
-        scored = await call(session, "score", run=run["run_id"], top_k=3)
+        scored = await call(session, "score", run=run["run_id"])
         assert not scored.isError
-        assert len(scored.structuredContent["preview"]) == 3
-        assert "csv" not in scored.structuredContent
+        assert scored.structuredContent["summary"]["n_scored"] > 50
+        assert not {"csv", "preview"} & set(scored.structuredContent)  # no database values
 
 
 async def test_confirm_task_without_the_users_confirmation_is_refused(
