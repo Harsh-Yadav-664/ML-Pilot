@@ -35,6 +35,10 @@ def mean_std(values: list[float]) -> str:
     )
 
 
+def _seed(record: dict[str, Any]) -> int:
+    return int(record["seed"])
+
+
 def _row(method: str, runs: list[dict[str, Any]]) -> str:
     name = f"{method}: {METHODS.get(method, method)}"
     ok = [r for r in runs if r["status"] == "ok"]
@@ -57,7 +61,8 @@ def _row(method: str, runs: list[dict[str, Any]]) -> str:
         accepted = statistics.fmean(len(r["agent"]["accepted"]) for r in ok)
         note = f"{', '.join(models)}; {accepted:.1f} LLM features accepted per run"
     failed = len(runs) - len(ok)
-    seeds = f"{len(ok)}" + (f" ok, {failed} not ok" if failed else "")
+    per_seed = ", ".join(f"{r['seed']}: {r['test'][METRIC]:.4f}" for r in sorted(ok, key=_seed))
+    seeds = f"{len(ok)}" + (f" ok, {failed} not ok" if failed else "") + f" ({per_seed})"
     seconds = statistics.fmean(r["wall_seconds"]["total"] for r in ok)
     return (
         f"| {name} | {mean_std([r['test'][METRIC] for r in ok])} "
@@ -101,7 +106,7 @@ def render(records: list[dict[str, Any]]) -> str:
         lines += [
             f"## {dataset} / {task}",
             "",
-            f"| Method | Test {METRIC.upper().replace('_', '-')} | Val | Seeds | Wall time | LLM |",
+            f"| Method | Test {METRIC.upper().replace('_', '-')} | Val | Seeds (test per seed) | Wall time | LLM |",
             "|---|---|---|---|---|---|",
             *(_row(m, methods[m]) for m in METHODS if m in methods),
             "",

@@ -235,5 +235,7 @@ def test_a_method_without_numbers_is_shown_as_skipped_with_its_reason() -> None:
     }
     skip = {**ok, "status": "skipped", "method": "d", "reason": "no strong model"}
     text = report.render([ok, skip])
-    assert "| b: DFS features + LightGBM | 0.7000 (1 seed) | 0.8000 (1 seed) | 1 |" in text
+    assert (
+        "| b: DFS features + LightGBM | 0.7000 (1 seed) | 0.8000 (1 seed) | 1 (0: 0.7000) |" in text
+    )
     assert "| d: MLPilot agent, strong model | skipped: no strong model |" in text
