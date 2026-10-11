@@ -5,8 +5,6 @@
 name: Benchmark OpenML
 
 on:
-  push:  # TEMPORARY: remove before the last commit
-    branches: [claude/project-thread-ihmial-67]
   workflow_dispatch:
     inputs:
       datasets:
@@ -42,11 +40,11 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       MLPILOT_BENCH_CHEAP_MODEL: ${{ inputs.model }}
-      OPENML_DATASETS: ${{ inputs.datasets || '37 1464' }}
-      OPENML_METHODS: ${{ inputs.methods || 'lightgbm mlpilot autogluon' }}
-      OPENML_SEEDS: ${{ inputs.seeds || '0 1' }}
-      AG_SECONDS: ${{ inputs.ag_seconds || '30' }}
-      AG_PRESET: ${{ inputs.ag_preset || 'medium_quality' }}
+      OPENML_DATASETS: ${{ inputs.datasets }}
+      OPENML_METHODS: ${{ inputs.methods }}
+      OPENML_SEEDS: ${{ inputs.seeds }}
+      AG_SECONDS: ${{ inputs.ag_seconds }}
+      AG_PRESET: ${{ inputs.ag_preset }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
