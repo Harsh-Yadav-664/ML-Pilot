@@ -39,9 +39,9 @@ async def connection(client: httpx.AsyncClient, project_id: str, tmp_path: Path)
 
 
 async def started_run(
-    client: httpx.AsyncClient, project_id: str, connection: str, version: str
+    client: httpx.AsyncClient, project_id: str, connection: str, version: str, spec: str = CHURN
 ) -> tuple[str, str]:
-    task = await confirmed_task(client, project_id, connection, CHURN, version)
+    task = await confirmed_task(client, project_id, connection, spec, version)
     resp = await client.post(url(project_id, f"{task}/runs"), json={"data_version_id": version})
     assert resp.status_code == 201, resp.text
     return task, str(resp.json()["id"])

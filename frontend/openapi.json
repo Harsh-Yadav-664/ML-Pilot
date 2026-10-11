@@ -5388,6 +5388,13 @@
             "title": "Max Base Rate Ratio",
             "type": "number"
           },
+          "max_classes": {
+            "default": 30,
+            "description": "Multiclass: more classes than this look like ids: block",
+            "minimum": 2.0,
+            "title": "Max Classes",
+            "type": "integer"
+          },
           "max_eligible_drop": {
             "default": 0.5,
             "description": "Fall between adjacent cutoffs",
@@ -5395,6 +5402,21 @@
             "exclusiveMinimum": 0.0,
             "title": "Max Eligible Drop",
             "type": "number"
+          },
+          "max_zero_share": {
+            "default": 0.9,
+            "description": "Regression: training rows with value 0, above this: warn",
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Max Zero Share",
+            "type": "number"
+          },
+          "min_class_rows": {
+            "default": 30,
+            "description": "Multiclass: a class with fewer training rows than this: warn",
+            "minimum": 0.0,
+            "title": "Min Class Rows",
+            "type": "integer"
           },
           "min_coverage": {
             "default": 0.05,

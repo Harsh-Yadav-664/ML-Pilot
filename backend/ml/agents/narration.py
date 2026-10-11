@@ -45,15 +45,21 @@ def _decision(p: dict[str, Any]) -> str:
         return f"{head}: proposed `{name}`."
     lo, hi = gain["ci95"]
     measured = (
-        f"Gain {gain['mean']:+.4f} PR-AUC on the temporal folds (95% CI {lo:+.4f} to {hi:+.4f}), "
+        f"Gain {gain['mean']:+.4f} {p.get('gain_text', 'PR-AUC')} on the temporal folds (95% CI {lo:+.4f} to {hi:+.4f}), "
         f"margin {gain['margin']:.4f}."
     )
     if p["accepted"]:
         return (
             f"{head}: proposed `{name}`. Passed the guard and execution checks. {measured} "
-            f"Accepted; the champion's validation PR-AUC is now {_pct(p['champion_val_pr_auc'])}."
+            f"Accepted; the champion's validation {_champion(p)}."
         )
     return f"{head}: proposed `{name}`. Passed the guard and execution checks. {measured} Rejected: no gain."
+
+
+def _champion(p: dict[str, Any]) -> str:
+    if "champion_val_pr_auc" in p:
+        return f"PR-AUC is now {_pct(p['champion_val_pr_auc'])}"
+    return f"{p['metric']} is now {p['champion_val_metric']:.4g}"
 
 
 def _checkpoint(p: dict[str, Any]) -> str:

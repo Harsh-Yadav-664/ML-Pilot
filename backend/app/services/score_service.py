@@ -66,6 +66,12 @@ class ScoreService:
         champion = await self.db.get(Experiment, run.champion_experiment_id)
         if spec_row is None or conn is None or version is None or champion is None:
             raise HTTPException(409, "The task, connection or data version no longer exists")
+        if (kind := from_yaml(spec_row.yaml).target.type) != "binary":
+            raise HTTPException(
+                422,
+                f"A ranked list is not available for {kind} tasks yet; the exported score.py "
+                "scores them from your database",
+            )
         connections = ConnectionService(self.db)
         graph = await connections.schema_graph(conn)
         stored = await latest_features(self.db, run_id)

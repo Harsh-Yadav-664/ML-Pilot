@@ -537,6 +537,14 @@ def task_confirm(task: TaskOption = None) -> None:
 # -- run -----------------------------------------------------------------------------------------
 
 
+def _headline_metric(metrics: dict[str, float]) -> tuple[str, str]:
+    """The metric a run is judged by, read from the keys it reported: PR-AUC, MAE or log loss."""
+    for label, key in (("MAE", "mae"), ("log loss", "log_loss")):
+        if key in metrics:
+            return label, key
+    return "PR-AUC", "pr_auc"
+
+
 def _run_summary(state: Any) -> None:
     say(
         f"Run {state.id[:8]}: {state.status}"
@@ -550,12 +558,12 @@ def _run_summary(state: Any) -> None:
         )
     if state.champion_val_metrics:
         val = state.champion_val_metrics
-        say(
-            f"  validation PR-AUC: {number(val.get('pr_auc'))} (base rate {number(val.get('base_rate'))})"
-        )
+        label, key = _headline_metric(val)
+        trivial = f" (base rate {number(val.get('base_rate'))})" if key == "pr_auc" else ""
+        say(f"  validation {label}: {number(val.get(key))}{trivial}")
     if state.test_metrics:
-        test = state.test_metrics
-        say(f"  test PR-AUC (scored once, at the end): {number(test.get('pr_auc'))}")
+        label, key = _headline_metric(state.test_metrics)
+        say(f"  test {label} (scored once, at the end): {number(state.test_metrics.get(key))}")
     if state.test_error:
         say(f"  test metric not available: {state.test_error}")
     if state.error:

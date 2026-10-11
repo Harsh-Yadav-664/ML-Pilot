@@ -298,9 +298,9 @@ def _classes_per_split(spec: TaskSpec, counts: list[CutoffCount], t: Thresholds)
     if len(per["train"]) < 2:
         problems.append("fewer than two classes in the training rows")
     for name in ("val", "test"):
-        rows = sum(per[name].values())
-        if rows < t.min_eval_positives:
-            problems.append(f"{name} has {rows} rows (need {t.min_eval_positives})")
+        n_rows = sum(per[name].values())
+        if n_rows < t.min_eval_positives:
+            problems.append(f"{name} has {n_rows} rows (need {t.min_eval_positives})")
     if problems:
         return Check(
             code,

@@ -27,8 +27,16 @@ IDENTIFIER = re.compile(r"\b[A-Za-z][A-Za-z0-9]*(?:_{1,2}[A-Za-z0-9]+)+\b")
 
 # TreeSHAP ---------------------------------------------------------------------------------------
 def contributions(model: Any, frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """(per-feature contributions, base value) in raw-score (log-odds) units, one row per input."""
+    """(per-feature contributions, base value) in raw-score (log-odds) units, one row per input.
+
+    A multi-class model has one block of contributions per class, and a sign means something
+    only within a class: there the values are the absolute contributions averaged over classes
+    (enough for the global importance, not for a reason shown for one entity)."""
     raw = np.asarray(model.booster_.predict(frame, pred_contrib=True))
+    width = frame.shape[1] + 1
+    if raw.shape[1] > width:
+        blocks = raw.reshape(len(raw), -1, width)
+        return np.abs(blocks[:, :, :-1]).mean(axis=1), blocks[:, 0, -1]
     return raw[:, :-1], raw[:, -1]
 
 

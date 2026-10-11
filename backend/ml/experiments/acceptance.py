@@ -101,6 +101,7 @@ def decide(
     *,
     metric: str,
     description: str = RULE_TEXT,
+    lower_is_better: bool = False,
     **tags: Any,
 ) -> GainResult:
     """THE acceptance function: the paired rule of ADR 0006 applied to the scores of two feature
@@ -110,15 +111,22 @@ def decide(
     Every keep/reject decision in the product, whatever the folds or the metric, is this
     function; the callers differ only in how they produce the scores. ``tags`` are recorded on
     the result's ``rule`` (for example which kind of folds the scores came from).
+
+    For a metric where lower is better (MAE, log loss) the gain of a fold is the relative
+    reduction ``(base - candidate) / base``, so that the margin means the same for dollars and for
+    counts; otherwise it is the plain difference.
     """
     rule = {**DEFAULT_RULE, **(rule or {})}
     if len(base_scores) != len(candidate_scores):
         raise ValueError("both feature sets need a score on every fold")
-    diffs = np.array(candidate_scores) - np.array(base_scores)
+    base, cand = np.array(base_scores), np.array(candidate_scores)
+    diffs = (base - cand) / np.maximum(base, 1e-15) if lower_is_better else cand - base
     mean_gain = float(diffs.mean())
     std_gain = float(diffs.std(ddof=1)) if len(diffs) > 1 else 0.0
     half_width = 1.96 * std_gain / math.sqrt(len(diffs)) if len(diffs) > 1 else 0.0
     margin = max(rule["min_gain"], rule["std_multiplier"] * std_gain)
+    if lower_is_better:
+        tags["gain"] = "relative reduction"
     return GainResult(
         metric=metric,
         base_scores=list(base_scores),

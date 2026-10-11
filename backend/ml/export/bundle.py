@@ -22,6 +22,7 @@ import yaml
 from sqlglot import exp
 
 from ml.data.schema_graph import SchemaGraph
+from ml.metrics.kinds import TaskKind
 from ml.tasks.labels import compile_labels
 from ml.tasks.spec import TaskSpec
 
@@ -58,6 +59,7 @@ class BundleInput:
     categories: dict[str, list[str]] = field(default_factory=dict)  # text columns and levels
     report_html: str | None = None
     notes: list[str] = field(default_factory=list)
+    classes: list[str] = field(default_factory=list)  # multiclass: the class of each model output
 
 
 def transpile(sql: str, dialect: str) -> str:
@@ -152,8 +154,17 @@ def _with_labels(sql: str, cte: str) -> str:
     return f"WITH {cte}\n{sql}"
 
 
+TRIVIAL = {
+    "binary": "a base rate of",
+    "regression": "the MAE of always predicting the training median,",
+    "multiclass": "the log loss of predicting the training class shares,",
+}
+
+
 def _readme(inp: BundleInput) -> str:
     v = inp.validation
+    kind = TaskKind(task=inp.spec.target.type)
+    head = kind.headline(v)
     url = (
         "duckdb:///path/to.db" if inp.dialect == "duckdb" else "postgresql://user:password@host/db"
     )
@@ -161,7 +172,7 @@ def _readme(inp: BundleInput) -> str:
     test = ""
     if inp.test:
         test = (
-            f"- Test PR-AUC {inp.test['pr_auc']:.4f} ({int(inp.test.get('n_test', 0))} rows), scored "
+            f"- Test {kind.metric_label} {inp.test[kind.metric]:.4f} ({int(inp.test.get('n_test', 0))} rows), scored "
             "once at the end of the run by a model refit on train and validation. That refit model "
             "is not in this bundle: `model/model.txt` is the model the validation numbers belong to.\n"
         )
@@ -188,7 +199,7 @@ def _readme(inp: BundleInput) -> str:
 ```bash
 python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
 export MLPILOT_DB_URL='{url}'
-python score.py --verify                       # recomputes the validation PR-AUC below
+python score.py --verify                       # recomputes the validation {kind.metric_label} below
 python score.py --cutoff 2025-01-01 --out scores.csv
 ```
 
@@ -197,7 +208,7 @@ schema prefix the schema graph recorded.
 
 ## What the numbers mean
 
-- Validation PR-AUC **{v["pr_auc"]:.4f}** against a base rate of {v["base_rate"]:.4f}
+- Validation {kind.metric_label} **{head["value"]:.4f}** against {TRIVIAL[kind.task]} {head["trivial"]:.4f}
   ({int(v["n_val"])} validation rows). `score.py --verify` recomputes it from your database.
 - Validation metrics are optimistic: the features and the stopping point were chosen on the
   same rows.
@@ -217,6 +228,9 @@ def build_bundle(inp: BundleInput) -> dict[str, bytes]:
         "features": [f.name for f in inp.features],
         "categories": inp.categories,
         "validation": inp.validation,
+        "task": inp.spec.target.type,
+        "metric": TaskKind(task=inp.spec.target.type).metric,
+        "classes": inp.classes,
     }
     text: dict[str, str] = {
         "README.md": _readme(inp),

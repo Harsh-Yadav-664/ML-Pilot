@@ -10,12 +10,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ml.metrics.kinds import UNSEEN, TaskKind
 from ml.reports.explain import shap_summary
 from ml.scoring.score import feature_stats
 
 MODEL_FILE = "model.txt"
 REFERENCE_FILE = "reference_validation.csv"
 CATEGORIES_FILE = "categories.json"
+CLASSES_FILE = "classes.json"
 SHAP_FILE = "shap.json"
 STATS_FILE = "feature_stats.json"
 
@@ -25,7 +27,12 @@ def artifact_dir(projects_dir: Path, project_id: str, run_id: str) -> Path:
 
 
 def save_artifacts(
-    directory: Path, champion: Any, labels: pd.DataFrame, train: np.ndarray, val: np.ndarray
+    directory: Path,
+    champion: Any,
+    labels: pd.DataFrame,
+    train: np.ndarray,
+    val: np.ndarray,
+    kind: TaskKind | None = None,
 ) -> bool:
     """Write ``model.txt`` and ``reference_validation.csv``; False if the champion has no model."""
     if champion.model is None:
@@ -49,14 +56,21 @@ def save_artifacts(
     }
     (directory / STATS_FILE).write_text(json.dumps(stats))
     rows = labels.iloc[val]
-    score = np.asarray(champion.model.predict_proba(champion.frame.iloc[val]))[:, 1]
+    kind = kind or TaskKind()
+    if kind.classes:
+        (directory / CLASSES_FILE).write_text(json.dumps(list(kind.classes)))
+    pred = kind.predict(champion.model, champion.frame.iloc[val])
     reference = pd.DataFrame(
         {
             "entity_id": rows["entity_id"].to_numpy(),
             "cutoff_time": pd.to_datetime(rows["cutoff_time"]).dt.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "label": rows["label"].astype(int).to_numpy(),
-            "score": score,
+            "label": kind.encode(rows["label"]),
         }
     )
+    if pred.ndim == 2:  # multiclass: one probability column per class, in the order of the classes
+        reference[[f"score_{i}" for i in range(pred.shape[1])]] = pred
+    else:
+        reference["score"] = pred
+    reference = reference[reference["label"] != UNSEEN]  # a class the training rows lack
     reference.to_csv(directory / REFERENCE_FILE, index=False)
     return True

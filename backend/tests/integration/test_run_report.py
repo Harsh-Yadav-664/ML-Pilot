@@ -77,7 +77,7 @@ def expected(key: str, db: dict[str, Any]) -> float:
     if m:
         ranked = sorted(db["dfs"], key=lambda f: -float(f.gain["importance"]))
         return float(ranked[int(m[1])].gain["importance"])
-    m = re.fullmatch(r"champions\[(\d+)\]\.(round|val_pr_auc)", key)
+    m = re.fullmatch(r"champions\[(\d+)\]\.(round|val_metric)", key)
     if m:
         champs = sorted(db["champions"], key=lambda e: e.manifest["round"])
         e = champs[int(m[1])]

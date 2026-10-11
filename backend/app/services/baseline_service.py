@@ -138,7 +138,7 @@ class BaselineService:
                 f"{len(result.features)} features from {result.candidates} candidates "
                 f"(dropped: {result.dropped_counts() or 'none'})"
             ),
-            model_name="LGBMClassifier",
+            model_name=result.kind.model_name,
             parameters=result.params,
             validation_config=result.split,
             preprocessing_config={},
@@ -193,8 +193,10 @@ class BaselineService:
                 "kept": len(result.features),
                 "dropped": result.dropped_counts(),
                 "skipped_tables": [{"table": s.table, "reason": s.reason} for s in skipped],
-                "val_pr_auc": result.metrics["pr_auc"],
-                "val_base_rate": result.metrics["base_rate"],
+                "val_pr_auc": result.metrics.get("pr_auc"),
+                "val_base_rate": result.metrics.get("base_rate"),
+                "metric": result.kind.metric,
+                "val_metric": result.metrics[result.kind.metric],
                 "at": now.isoformat(),
             },
         }

@@ -119,22 +119,21 @@ class TaskKind:
     def higher_is_better(self) -> bool:
         return self.task == "binary"
 
+    @property
+    def gain_text(self) -> str:
+        """What a gain is a gain in: ``PR-AUC``, or ``relative reduction of MAE`` / ``of log loss``."""
+        return (
+            self.metric_label
+            if self.higher_is_better
+            else f"relative reduction of {self.metric_label}"
+        )
+
     def fold_score(self, y: np.ndarray, pred: np.ndarray) -> float:
         if self.task == "binary":
             return float(average_precision_score(y, pred))
         if self.task == "regression":
             return float(mean_absolute_error(y, pred))
         return float(log_loss(y, pred, labels=list(range(len(self.classes)))))
-
-    def gain(self, base: np.ndarray, candidate: np.ndarray) -> np.ndarray:
-        """Per-fold improvement of ``candidate`` over ``base``: positive means better."""
-        if self.higher_is_better:
-            return candidate - base
-        return (base - candidate) / np.maximum(base, _EPS)
-
-    @property
-    def gain_unit(self) -> str:
-        return "difference" if self.higher_is_better else "relative reduction"
 
     # -- the metrics that are reported ----------------------------------------------------------
     def evaluate(self, y: np.ndarray, pred: np.ndarray, reference: np.ndarray) -> dict[str, float]:

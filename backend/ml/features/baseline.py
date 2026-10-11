@@ -30,7 +30,7 @@ import pyarrow as pa
 
 from ml.data.schema_graph import SchemaGraph, type_kind
 from ml.features.dfs import DEFAULT_MAX_FEATURES, TOP_CATEGORIES, Candidate, Skipped, generate
-from ml.metrics.ranking import ranking_metrics
+from ml.metrics.kinds import MAX_CLASSES, UNSEEN, TaskKind
 from ml.tasks.pit_guard import CUTOFF, ENTITY
 from ml.tasks.pit_verify import run_feature
 from ml.tasks.spec import TaskSpec
@@ -103,6 +103,13 @@ class BaselineResult:
     # chosen on the validation rows (single-table tasks show accuracy, precision, recall, F1)
     fold_kind: str = "temporal"
     report_threshold: bool = False
+    kind: TaskKind = field(default_factory=TaskKind)  # binary, regression or multiclass (+ classes)
+
+    @property
+    def y(self) -> np.ndarray:
+        """The labels as the model sees them (0/1, the value, or the class index)."""
+        assert self.labels is not None
+        return self.kind.encode(self.labels["label"])
 
     def dropped_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -249,10 +256,9 @@ def build_baseline(
     if frame.duplicated([ENTITY, CUTOFF]).any():
         raise BaselineError("the label rows have more than one row for an entity and cutoff")
     split = make_temporal_splits(frame[CUTOFF], frame["label_window_end"], plan)
-    y = frame["label"].astype(int).to_numpy()
-    for part, idx in (("training", split.train), ("validation", split.val)):
-        if len(set(y[idx])) < 2:
-            raise BaselineError(f"the {part} rows have only one class; there is nothing to learn")
+    kind = TaskKind.fit(spec.target.type, frame["label"].iloc[split.train])
+    y = kind.encode(frame["label"])
+    _check_labels(kind, y, split)
 
     graph, entity_table = flatten_graph(graph, spec.entity.table)
     tables = typed_times(tables, graph)
@@ -303,7 +309,7 @@ def build_baseline(
         raise BaselineError("no feature survived the filters")
 
     features = pd.DataFrame(kept)
-    model, metrics, shares = fit_validated(features, y, split.train, split.val, seed)
+    model, metrics, shares = fit_validated(features, y, split.train, split.val, seed, kind)
     ranked = sorted(shares.items(), key=lambda p: -p[1])
     return BaselineResult(
         features=[KeptFeature(by_name[name], float(share)) for name, share in ranked],
@@ -312,7 +318,12 @@ def build_baseline(
         candidates=len(candidates),
         metrics=metrics,
         split=split.summary(),
-        params={**LGBM_PARAMS, "early_stopping_rounds": EARLY_STOPPING_ROUNDS},
+        params={
+            **LGBM_PARAMS,
+            "early_stopping_rounds": EARLY_STOPPING_ROUNDS,
+            "objective": kind.objective,
+            **({"classes": list(kind.classes)} if kind.classes else {}),
+        },
         seed=seed,
         engine="lightgbm",
         engine_version=lgb.__version__,
@@ -323,28 +334,57 @@ def build_baseline(
         train=split.train,
         graph=graph,
         temporal=split,
+        kind=kind,
     )
 
 
+def _check_labels(kind: TaskKind, y: np.ndarray, split: TemporalSplit) -> None:
+    """Refuse a split the model cannot learn from or be judged on, before anything is fitted."""
+    for part, idx in (("training", split.train), ("validation", split.val)):
+        rows = y[idx]
+        if kind.task == "binary" and len(set(rows)) < 2:
+            raise BaselineError(f"the {part} rows have only one class; there is nothing to learn")
+        if kind.task == "regression" and len(rows) and float(np.std(rows)) == 0.0:
+            raise BaselineError(
+                f"the {part} labels are all the same value; there is nothing to learn"
+            )
+        if kind.task == "multiclass":
+            known = set(rows) - {UNSEEN}
+            if part == "training" and len(known) < 2:
+                raise BaselineError(
+                    "the training rows have only one class; there is nothing to learn"
+                )
+            if part == "validation" and not known:
+                raise BaselineError("no validation row has a class the training rows have")
+    if kind.task == "multiclass" and len(kind.classes) > MAX_CLASSES:
+        raise BaselineError(
+            f"{len(kind.classes)} classes (limit {MAX_CLASSES}): the column looks like an id, not a category"
+        )
+
+
 def fit_validated(
-    features: pd.DataFrame, y: np.ndarray, train: np.ndarray, val: np.ndarray, seed: int = SEED
+    features: pd.DataFrame,
+    y: np.ndarray,
+    train: np.ndarray,
+    val: np.ndarray,
+    seed: int = SEED,
+    kind: TaskKind | None = None,
 ) -> tuple[Any, dict[str, float], dict[str, float]]:
     """LightGBM on the training rows, stopped early on the validation rows, scored on them.
 
     Returns the model, the validation metrics, and each feature's share of the total gain.
     """
-    model = lgb.LGBMClassifier(
-        **LGBM_PARAMS, random_state=seed, deterministic=True, force_row_wise=True, verbose=-1
-    )
+    kind = kind or TaskKind()
+    known = val[y[val] != UNSEEN]  # multiclass: a class the training rows lack cannot be scored
+    model = kind.estimator(LGBM_PARAMS, seed)
     model.fit(
         features.iloc[train],
         y[train],
-        eval_set=[(features.iloc[val], y[val])],
-        eval_metric="average_precision",
+        eval_set=[(features.iloc[known], y[known])],
+        eval_metric=kind.eval_metric,
         callbacks=[lgb.early_stopping(EARLY_STOPPING_ROUNDS, verbose=False)],
     )
-    score = np.asarray(model.predict_proba(features.iloc[val]))[:, 1]
-    metrics = ranking_metrics(y[val], score, absolute_k=(100,))
+    metrics = kind.evaluate(y[val], kind.predict(model, features.iloc[val]), y[train])
     metrics["n_train"] = float(len(train))
     metrics["n_val"] = float(len(val))
     metrics["best_iteration"] = float(model.best_iteration_ or LGBM_PARAMS["n_estimators"])

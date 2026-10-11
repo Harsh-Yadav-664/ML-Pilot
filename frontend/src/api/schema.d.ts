@@ -3603,11 +3603,29 @@ export interface components {
              */
             max_base_rate_ratio: number;
             /**
+             * Max Classes
+             * @description Multiclass: more classes than this look like ids: block
+             * @default 30
+             */
+            max_classes: number;
+            /**
              * Max Eligible Drop
              * @description Fall between adjacent cutoffs
              * @default 0.5
              */
             max_eligible_drop: number;
+            /**
+             * Max Zero Share
+             * @description Regression: training rows with value 0, above this: warn
+             * @default 0.9
+             */
+            max_zero_share: number;
+            /**
+             * Min Class Rows
+             * @description Multiclass: a class with fewer training rows than this: warn
+             * @default 30
+             */
+            min_class_rows: number;
             /**
              * Min Coverage
              * @description Best related table below this: warn
