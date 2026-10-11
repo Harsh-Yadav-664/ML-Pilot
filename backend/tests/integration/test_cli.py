@@ -25,6 +25,7 @@ from typer.testing import CliRunner, Result
 from app import main as app_main
 from app.services import llm_gateway
 from mlpilot import cli
+from tests.fixtures.api import create_project
 from tests.fixtures.demo_db import demo_duckdb
 from tests.fixtures.gateway import stub_gateway
 
@@ -37,6 +38,19 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> None:
     """The metadata database is already migrated; the LLM is the offline stub, whatever .env says."""
     monkeypatch.setattr(cli, "migrate", lambda: None)
     monkeypatch.setattr(llm_gateway, "make_gateway", stub_gateway)
+
+
+@pytest.fixture
+async def project_id(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A fresh project, and the command pinned to it: SQLite timestamps have one-second
+    resolution, so "the newest project" is ambiguous between two tests in the same second."""
+    pid = await create_project(client)
+
+    async def pinned(db: object) -> str:
+        return pid
+
+    monkeypatch.setattr(cli, "project_id", pinned)
+    return pid
 
 
 async def mlpilot(*args: str, expect: int = 0) -> Result:
