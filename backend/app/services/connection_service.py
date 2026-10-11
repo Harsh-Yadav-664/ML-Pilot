@@ -47,6 +47,7 @@ from ml.tasks.mutable_columns import observe_mutable
 
 logger = logging.getLogger(__name__)
 
+SERVER_DIALECTS = ("postgres", "mysql")  # network databases; the others are files
 FILE_CHECKS = {"sqlite": is_sqlite_file, "duckdb": is_duckdb_file}
 
 
@@ -127,9 +128,9 @@ class ConnectionService:
     async def create(self, project_id: str, data: ConnectionCreate) -> Connection:
         await self._require_unique_name(project_id, data.name)
         database = data.database
-        if data.dialect == "postgres":
+        if data.dialect in SERVER_DIALECTS:
             if not (data.host and data.username):
-                raise HTTPException(400, "A Postgres connection needs host and username")
+                raise HTTPException(400, f"A {data.dialect} connection needs host and username")
         else:
             database = check_database_file(data.dialect, database)
         if data.writeback and data.dialect != "postgres":
@@ -148,7 +149,7 @@ class ConnectionService:
             username=data.username,
             secret_ref=ref,
             ssl=_ssl_json(data.ssl_mode, data.ssl_root_cert)
-            if data.dialect == "postgres"
+            if data.dialect in SERVER_DIALECTS
             else None,
             writeback=data.writeback,
         )
@@ -172,7 +173,7 @@ class ConnectionService:
         if data.database is not None:
             conn.database = (
                 data.database
-                if conn.dialect == "postgres"
+                if conn.dialect in SERVER_DIALECTS
                 else check_database_file(conn.dialect, data.database)
             )
         if data.password is not None or data.password_env is not None:
@@ -206,7 +207,7 @@ class ConnectionService:
             raise HTTPException(400, str(e)) from None
         ssl = conn.ssl or {}
         database = conn.database or ""
-        if conn.dialect != "postgres":
+        if conn.dialect not in SERVER_DIALECTS:
             database = check_database_file(conn.dialect, database)
         return ConnectionSpec(
             dialect=conn.dialect,  # type: ignore[arg-type]
@@ -402,7 +403,7 @@ def _ssl_json(mode: str | None, root_cert: str | None) -> dict[str, str] | None:
 
 
 def _stats_cache_key(conn: Connection, source: SourceWithChecks) -> str:
-    if conn.dialect == "postgres":
+    if conn.dialect in SERVER_DIALECTS:
         return "live"
     stat = Path(conn.database or "").stat()
     return f"{stat.st_size}:{stat.st_mtime_ns}"

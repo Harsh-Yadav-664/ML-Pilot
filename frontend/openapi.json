@@ -695,7 +695,7 @@
       "ConnectionCreate": {
         "properties": {
           "database": {
-            "description": "Postgres: the database name. SQLite and DuckDB: the path of the file",
+            "description": "Postgres and MySQL: the database name. SQLite and DuckDB: the path of the file",
             "maxLength": 255,
             "minLength": 1,
             "title": "Database",
@@ -704,6 +704,7 @@
           "dialect": {
             "enum": [
               "postgres",
+              "mysql",
               "sqlite",
               "duckdb"
             ],
@@ -720,7 +721,7 @@
                 "type": "null"
               }
             ],
-            "description": "Postgres only",
+            "description": "Postgres and MySQL only",
             "title": "Host"
           },
           "name": {
@@ -766,7 +767,7 @@
                 "type": "null"
               }
             ],
-            "description": "Postgres only (default 5432)",
+            "description": "Postgres and MySQL only (default 5432 / 3306)",
             "title": "Port"
           },
           "ssl_mode": {
@@ -785,7 +786,7 @@
                 "type": "null"
               }
             ],
-            "description": "Postgres only; default prefer",
+            "description": "Postgres and MySQL only; default prefer",
             "title": "Ssl Mode"
           },
           "ssl_root_cert": {
@@ -798,7 +799,7 @@
                 "type": "null"
               }
             ],
-            "description": "Postgres only",
+            "description": "Postgres and MySQL only",
             "title": "Ssl Root Cert"
           },
           "username": {
@@ -811,7 +812,7 @@
                 "type": "null"
               }
             ],
-            "description": "Postgres only",
+            "description": "Postgres and MySQL only",
             "title": "Username"
           },
           "writeback": {
@@ -855,6 +856,7 @@
           "dialect": {
             "enum": [
               "postgres",
+              "mysql",
               "sqlite",
               "duckdb"
             ],

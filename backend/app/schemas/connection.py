@@ -9,22 +9,24 @@ from pydantic import BaseModel, Field, SecretStr
 
 from ml.data.profiling.db_stats import TableStats
 
-Dialect = Literal["postgres", "sqlite", "duckdb"]
+Dialect = Literal["postgres", "mysql", "sqlite", "duckdb"]
 SslMode = Literal["disable", "prefer", "require", "verify-ca", "verify-full"]
 
 
 class ConnectionCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     dialect: Dialect
-    host: str | None = Field(None, max_length=255, description="Postgres only")
-    port: int | None = Field(None, ge=1, le=65535, description="Postgres only (default 5432)")
+    host: str | None = Field(None, max_length=255, description="Postgres and MySQL only")
+    port: int | None = Field(
+        None, ge=1, le=65535, description="Postgres and MySQL only (default 5432 / 3306)"
+    )
     database: str = Field(
         ...,
         min_length=1,
         max_length=255,
-        description="Postgres: the database name. SQLite and DuckDB: the path of the file",
+        description="Postgres and MySQL: the database name. SQLite and DuckDB: the path of the file",
     )
-    username: str | None = Field(None, max_length=255, description="Postgres only")
+    username: str | None = Field(None, max_length=255, description="Postgres and MySQL only")
     password: SecretStr | None = Field(
         None, description="Stored encrypted; needs MLPILOT_SECRET_KEY. Never returned"
     )
@@ -33,8 +35,8 @@ class ConnectionCreate(BaseModel):
         description="Name of an environment variable that holds the password "
         "(nothing secret is stored)",
     )
-    ssl_mode: SslMode | None = Field(None, description="Postgres only; default prefer")
-    ssl_root_cert: str | None = Field(None, max_length=1024, description="Postgres only")
+    ssl_mode: SslMode | None = Field(None, description="Postgres and MySQL only; default prefer")
+    ssl_root_cert: str | None = Field(None, max_length=1024, description="Postgres and MySQL only")
     writeback: bool = Field(
         False,
         description="Postgres only. A separate connection that may write scores to the "

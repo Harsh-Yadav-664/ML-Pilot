@@ -55,6 +55,32 @@ postgres:
   - {sql: "SELECT rolpassword FROM pg_authid", code: denied_table}
   - {sql: "SELECT query FROM pg_stat_activity", code: denied_table}
 
+mysql:
+  - {sql: "INSERT INTO {t} VALUES (99, 'x', 1)", code: dml}
+  - {sql: "UPDATE {t} SET amount = 0", code: dml}
+  - {sql: "DELETE FROM {t}", code: dml}
+  - {sql: "REPLACE INTO {t} VALUES (1, 'x', 1)", code: command}
+  - {sql: "DROP TABLE {t}", code: ddl}
+  - {sql: "CREATE TABLE mlpilot_guard_new AS SELECT * FROM {t}", code: ddl}
+  - {sql: "ALTER TABLE {t} ADD COLUMN extra int", code: ddl}
+  - {sql: "TRUNCATE TABLE {t}", code: ddl}
+  - {sql: "GRANT ALL ON {t} TO 'x'@'%'", code: command}
+  - {sql: "SELECT 1; DROP TABLE {t}", code: multi_statement}
+  - {sql: "COMMIT", code: transaction_control}
+  - {sql: "SET GLOBAL read_only = 0", code: set}
+  - {sql: "SET SESSION TRANSACTION READ WRITE", code: set}
+  - {sql: "SHOW TABLES", code: not_a_select}
+  - {sql: "SELECT * FROM {t} FOR UPDATE", code: locking_clause}
+  - {sql: "SELECT * FROM {t} FOR SHARE", code: locking_clause}
+  - {sql: "SELECT * FROM {t} INTO OUTFILE '/tmp/mlpilot_guard_pwned'", code: parse_error}
+  - {sql: "SELECT SLEEP(1000)", code: denied_function}
+  - {sql: "SELECT BENCHMARK(100000000, MD5('x'))", code: denied_function}
+  - {sql: "SELECT LOAD_FILE('/etc/passwd')", code: denied_function}
+  - {sql: "SELECT GET_LOCK('x', 1000)", code: denied_function}
+  - {sql: "SELECT (SELECT SLEEP(1000)) AS nested", code: denied_function}
+  - {sql: "SELECT user, authentication_string FROM mysql.user", code: denied_table}
+  - {sql: "SELECT * FROM performance_schema.threads", code: denied_table}
+
 sqlite:
   - {sql: "INSERT INTO {t} VALUES (99, 'x', 1)", code: dml}
   - {sql: "DELETE FROM {t}", code: dml}
@@ -94,6 +120,13 @@ allowed:
     - "SELECT id FROM {t} UNION SELECT id + 100 FROM {t}"
     - "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5) SELECT * FROM n"
     - "SELECT date_trunc('month', now()) AS m, CAST(amount AS int) AS a FROM {t} LIMIT 3"
+  mysql:
+    - "SELECT customer, sum(amount) AS total FROM {t} GROUP BY customer ORDER BY customer"
+    - "WITH big AS (SELECT * FROM {t} WHERE amount > 10) SELECT count(*) AS n FROM big"
+    - "SELECT id, avg(amount) OVER (PARTITION BY customer ORDER BY id) AS running FROM {t}"
+    - "SELECT 'DELETE FROM x; DROP TABLE y' AS text_that_looks_like_sql FROM {t} LIMIT 1"
+    - "SELECT id FROM {t} UNION SELECT id + 100 FROM {t}"
+    - "SELECT DATE_FORMAT(NOW(), '%Y-%m') AS m, CAST(amount AS SIGNED) AS a FROM {t} LIMIT 3"
   sqlite:
     - "SELECT customer, sum(amount) AS total FROM {t} GROUP BY customer"
     - "WITH big AS (SELECT * FROM {t} WHERE amount > 10) SELECT count(*) AS n FROM big"

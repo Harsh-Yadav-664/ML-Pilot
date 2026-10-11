@@ -1637,17 +1637,17 @@ export interface components {
         ConnectionCreate: {
             /**
              * Database
-             * @description Postgres: the database name. SQLite and DuckDB: the path of the file
+             * @description Postgres and MySQL: the database name. SQLite and DuckDB: the path of the file
              */
             database: string;
             /**
              * Dialect
              * @enum {string}
              */
-            dialect: "postgres" | "sqlite" | "duckdb";
+            dialect: "postgres" | "mysql" | "sqlite" | "duckdb";
             /**
              * Host
-             * @description Postgres only
+             * @description Postgres and MySQL only
              */
             host?: string | null;
             /** Name */
@@ -1664,22 +1664,22 @@ export interface components {
             password_env?: string | null;
             /**
              * Port
-             * @description Postgres only (default 5432)
+             * @description Postgres and MySQL only (default 5432 / 3306)
              */
             port?: number | null;
             /**
              * Ssl Mode
-             * @description Postgres only; default prefer
+             * @description Postgres and MySQL only; default prefer
              */
             ssl_mode?: ("disable" | "prefer" | "require" | "verify-ca" | "verify-full") | null;
             /**
              * Ssl Root Cert
-             * @description Postgres only
+             * @description Postgres and MySQL only
              */
             ssl_root_cert?: string | null;
             /**
              * Username
-             * @description Postgres only
+             * @description Postgres and MySQL only
              */
             username?: string | null;
             /**
@@ -1707,7 +1707,7 @@ export interface components {
              * Dialect
              * @enum {string}
              */
-            dialect: "postgres" | "sqlite" | "duckdb";
+            dialect: "postgres" | "mysql" | "sqlite" | "duckdb";
             /** Host */
             host: string | null;
             /** Id */

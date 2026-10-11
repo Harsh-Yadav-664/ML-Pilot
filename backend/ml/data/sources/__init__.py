@@ -1,4 +1,4 @@
-"""Live database sources: Postgres, SQLite and DuckDB files, all read-only.
+"""Live database sources: Postgres, MySQL, SQLite and DuckDB files, all read-only.
 
 Each source implements ``ml.data.engine.DataSource``. ``open_source`` builds one from a
 ``ConnectionSpec`` (the resolved settings of a saved connection, password included).

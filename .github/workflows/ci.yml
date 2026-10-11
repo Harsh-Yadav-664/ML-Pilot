@@ -87,12 +87,31 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+      # MySQL for the connector's contract tests (tests/fixtures/mysql.py); only the step
+      # "SQL guard against MySQL" uses it, the test shards skip those tests.
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-password-71c9e4
+          MYSQL_DATABASE: mlpilot_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-password-71c9e4"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       MLPILOT_TEST_PG_HOST: localhost
       MLPILOT_TEST_PG_PORT: "5432"
       MLPILOT_TEST_PG_USER: mlpilot_ci
       MLPILOT_TEST_PG_PASSWORD: ci-password-71c9e4
       MLPILOT_TEST_PG_DB: mlpilot_ci
+      MLPILOT_TEST_MYSQL_HOST: 127.0.0.1
+      MLPILOT_TEST_MYSQL_PORT: "3306"
+      MLPILOT_TEST_MYSQL_USER: root
+      MLPILOT_TEST_MYSQL_PASSWORD: ci-password-71c9e4
+      MLPILOT_TEST_MYSQL_DB: mlpilot_ci
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -120,6 +139,8 @@ jobs:
         run: pytest -q -s -p no:logging tests/unit/test_demo_db.py -k "checksums or recency_feature or default_size"
       - name: SQL guard against Postgres (prints the refused hostile queries and can_write)
         run: pytest -q -s -p no:logging tests/integration/test_sql_guard_postgres.py
+      - name: SQL guard and connector against MySQL (prints the refused hostile queries and can_write)
+        run: pytest -q -s -p no:logging tests/integration/test_sql_guard_mysql.py
       - name: Schema graph on the demo database (prints foreign keys found and inferred precision/recall)
         run: pytest -q -s -p no:logging tests/unit/test_schema_graph.py tests/integration/test_schema_graph_postgres.py -k "declared or inferred"
       - name: Column statistics (prints the pandas comparison and the 5M-row sampling times)

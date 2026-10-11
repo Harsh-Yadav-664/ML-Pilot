@@ -38,6 +38,7 @@ from typing import Any, Protocol
 import duckdb
 import pg8000.exceptions
 import pyarrow as pa
+import pymysql.err
 import sqlglot
 from sqlglot import exp
 
@@ -51,7 +52,7 @@ MAX_SQL_CHARS = 100_000
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 FETCH_BATCH = 10_000
 CATALOG_TIMEOUT_S = 15
-DIALECTS = ("postgres", "sqlite", "duckdb")
+DIALECTS = ("postgres", "sqlite", "duckdb", "mysql")
 
 # Functions with side effects, or that reach outside the database (files, other servers,
 # sessions, settings). Matched on the bare name, lower case.
@@ -90,6 +91,21 @@ DENIED_FUNCTIONS = frozenset(
         "pg_rotate_logfile",
         "pg_log_backend_memory_contexts",
         "make_lo",
+        # MySQL
+        "sleep",
+        "benchmark",
+        "load_file",
+        "get_lock",
+        "release_lock",
+        "release_all_locks",
+        "is_free_lock",
+        "is_used_lock",
+        "master_pos_wait",
+        "source_pos_wait",
+        "wait_for_executed_gtid_set",
+        "wait_until_sql_thread_after_gtids",
+        "sys_exec",
+        "sys_eval",
         # SQLite
         "load_extension",
         "readfile",
@@ -156,6 +172,9 @@ DENIED_TABLES = frozenset(
         "duckdb_secrets",
     }
 )
+# MySQL's own databases: grant tables with password hashes, runtime state of other sessions.
+# information_schema stays readable, MLPilot's introspection needs it.
+MYSQL_SYSTEM_SCHEMAS = frozenset({"mysql", "performance_schema", "sys"})
 
 
 def _classes(*names: str) -> tuple[type[exp.Expression], ...]:
@@ -301,6 +320,10 @@ def _check(sql: str, dialect: str, allowed_tables: set[str] | None) -> exp.Query
     for name in names:
         if name.rsplit(".", 1)[-1] in DENIED_TABLES:
             raise SqlRejected("denied_table", f"The system table {name} is not allowed")
+    if dialect == "mysql":
+        for name in names:
+            if name.split(".")[-2:-1] and name.split(".")[-2] in MYSQL_SYSTEM_SCHEMAS:
+                raise SqlRejected("denied_table", f"The system table {name} is not allowed")
     if allowed_tables is not None:
         allowed = {t.lower() for t in allowed_tables}
         for name in names:
@@ -372,8 +395,8 @@ def execute(
         raise TypeError("execute() takes the result of guard(), not SQL text")
     if q.dialect != source.dialect:
         raise QueryRejected(f"The query was checked for {q.dialect}, not {source.dialect}")
-    if params and source.dialect == "postgres":
-        raise EngineError("Query parameters are not supported for Postgres sources")
+    if params and source.dialect in ("postgres", "mysql"):
+        raise EngineError(f"Query parameters are not supported for {source.dialect} sources")
     wrapped = exp.select("*").from_(q.tree.subquery("mlpilot_q")).limit(limit + 1)
     sql = wrapped.sql(dialect=q.dialect, comments=False)
     start = time.monotonic()
@@ -419,7 +442,7 @@ def catalog(
     """One of MLPilot's own fixed introspection queries (tables, columns, privileges).
 
     It passes the same guard and runs in the same read-only session as a user's query.
-    Postgres parameters are named (``:name``) and bound as literals into the checked tree;
+    Postgres and MySQL parameters are named (``:name``) and bound as literals into the checked tree;
     SQLite and DuckDB take ``?`` parameters.
     """
     q = guard(sql, source.dialect)
@@ -455,6 +478,8 @@ def read_only_session(source: GuardedSource, timeout_s: float) -> Iterator[_Sess
     session: _Session
     if source.dialect == "postgres":
         session = _PostgresSession(source, handle, timeout_s)
+    elif source.dialect == "mysql":
+        session = _MySQLSession(source, handle, timeout_s)
     elif source.dialect == "sqlite":
         session = _SqliteSession(source, handle, timeout_s)
     elif source.dialect == "duckdb":
@@ -497,6 +522,7 @@ class _Session:
 
 
 _PG_ERRORS = (pg8000.exceptions.Error, OSError)
+_MYSQL_ERRORS = (pymysql.err.MySQLError, OSError)
 
 
 class _PostgresSession(_Session):
@@ -534,6 +560,48 @@ class _PostgresSession(_Session):
         rows = [tuple(r) for r in context.rows or []]
         _check_rows(len(rows), max_rows)
         return names, rows
+
+
+class _MySQLSession(_Session):
+    """``SET SESSION TRANSACTION READ ONLY`` makes the server refuse writes (error 1792);
+    ``max_execution_time`` stops a SELECT that runs too long (error 3024). PyMySQL sends one
+    statement per call unless CLIENT.MULTI_STATEMENTS is set, which the source never does."""
+
+    def begin(self) -> None:
+        ms = int(self.timeout_s * 1000)
+        try:
+            with self.handle.cursor() as cur:
+                cur.execute("SET SESSION TRANSACTION READ ONLY")
+                cur.execute(f"SET SESSION max_execution_time = {ms}")
+                cur.execute("START TRANSACTION READ ONLY")
+        except _MYSQL_ERRORS as e:
+            self.handle.close()
+            raise self.source.failure(e) from None
+
+    def end(self) -> None:
+        try:
+            self.handle.rollback()
+        except Exception:  # noqa: BLE001 - the connection is closed next either way
+            logger.debug("rollback failed; closing the connection")
+        finally:
+            self.handle.close()
+
+    def fetch_rows(
+        self, sql: str, params: list[Any], *, max_rows: int | None, max_bytes: int
+    ) -> tuple[list[str], list[tuple[Any, ...]]]:
+        if params:
+            raise EngineError("Positional parameters are not supported for MySQL")
+        try:
+            with self.handle.cursor() as cur:
+                cur.execute(sql)
+                names = [d[0] for d in cur.description or []]
+                rows: list[tuple[Any, ...]] = []
+                while batch := cur.fetchmany(FETCH_BATCH):
+                    rows.extend(tuple(r) for r in batch)
+                    _check_rows(len(rows), max_rows)
+                return names, rows
+        except _MYSQL_ERRORS as e:
+            raise self.source.failure(e) from None
 
 
 # SQLite's own side-effect functions (the GLOB operator calls glob(), so it stays allowed).
