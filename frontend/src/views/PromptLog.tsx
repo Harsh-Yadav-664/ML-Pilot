@@ -70,7 +70,7 @@ export function PromptLog() {
         {error && <p role="alert" className="p-4 text-[12px] text-clay">{error}</p>}
         {calls && calls.length === 0 && <p className="p-4 font-mono text-[11px] text-mute">No prompt has been sent for this project yet.</p>}
         {calls && calls.length > 0 && (
-          <div className="overflow-x-auto">
+          <div className="max-h-[480px] overflow-auto">
           <table className="w-full min-w-[640px] whitespace-nowrap text-left font-mono text-[11px]">
             <thead className="text-mute">
               <tr className="border-b border-line">

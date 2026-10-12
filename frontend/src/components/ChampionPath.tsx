@@ -42,6 +42,9 @@ export function ChampionPath({ items }: { items: NarrationItem[] }) {
   const path = steps.map((s, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(s.value)}`).join(' ');
   return (
     <div data-testid="champion-path" className="space-y-2">
+      {steps.length === 1 ? (
+        <p className="text-[12px] text-mute">No feature has beaten the baseline yet, so the baseline is the champion.</p>
+      ) : (
       <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" role="img" aria-label="Validation PR-AUC of the champion over rounds">
         {baseRate != null && <line x1={pad} x2={W - pad} y1={y(baseRate)} y2={y(baseRate)} stroke="#a08d76" strokeDasharray="4 4" strokeWidth="1" />}
         <path d={path} fill="none" stroke="#e0a24f" strokeWidth="1.6" />
@@ -51,6 +54,7 @@ export function ChampionPath({ items }: { items: NarrationItem[] }) {
           </circle>
         ))}
       </svg>
+      )}
       <ol className="space-y-0.5 font-mono text-[11px] text-bone-dim">
         {steps.map((s, i) => (
           <li key={`${s.label}-${i}`} data-testid="champion-step" className="flex justify-between gap-3">

@@ -3,27 +3,6 @@ import { cn } from './utils/cn';
 import { ExperimentStatus } from './types';
 
 /* ------------------------------------------------------------- hooks */
-export function useCountUp(target: number, duration = 900) {
-  const [v, setV] = useState(0);
-  const from = useRef(0);
-  useEffect(() => {
-    const start = performance.now();
-    const a = from.current;
-    let raf = 0;
-    const step = (now: number) => {
-      const p = Math.min(1, (now - start) / duration);
-      const e = 1 - Math.pow(1 - p, 3);
-      const val = a + (target - a) * e;
-      from.current = val;
-      setV(val);
-      if (p < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
-  return v;
-}
-
 export function useNow(ms = 15000) {
   const [, set] = useState(0);
   useEffect(() => {
@@ -43,11 +22,10 @@ export function Num({
   prefix?: string;
   suffix?: string;
 }) {
-  const v = useCountUp(value);
   return (
     <>
       {prefix}
-      {v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
+      {value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
       {suffix}
     </>
   );
