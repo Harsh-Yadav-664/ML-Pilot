@@ -12,7 +12,6 @@ export type Suggestion = S['SuggestionRead'];
 export type SettingsPreview = S['SettingsPreview'];
 export type SplitPreview = S['SplitPreview'];
 export type LabelPreview = S['LabelPreview'];
-export type TaskSpecRead = S['TaskSpecRead'];
 
 export type ApprovalMode = 'auto' | 'confirm_task' | 'approve_each_feature';
 
@@ -105,11 +104,6 @@ export async function applySettings(runId: string, message: string): Promise<Set
 
 export async function cancelRun(jobId: string): Promise<void> {
   await cancelJob(jobId);
-}
-
-export async function getTask(taskId: string): Promise<TaskSpecRead> {
-  const project = await ensureProject();
-  return (await api.get<TaskSpecRead>(`/projects/${project.id}/tasks/${taskId}`)).data;
 }
 
 /** The task's cutoffs divided into train, validation and test, on the run's data version. */

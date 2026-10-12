@@ -191,7 +191,7 @@ export function RunView() {
               )}
             </section>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <Panel>
                 <CardHeader title="Training table" sub="time-based split, never random" />
                 <div className="space-y-3 p-4">
@@ -223,7 +223,7 @@ export function RunView() {
               </div>
             </Panel>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <Panel>
                 <CardHeader title="Log" sub="the run's events, in words" />
                 <ol data-testid="run-log" className="max-h-80 space-y-1.5 overflow-auto p-4 text-[12.5px] leading-snug text-bone-dim">

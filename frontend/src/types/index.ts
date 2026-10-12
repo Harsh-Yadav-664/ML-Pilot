@@ -93,13 +93,6 @@ export interface FeatureWeight {
   weight: number;
 }
 
-export interface CleanStep {
-  id: string;
-  label: string;
-  detail: string;
-  done: boolean;
-}
 
 export type View = 'dashboard' | 'experiments' | 'deployments' | 'settings';
 export type AgentStatus = 'idle' | 'thinking' | 'autopilot';
-export type Provider = 'openai' | 'anthropic' | 'local';

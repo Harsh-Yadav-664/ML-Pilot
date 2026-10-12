@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
-import { Ban, Undo2 } from 'lucide-react';
 import { FeedItem, useStore } from '../store';
-import { algoLabel, f3, pct, timeAgo } from '../lib';
+import { LeakageWarning } from '../types';
+import { algoLabel, f3, pct, shortId, timeAgo } from '../lib';
 import { cn } from '../utils/cn';
 import {
   Btn,
@@ -16,7 +16,7 @@ import {
   Panel,
   Reveal,
   SectionHead,
-  Seg,
+  STATUS,
   Tag,
   VolumeBars,
   useNow,
@@ -79,46 +79,41 @@ export function UploadModal() {
 function Hero() {
   const {
     metrics,
-    readiness,
     champion,
     baseline,
     loading,
+    live,
+    demo,
     warnings,
-    excluded,
     columns,
     experiments,
     agentStatus,
     hypotheses,
     autoClean,
     cleaning,
-    cleaned,
     runNext,
     setUploadOpen,
     setView,
     datasetName,
     fileName,
     target,
-    demo,
-    live,
-    optimizeFor,
   } = useStore();
 
-  const open = warnings.filter((w) => !excluded.has(w.column));
-  const high = open.filter((w) => w.severity === 'high').length;
+  const bySeverity = (s: LeakageWarning['severity']) => warnings.filter((w) => w.severity === s).length;
+  const [high, medium, low] = [bySeverity('high'), bySeverity('medium'), bySeverity('low')];
   const running = experiments.find((e) => e.status === 'running');
-  const mk = optimizeFor;
+  const finished = experiments.filter((e) => e.status === 'completed').length;
+  const championIsBaseline = !!champion && champion.id === baseline?.id;
   const lift =
-    champion?.metrics[mk] !== undefined && baseline?.metrics[mk] !== undefined ? champion.metrics[mk]! - baseline.metrics[mk]! : undefined;
+    !championIsBaseline && champion?.metrics.f1 !== undefined && baseline?.metrics.f1 !== undefined ? champion.metrics.f1 - baseline.metrics.f1 : undefined;
 
   const headline =
     agentStatus === 'autopilot'
       ? `Autopilot is testing ${hypotheses} hypotheses`
       : high > 0
-      ? `${high} column${high > 1 ? 's' : ''} still leak${high > 1 ? '' : 's'} the label`
+      ? `${high} high-risk leakage finding${high > 1 ? 's' : ''}`
       : running
       ? `${algoLabel(running.model_name)} is training`
-      : cleaned && !open.length
-      ? 'Feature set is clean'
       : champion
       ? `${algoLabel(champion.model_name)} holds the lead`
       : 'No completed runs yet';
@@ -127,30 +122,29 @@ function Hero() {
     agentStatus === 'autopilot'
       ? 'Each hypothesis branches off the current champion and reports back to the queue.'
       : high > 0
-      ? 'Excluding them moves baseline F1 from 0.91 to 0.72. The inflated score was leakage, not signal.'
+      ? 'A column that leaks the label scores well offline and fails in use. Read the findings below before trusting a score.'
       : running
-      ? `${Math.round(running.progress ?? 0)}% through, ${running.runtime_seconds.toFixed(1)}s elapsed on ${running.title ?? running.id}.`
+      ? `${running.title ?? shortId(running.id)}, ${running.runtime_seconds.toFixed(1)}s so far.`
       : champion && lift !== undefined
-      ? `Champion ${champion.id} beats ${baseline?.id ?? 'the baseline'} by ${(lift * 100).toFixed(0)} points of F1.`
+      ? `Champion ${shortId(champion.id)} is ${lift >= 0 ? '+' : ''}${lift.toFixed(3)} F1 against baseline ${shortId(baseline!.id)}.`
+      : championIsBaseline
+      ? finished > 1
+        ? 'The baseline still leads: no feature idea has beaten it yet.'
+        : 'The baseline is the only finished run. Run a feature idea to try to beat it.'
       : 'Run a hypothesis from the agent queue to seed the lineage.';
 
-  const tone =
-    readiness >= 85
-      ? { c: '#b2cd8b', t: 'text-sage', l: 'Ready to train' }
-      : readiness >= 60
-      ? { c: '#f7cd82', t: 'text-copper-2', l: 'Needs review' }
-      : { c: '#e0705a', t: 'text-clay', l: 'Not ready' };
-
-  const features = columns.filter((c) => c.role === 'feature' && !excluded.has(c.name)).length;
+  const scanned = live || demo;
+  const scanTone = high ? 'text-clay' : medium ? 'text-copper-2' : 'text-sage';
+  const features = columns.filter((c) => c.role === 'feature').length;
 
   return (
     <section className="ticks relative border border-line bg-panel/70">
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 p-6 sm:p-8">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-mute">
             <span className="text-copper">Command deck</span>
             <span className="text-rule">//</span>
-            <span className="text-bone-dim">{fileName ?? datasetName}</span>
+            <span className="break-all text-bone-dim">{fileName ?? datasetName}</span>
             <span>→</span>
             <span className="text-copper-2">{target}</span>
             <span className="ml-auto flex items-center gap-1.5">
@@ -159,14 +153,14 @@ function Hero() {
             </span>
           </div>
 
-          <h1 className="mt-5 font-display text-[clamp(46px,6.2vw,92px)] font-extrabold uppercase leading-[0.9] text-bone">
+          <h1 className="mt-5 font-display text-[clamp(40px,6.2vw,92px)] font-extrabold uppercase leading-[0.9] text-bone">
             {loading ? 'Profiling dataset' : headline}
           </h1>
           <p className="mt-4 max-w-xl text-[14px] leading-relaxed text-mute">{sub}</p>
 
           <div className="mt-6 flex flex-wrap gap-2.5">
             <Btn variant="primary" size="lg" onClick={autoClean} disabled={cleaning}>
-              {cleaning ? 'Building pipeline…' : cleaned ? 'Re-run auto-clean' : 'Apply AI auto-clean'}
+              {cleaning ? 'Asking for a recipe…' : 'Apply AI auto-clean'}
             </Btn>
             <Btn size="lg" onClick={runNext}>
               ▶ Run next idea
@@ -181,17 +175,17 @@ function Hero() {
         </div>
 
         <div className="flex flex-col border-t border-line p-6 lg:border-l lg:border-t-0">
-          <Eyebrow>Readiness</Eyebrow>
+          <Eyebrow>Leakage scan</Eyebrow>
           <div className="mt-2 flex items-end gap-2">
-            <span className={cn('font-display text-[96px] font-extrabold leading-[0.82] tabular-nums', tone.t)}>
-              <Num value={loading ? 0 : readiness} />
+            <span className={cn('font-display text-[96px] font-extrabold leading-[0.82] tabular-nums', scanned ? scanTone : 'text-rule')}>
+              {scanned && !loading ? <Num value={warnings.length} /> : '—'}
             </span>
-            <span className="pb-1 font-mono text-[12px] text-mute">/100</span>
+            <span className="pb-1 font-mono text-[12px] text-mute">finding{warnings.length === 1 ? '' : 's'}</span>
           </div>
-          <Seg value={loading ? 0 : readiness} color={tone.c} className="mt-4" />
-          <div className="mt-2 flex items-center justify-between font-mono text-[10.5px] uppercase tracking-[0.1em]">
-            <span className={tone.t}>{tone.l}</span>
-            <span className="text-mute">{open.length ? `${open.length} open finding${open.length > 1 ? 's' : ''}` : 'no findings'}</span>
+          <div className="mt-3 flex gap-3 font-mono text-[10.5px] uppercase tracking-[0.1em]">
+            <span className={high ? 'text-clay' : 'text-mute'}>{high} high</span>
+            <span className={medium ? 'text-copper-2' : 'text-mute'}>{medium} medium</span>
+            <span className="text-mute">{low} low</span>
           </div>
 
           <div className="mt-4 divide-y divide-transparent border-t border-line pt-2">
@@ -205,36 +199,39 @@ function Hero() {
               k="Duplicate rows"
               v={metrics ? <span className={metrics.duplicate_rows > 0 ? 'text-copper-2' : ''}><Num value={metrics.duplicate_rows} /></span> : '—'}
             />
-            <Leader k="Features in matrix" v={features} />
-            <Leader k="Excluded" v={excluded.size} />
+            <Leader k="Feature columns" v={metrics ? features : '—'} />
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 divide-x divide-line border-t border-line sm:grid-cols-4">
-        <div className="px-5 py-4">
-          <Eyebrow>Champion {mk}</Eyebrow>
+      <div className="grid grid-cols-2 divide-x divide-line border-t border-line sm:grid-cols-4 max-sm:[&>*:nth-child(3)]:border-l-0 max-sm:[&>*:nth-child(n+3)]:border-t max-sm:[&>*:nth-child(n+3)]:border-line">
+        <div className="min-w-0 px-5 py-4">
+          <Eyebrow>Champion f1</Eyebrow>
           <div className="mt-1 font-display text-[44px] font-extrabold leading-none tabular-nums text-bone">
-            {loading ? <span className="skeleton inline-block h-9 w-24" /> : champion?.metrics[mk] !== undefined ? champion.metrics[mk]!.toFixed(3) : '—'}
+            {loading ? <span className="skeleton inline-block h-9 w-24" /> : f3(champion?.metrics.f1)}
           </div>
         </div>
-        <div className="px-5 py-4">
+        <div className="min-w-0 px-5 py-4">
           <Eyebrow>Vs baseline</Eyebrow>
           <div className="mt-2 font-display text-[30px] font-bold leading-none">
             {lift !== undefined ? <Delta value={lift} className="!text-[22px] !font-bold" /> : <span className="text-rule">—</span>}
           </div>
-          <div className="mt-1.5 font-mono text-[10.5px] text-mute">{baseline?.id ?? 'no baseline'}</div>
+          <div className="mt-1.5 truncate font-mono text-[10.5px] text-mute" title={baseline?.id}>
+            {championIsBaseline ? 'champion is the baseline' : baseline ? `baseline ${shortId(baseline.id)}` : 'no baseline'}
+          </div>
         </div>
-        <div className="px-5 py-4">
+        <div className="min-w-0 px-5 py-4">
           <Eyebrow>Algorithm</Eyebrow>
           <div className="mt-1 font-display text-[28px] font-bold uppercase leading-none tracking-wide text-bone">
             {champion ? algoLabel(champion.model_name) : '—'}
           </div>
           <div className="mt-1.5 font-mono text-[10.5px] text-mute">{pct(champion?.metrics.accuracy)} accuracy</div>
         </div>
-        <div className="px-5 py-4">
+        <div className="min-w-0 px-5 py-4">
           <Eyebrow>Run</Eyebrow>
-          <div className="mt-1 font-mono text-[22px] font-medium leading-none text-copper-2">{champion?.id ?? '—'}</div>
+          <div className="mt-1 truncate font-mono text-[22px] font-medium leading-none text-copper-2" title={champion?.id}>
+            {champion ? shortId(champion.id) : '—'}
+          </div>
           <div className="mt-1.5 font-mono text-[10.5px] text-mute">{champion ? `${champion.runtime_seconds.toFixed(1)}s runtime` : 'no run'}</div>
         </div>
       </div>
@@ -244,9 +241,8 @@ function Hero() {
 
 /* --------------------------------------------------------------- leakage */
 function Leakage() {
-  const { warnings, excluded, toggleColumn, excludeHighRisk, loading, connectionError } = useStore();
-  const open = warnings.filter((w) => !excluded.has(w.column));
-  const high = open.filter((w) => w.severity === 'high').length;
+  const { warnings, loading, connectionError } = useStore();
+  const high = warnings.filter((w) => w.severity === 'high').length;
   const sev = { high: '#e0705a', medium: '#f7cd82', low: '#a08d76' } as const;
 
   return (
@@ -254,15 +250,7 @@ function Leakage() {
       <SectionHead
         n="01"
         title="Target leakage"
-        right={
-          high > 0 ? (
-            <Btn variant="danger" size="sm" onClick={excludeHighRisk}>
-              Exclude {high} high-risk
-            </Btn>
-          ) : (
-            <Tag tone={open.length ? 'copper' : 'sage'}>{loading ? 'scanning' : open.length ? `${open.length} open` : 'clean'}</Tag>
-          )
-        }
+        right={<Tag tone={high ? 'clay' : warnings.length ? 'copper' : 'sage'}>{loading ? 'scanning' : warnings.length ? `${warnings.length} found` : 'clean'}</Tag>}
       />
       <Panel className={cn('mt-3', high > 0 && 'border-clay/40')}>
         {connectionError && !loading && (
@@ -272,29 +260,17 @@ function Leakage() {
           <p className="px-4 py-5 text-[13px] text-mute">No leakage detected. Every feature is available at prediction time.</p>
         )}
         {loading && <div className="skeleton m-4 h-16" />}
-        {warnings.map((w) => {
-          const done = excluded.has(w.column);
-          return (
-            <div key={w.id} className={cn('relative flex items-start gap-4 border-b border-line px-5 py-3.5 transition-opacity last:border-b-0', done && 'opacity-45')}>
-              <span className="absolute inset-y-0 left-0 w-[3px] transition-colors" style={{ background: done ? '#b2cd8b' : sev[w.severity] }} />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <code className={cn('font-mono text-[13px] font-medium text-bone', done && 'line-through decoration-mute')}>{w.column}</code>
-                  <Tag tone={done ? 'sage' : w.severity === 'high' ? 'clay' : w.severity === 'medium' ? 'copper' : 'neutral'}>
-                    {done ? 'excluded' : w.severity}
-                  </Tag>
-                  <Tag>{w.category}</Tag>
-                </div>
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-bone-dim">{w.message}</p>
-              </div>
-              {w.column !== '(rows)' && (
-                <Btn variant="outline" size="sm" onClick={() => toggleColumn(w.column)}>
-                  {done ? 'Restore' : 'Exclude'}
-                </Btn>
-              )}
+        {warnings.map((w) => (
+          <div key={w.id} className="relative border-b border-line px-5 py-3.5 last:border-b-0">
+            <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: sev[w.severity] }} />
+            <div className="flex flex-wrap items-center gap-2.5">
+              <code className="font-mono text-[13px] font-medium text-bone">{w.column}</code>
+              <Tag tone={w.severity === 'high' ? 'clay' : w.severity === 'medium' ? 'copper' : 'neutral'}>{w.severity}</Tag>
+              <Tag>{w.category}</Tag>
             </div>
-          );
-        })}
+            <p className="mt-1.5 text-[12.5px] leading-relaxed text-bone-dim">{w.message}</p>
+          </div>
+        ))}
       </Panel>
     </div>
   );
@@ -302,46 +278,18 @@ function Leakage() {
 
 /* ------------------------------------------------------------ auto-clean */
 function AutoClean() {
-  const { cleanSteps, cleaning, cleaned, autoClean, excluded, metrics } = useStore();
-  const doneCount = cleanSteps.filter((s) => s.done).length;
-
+  const { cleaning, autoClean } = useStore();
   return (
     <div className="min-w-0">
-      <SectionHead n="02" title="Auto-clean" right={<Tag tone={cleaning ? 'copper' : cleaned ? 'sage' : 'neutral'}>{cleaning ? 'building' : cleaned ? 'applied' : 'idle'}</Tag>} />
-      <Panel className="mt-3 flex flex-col">
-        <ol className="relative px-5 py-4">
-          <span className="absolute bottom-7 left-[29px] top-7 w-px bg-line" />
-          {cleanSteps.map((s, i) => (
-            <li key={s.id} className="relative flex gap-3.5 py-2">
-              <span
-                className={cn(
-                  'relative z-10 flex h-[19px] w-[19px] shrink-0 items-center justify-center border font-mono text-[10px] transition-colors duration-300',
-                  s.done
-                    ? 'border-sage bg-sage text-ink'
-                    : cleaning && i === doneCount
-                    ? 'animate-pulse border-copper bg-panel text-copper'
-                    : 'border-rule bg-panel text-mute'
-                )}
-              >
-                {s.done ? '✓' : i + 1}
-              </span>
-              <span className="min-w-0">
-                <span className={cn('block text-[13px] font-medium leading-tight', s.done ? 'text-bone' : 'text-bone-dim')}>{s.label}</span>
-                <span className="mt-0.5 block font-mono text-[10.5px] text-mute">{s.detail}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
-        <div className="border-t border-line p-4">
-          <p className="text-[12px] leading-relaxed text-mute">
-            {cleaned
-              ? `Dropped ${excluded.size} leaky column${excluded.size === 1 ? '' : 's'}, removed ${metrics?.duplicate_rows ?? 0} duplicates, imputed remaining nulls. Scalers fit on the train fold only.`
-              : 'The agent builds a preprocessing pipeline from the profile: leakage first, then imputation, scaling and encoding.'}
-          </p>
-          <Btn variant={cleaned ? 'outline' : 'primary'} size="md" className="mt-3 w-full" onClick={autoClean} disabled={cleaning}>
-            {cleaning ? `Step ${doneCount}/${cleanSteps.length}` : cleaned ? 'Re-run pipeline' : 'Apply AI auto-clean'}
-          </Btn>
-        </div>
+      <SectionHead n="02" title="Auto-clean" right={<Tag tone={cleaning ? 'copper' : 'neutral'}>{cleaning ? 'asking' : 'on demand'}</Tag>} />
+      <Panel className="mt-3 p-4">
+        <p className="text-[12.5px] leading-relaxed text-bone-dim">
+          The LLM reads the column profile and proposes a cleaning recipe: imputation, encoding and transforms. It is trained as a new baseline run, so
+          it is compared like any other run in the lineage.
+        </p>
+        <Btn variant="primary" size="md" className="mt-3 w-full" onClick={autoClean} disabled={cleaning}>
+          {cleaning ? 'Asking for a recipe…' : 'Apply AI auto-clean'}
+        </Btn>
       </Panel>
     </div>
   );
@@ -349,19 +297,10 @@ function AutoClean() {
 
 /* ----------------------------------------------------------- agent queue */
 function AgentQueue() {
-  const { feed, runSuggestion, askAgent, agentStatus, setAgentOpen, setView, select, experiments, demo } = useStore();
-  const [draft, setDraft] = useState('');
+  const { feed, runSuggestion, agentStatus, setAgentOpen, setView, select, experiments, demo } = useStore();
   const proposals = useMemo(() => feed.filter((f): f is Extract<FeedItem, { kind: 'suggestion' }> => f.kind === 'suggestion'), [feed]);
   const pending = proposals.filter((p) => !p.expId).slice(0, 3);
   const busy = agentStatus !== 'idle';
-
-  const send = () => {
-    const t = draft.trim();
-    if (!t) return;
-    setDraft('');
-    void askAgent(t);
-    setAgentOpen(true);
-  };
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -380,27 +319,9 @@ function AgentQueue() {
           <span className={busy ? 'text-copper-2' : 'text-bone-dim'}>{agentStatus === 'autopilot' ? 'autopilot' : agentStatus === 'thinking' ? 'thinking' : 'idle'}</span>
           <span className="text-mute">· {pending.length} pending</span>
         </div>
-        <div className="flex items-stretch border-b border-line">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') send();
-            }}
-            placeholder="Steer the agent (e.g., focus on temporal features)..."
-            className="h-10 min-w-0 flex-1 bg-transparent px-4 text-[12.5px] text-bone placeholder:text-mute/70 focus:bg-panel-2/50 focus:outline-none"
-          />
-          <button
-            onClick={send}
-            disabled={!draft.trim()}
-            className="border-l border-line px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-copper transition-colors enabled:hover:bg-copper enabled:hover:text-ink disabled:text-rule"
-          >
-            ↵
-          </button>
-        </div>
 
         <div className="flex-1 space-y-2.5 p-3">
-          {pending.length === 0 && <p className="px-1 py-6 text-center text-[12px] text-mute">Queue is empty. Steer the agent above for a new hypothesis.</p>}
+          {pending.length === 0 && <p className="px-1 py-6 text-center text-[12px] text-mute">Queue is empty: every feature idea has a run.</p>}
           {pending.map((p) => (
             <div key={p.id} className="border border-line bg-ink p-3 transition-colors hover:border-copper/50">
               <div className="flex items-start justify-between gap-2">
@@ -455,7 +376,7 @@ function Prod() {
   return (
     <div>
       <SectionHead
-        n="05"
+        n="07"
         title="In production"
         right={
           <button onClick={() => setView('deployments')} className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-mute transition-colors hover:text-copper-2">
@@ -463,7 +384,7 @@ function Prod() {
           </button>
         }
       />
-      <Panel className="mt-3 grid divide-y divide-line lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1fr)] lg:divide-x lg:divide-y-0">
+      <Panel className="mt-3 grid grid-cols-1 divide-y divide-line lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1fr)] lg:divide-x lg:divide-y-0">
         <div className="p-4">
           <Eyebrow>Endpoint</Eyebrow>
           {ep ? (
@@ -512,44 +433,42 @@ function Prod() {
 
 /* --------------------------------------------------------------- profile */
 function Profile() {
-  const { columns, excluded, toggleColumn } = useStore();
+  const { columns } = useStore();
   const [q, setQ] = useState('');
   const rows = useMemo(() => columns.filter((c) => !q || c.name.toLowerCase().includes(q.toLowerCase())), [columns, q]);
   /* Last track is flexible so the histogram always fits the pane. */
-  const grid =
-    'grid grid-cols-[minmax(110px,1.1fr)_58px_52px_minmax(84px,0.9fr)_46px_minmax(60px,0.7fr)_24px] items-center gap-x-2.5 px-4';
+  const grid = 'grid grid-cols-[minmax(110px,1.1fr)_58px_52px_minmax(84px,0.9fr)_46px_minmax(60px,0.7fr)] items-center gap-x-2.5 px-4';
 
   return (
     <div className="min-w-0">
       <SectionHead
-        n="06"
+        n="05"
         title="Column profile"
         right={
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="filter"
+            aria-label="Filter columns"
             className="h-7 w-32 border border-line bg-transparent px-2 font-mono text-[11px] text-bone placeholder:text-mute focus:border-copper focus:outline-none"
           />
         }
       />
-      <Panel className="mt-3">
-        <div className={cn(grid, 'border-b border-line py-2')}>
-          <Eyebrow>Column</Eyebrow>
-          <Eyebrow>Type</Eyebrow>
-          <Eyebrow>Role</Eyebrow>
-          <Eyebrow>Missing</Eyebrow>
-          <Eyebrow className="text-right">Uniq</Eyebrow>
-          <Eyebrow>Dist</Eyebrow>
-          <span />
-        </div>
-        {rows.map((c) => {
-          const off = excluded.has(c.name);
-          return (
-            <div key={c.name} className={cn('group relative border-b border-line/70 py-[7px] transition-colors last:border-b-0 hover:bg-panel-2/60', off && 'opacity-45')}>
+      <Panel className="mt-3 overflow-x-auto">
+        <div className="min-w-[460px]">
+          <div className={cn(grid, 'border-b border-line py-2')}>
+            <Eyebrow>Column</Eyebrow>
+            <Eyebrow>Type</Eyebrow>
+            <Eyebrow>Role</Eyebrow>
+            <Eyebrow>Missing</Eyebrow>
+            <Eyebrow className="text-right">Uniq</Eyebrow>
+            <Eyebrow>Dist</Eyebrow>
+          </div>
+          {rows.map((c) => (
+            <div key={c.name} className="group relative border-b border-line/70 py-[7px] transition-colors last:border-b-0 hover:bg-panel-2/60">
               <span className="absolute inset-y-0 left-0 w-[2px] origin-top scale-y-0 bg-copper transition-transform duration-200 group-hover:scale-y-100" />
               <div className={grid}>
-                <code className={cn('truncate font-mono text-[12px] text-bone', off && 'line-through decoration-mute')} title={c.name}>
+                <code className="truncate font-mono text-[12px] text-bone" title={c.name}>
                   {c.name}
                 </code>
                 <span className={cn('w-fit border px-1 font-mono text-[9.5px]', dtypeColor[c.dtype])}>{c.dtype}</span>
@@ -563,19 +482,11 @@ function Profile() {
                 <span className="text-right font-mono text-[10.5px] tabular-nums text-mute">
                   {c.unique > 9999 ? `${(c.unique / 1000).toFixed(0)}k` : c.unique.toLocaleString()}
                 </span>
-                <MiniHist data={c.dist} muted={off} />
-                <button
-                  onClick={() => c.role === 'feature' && toggleColumn(c.name)}
-                  disabled={c.role !== 'feature'}
-                  title={c.role === 'feature' ? (off ? 'Restore column' : 'Exclude from feature set') : `${c.role} column`}
-                  className="justify-self-end p-0.5 text-mute opacity-0 transition-opacity hover:text-bone focus:opacity-100 group-hover:opacity-100 disabled:pointer-events-none"
-                >
-                  {off ? <Undo2 className="h-3.5 w-3.5 text-sage" /> : <Ban className="h-3.5 w-3.5" />}
-                </button>
+                <MiniHist data={c.dist} />
               </div>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </Panel>
     </div>
   );
@@ -583,25 +494,30 @@ function Profile() {
 
 /* ------------------------------------------------------------------ view */
 export function Dashboard() {
-  const { experiments, setView, select, champion, activity, loading, demo } = useStore();
+  const { experiments, setView, select, champion, baseline, loading, demo } = useStore();
   useNow();
   const completed = experiments.filter((e) => e.status === 'completed' && e.metrics.f1 !== undefined);
+  const recent = [...experiments].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 6);
+  const inspect = (id: string) => {
+    setView('experiments');
+    select(id);
+  };
 
   return (
-    <div className="mx-auto max-w-[1280px] space-y-10 p-6">
+    <div className="mx-auto max-w-[1280px] space-y-10 p-4 sm:p-6">
       <Reveal>
         <Hero />
       </Reveal>
 
       <Reveal delay={40}>
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <Leakage />
           <AutoClean />
         </div>
       </Reveal>
 
       <Reveal delay={60}>
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col">
             <SectionHead
               n="03"
@@ -616,11 +532,11 @@ export function Dashboard() {
               <div className="bg-grid min-h-[400px] flex-1">
                 {loading ? <div className="flex h-full items-center justify-center font-mono text-[11px] uppercase tracking-[0.1em] text-mute">loading lineage…</div> : <ExperimentGraph focusOnSelect />}
               </div>
-              <div className="flex items-center justify-between border-t border-line px-4 py-2 font-mono text-[10.5px] text-mute">
+              <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2 font-mono text-[10.5px] text-mute">
                 <span>Click a node to inspect it</span>
                 {champion && (
-                  <span className="text-copper-2">
-                    {champion.id} · f1 {f3(champion.metrics.f1)} · {pct(champion.metrics.accuracy)} acc
+                  <span className="truncate text-copper-2">
+                    {shortId(champion.id)} · f1 {f3(champion.metrics.f1)} · {pct(champion.metrics.accuracy)} acc
                   </span>
                 )}
               </div>
@@ -631,44 +547,47 @@ export function Dashboard() {
       </Reveal>
 
       <Reveal>
-        {demo ? <Prod /> : null}
-      </Reveal>
-
-      <Reveal>
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <Profile />
           <div className="flex min-w-0 flex-col">
-            <SectionHead n="07" title="Score history" />
+            <SectionHead n="06" title="Score history" />
             <Panel className="mt-3 flex flex-1 flex-col">
-              <CardHeader title="Best F1 over time" sub={`${completed.length} completed runs`} />
+              <CardHeader title="F1 per finished run" sub={`${completed.length} completed run${completed.length === 1 ? '' : 's'}`} />
               <div className="p-4">
                 <LineChart
                   points={[...completed]
                     .sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at))
-                    .map((e) => ({ id: e.id, y: e.metrics.f1!, label: e.id }))}
-                  baseline={experiments.find((e) => !e.parent_id)?.metrics.f1}
-                  onSelect={(id) => {
-                    setView('experiments');
-                    select(id);
-                  }}
+                    .map((e) => ({ id: e.id, y: e.metrics.f1!, label: shortId(e.id) }))}
+                  baseline={baseline?.metrics.f1}
+                  onSelect={inspect}
                 />
               </div>
               <div className="border-t border-line">
-                <Eyebrow className="block px-4 pb-1 pt-3">Recent activity</Eyebrow>
+                <Eyebrow className="block px-4 pb-1 pt-3">Recent runs</Eyebrow>
                 <ul>
-                  {activity.slice(0, 6).map((a) => (
-                    <li key={a.id} className="flex items-center gap-2.5 border-t border-line/60 px-4 py-2 text-[12px] first:border-t-0">
-                      <Led color={a.tone === 'ok' ? '#b2cd8b' : a.tone === 'err' ? '#e0705a' : a.tone === 'warn' ? '#f7cd82' : '#a08d76'} />
-                      <span className="min-w-0 flex-1 truncate text-bone-dim">{a.text}</span>
-                      <span className="shrink-0 font-mono text-[10px] tabular-nums text-mute">{timeAgo(a.t)}</span>
+                  {recent.map((e) => (
+                    <li key={e.id} className="border-t border-line/60 first:border-t-0">
+                      <button onClick={() => inspect(e.id)} className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-[12px] transition-colors hover:bg-panel-2/60">
+                        <Led color={STATUS[e.status].hex} pulse={e.status === 'running'} />
+                        <span className="min-w-0 flex-1 truncate text-bone-dim">{e.title ?? algoLabel(e.model_name)}</span>
+                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-bone">{e.status === 'completed' ? f3(e.metrics.f1) : STATUS[e.status].label}</span>
+                        <span className="w-14 shrink-0 text-right font-mono text-[10px] tabular-nums text-mute">{timeAgo(e.created_at)}</span>
+                      </button>
                     </li>
                   ))}
+                  {!recent.length && <li className="px-4 py-3 text-[12px] text-mute">No runs yet.</li>}
                 </ul>
               </div>
             </Panel>
           </div>
         </div>
       </Reveal>
+
+      {demo && (
+        <Reveal>
+          <Prod />
+        </Reveal>
+      )}
     </div>
   );
 }

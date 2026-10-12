@@ -100,7 +100,7 @@ export function Deployments() {
             );
           })}
           {!endpoints.length && (
-            <Panel className="p-10 text-center text-[13px] text-mute">No endpoints yet. Promote a completed run and deploy it from Experiments.</Panel>
+            <Panel className="p-10 text-center text-[13px] text-mute">No endpoints yet. Deploy the champion from Experiments.</Panel>
           )}
         </div>
       </div>

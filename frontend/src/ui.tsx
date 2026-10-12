@@ -3,27 +3,6 @@ import { cn } from './utils/cn';
 import { ExperimentStatus } from './types';
 
 /* ------------------------------------------------------------- hooks */
-export function useCountUp(target: number, duration = 900) {
-  const [v, setV] = useState(0);
-  const from = useRef(0);
-  useEffect(() => {
-    const start = performance.now();
-    const a = from.current;
-    let raf = 0;
-    const step = (now: number) => {
-      const p = Math.min(1, (now - start) / duration);
-      const e = 1 - Math.pow(1 - p, 3);
-      const val = a + (target - a) * e;
-      from.current = val;
-      setV(val);
-      if (p < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
-  return v;
-}
-
 export function useNow(ms = 15000) {
   const [, set] = useState(0);
   useEffect(() => {
@@ -43,11 +22,10 @@ export function Num({
   prefix?: string;
   suffix?: string;
 }) {
-  const v = useCountUp(value);
   return (
     <>
       {prefix}
-      {v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
+      {value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
       {suffix}
     </>
   );
@@ -177,11 +155,13 @@ export function Btn({
   );
 }
 
+/** The text input of the database pages' forms. */
+export const fieldCls = 'w-full border border-line bg-ink px-3 py-2 font-mono text-[12px] text-bone placeholder:text-mute focus:border-copper focus:outline-none';
+
 /* ------------------------------------------------------------- layout */
 export function Panel({ className, children, ticks }: { className?: string; children: ReactNode; ticks?: boolean }) {
   return <div className={cn('relative border border-line bg-panel/80', ticks && 'ticks', className)}>{children}</div>;
 }
-export const Card = Panel;
 
 export function CardHeader({ title, right, sub }: { title: string; sub?: string; right?: ReactNode }) {
   return (

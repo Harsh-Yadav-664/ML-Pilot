@@ -250,6 +250,10 @@ export const runBaseline = (d: ActiveDataset) =>
 export const runAutoClean = (d: ActiveDataset) =>
   api.post<ExperimentRead>(`${project()}/experiments/auto-clean`, versionBody(d), { timeout: 120000 }).then((r) => queued(r.data));
 
+/** The backend's standalone training script for an experiment; HTTP 409 says why one can't be exported. */
+export const exportExperiment = (id: string) =>
+  api.get<S['ExportScript']>(`${project()}/experiments/${encodeURIComponent(id)}/export`).then((r) => r.data);
+
 /** What a finished auto-optimize job reports (app/services/table_run_service.py). */
 export interface AutoOptimizeResult {
   summary: string;

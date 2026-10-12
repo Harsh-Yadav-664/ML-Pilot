@@ -5,10 +5,8 @@ import { LabelPreview, TaskDraft, TaskSpecRead, confirmTask, draftTask, previewL
 import { startRun } from '../api/runs';
 import { goRun, goTasks } from '../route';
 import { setEditorSeed } from '../taskEditorSeed';
-import { Btn, CardHeader, Panel, Tag } from '../ui';
+import { Btn, CardHeader, Panel, Tag, fieldCls } from '../ui';
 import { LabelPreview as LabelPreviewTable } from './LabelPreview';
-
-const inputCls = 'w-full border border-line bg-ink px-3 py-2 font-mono text-[12px] text-bone placeholder:text-mute focus:border-copper focus:outline-none';
 
 const day = (iso: string) => iso.slice(0, 10);
 
@@ -98,7 +96,7 @@ export function TaskCard({ connectionId }: { connectionId: string }) {
       <CardHeader title="Ask a prediction question" sub="Plain words in, a task you confirm out. Nothing trains yet." />
       <div className="space-y-3 p-4" data-testid="task-card">
         <textarea
-          className={inputCls}
+          className={fieldCls}
           rows={2}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}

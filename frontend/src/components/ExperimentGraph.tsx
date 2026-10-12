@@ -14,7 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 import { useStore } from '../store';
 import { Experiment } from '../types';
-import { algoLabel, pct } from '../lib';
+import { algoLabel, pct, shortId } from '../lib';
 import { cn } from '../utils/cn';
 import { Delta, Eyebrow, STATUS, StatusChip } from '../ui';
 
@@ -52,7 +52,9 @@ function ExpNode({ data }: NodeProps<NodeData>) {
       )}
       <Handle type="target" position={Position.Left} />
       <div className="flex items-center justify-between px-4 pt-3">
-        <code className="font-mono text-[10px] text-mute">{exp.id}</code>
+        <code className="font-mono text-[10px] text-mute" title={exp.id}>
+          {shortId(exp.id)}
+        </code>
         <StatusChip status={exp.status} />
       </div>
       <div className="px-4 pt-2">

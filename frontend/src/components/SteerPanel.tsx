@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { describeError } from '../api';
 import { Checkpoint, SettingsPreview, addSuggestion, answerCheckpoint, applySettings, previewSettings } from '../api/runs';
-import { Btn, Panel, CardHeader } from '../ui';
-
-const inputCls = 'w-full border border-line bg-ink px-3 py-2 font-mono text-[12px] text-bone placeholder:text-mute focus:border-copper focus:outline-none';
+import { Btn, Panel, CardHeader, fieldCls } from '../ui';
 
 /**
  * What a person can do while the run goes on: approve or veto the feature the run is waiting on, suggest an idea,
@@ -62,7 +60,7 @@ export function SteerPanel({ runId, checkpoints, live, onChange }: { runId: stri
           <div className="flex gap-2">
             <input
               id="idea"
-              className={inputCls}
+              className={fieldCls}
               value={idea}
               onChange={(e) => setIdea(e.target.value)}
               placeholder="Something about support tickets"
@@ -90,7 +88,7 @@ export function SteerPanel({ runId, checkpoints, live, onChange }: { runId: stri
           <div className="flex gap-2">
             <input
               id="settings"
-              className={inputCls}
+              className={fieldCls}
               value={message}
               onChange={(e) => {
                 setMessage(e.target.value);
