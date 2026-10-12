@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
-import { Database, GitBranch, Radio, Settings as SettingsIcon } from 'lucide-react';
+import { ListChecks, Plug } from 'lucide-react';
 import { StoreProvider, useStore } from './store';
-import { View } from './types';
 import { cn } from './utils/cn';
 import { Btn, Kbd, Led } from './ui';
 import { Dashboard, UploadModal } from './views/Dashboard';
@@ -15,7 +14,8 @@ import { Landing } from './Landing';
 import { ConnectView } from './views/Connect';
 import { TaskEditor } from './views/TaskEditor';
 import { RunView } from './views/RunView';
-import { useRoute } from './route';
+import { goConnect, goTasks, useRoute } from './route';
+import { NAV } from './nav';
 
 /** A coffee bean in a caramel block. */
 function Logo() {
@@ -30,14 +30,21 @@ function Logo() {
   );
 }
 
-const ALL_NAV: { key: View; label: string; icon: typeof Database }[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: Database },
-  { key: 'experiments', label: 'Experiments', icon: GitBranch },
-  { key: 'deployments', label: 'Deployments', icon: Radio },
-  { key: 'settings', label: 'Settings', icon: SettingsIcon },
+/** Pages of the database flow, outside the workspace. */
+const ROUTES = [
+  { label: 'Connect a database', icon: Plug, go: goConnect },
+  { label: 'Task editor', icon: ListChecks, go: goTasks },
 ];
-// Deployments has no backend behind it yet: shown only in Demo mode.
-const NAV = ALL_NAV.filter((n) => connection.demo || n.key !== 'deployments');
+
+/** A rail icon with its label (and key) on hover. */
+function RailTip({ label, hotkey }: { label: string; hotkey?: number }) {
+  return (
+    <span className="pointer-events-none absolute left-full z-30 ml-3 flex -translate-x-1 items-center gap-2 whitespace-nowrap border border-rule bg-panel px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-bone opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100">
+      {label}
+      {hotkey !== undefined && <Kbd>{hotkey}</Kbd>}
+    </span>
+  );
+}
 
 function Shell() {
   const { started } = useStore();
@@ -79,10 +86,8 @@ function Workspace() {
       const t = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || s.paletteOpen) return;
       if (e.key === 'Escape' && selectedId) select(null);
-      if (e.key === '1') setView('dashboard');
-      if (e.key === '2') setView('experiments');
-      if (e.key === '3' && connection.demo) setView('deployments');
-      if (e.key === '4') setView('settings');
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= NAV.length) setView(NAV[n - 1].key);
       if (e.key === '\\') setAgentOpen(!agentOpen);
     };
     window.addEventListener('keydown', onKey);
@@ -112,16 +117,30 @@ function Workspace() {
                 <button
                   key={n.key}
                   onClick={() => setView(n.key)}
+                  aria-label={n.label}
                   className={cn(
                     'group relative flex h-10 w-10 items-center justify-center transition-colors',
                     on ? 'bg-panel-2 text-copper-2' : 'text-mute hover:bg-panel hover:text-bone'
                   )}
                 >
                   <Icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
-                  <span className="pointer-events-none absolute left-full z-30 ml-3 flex -translate-x-1 items-center gap-2 whitespace-nowrap border border-rule bg-panel px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-bone opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100">
-                    {n.label}
-                    <Kbd>{i + 1}</Kbd>
-                  </span>
+                  <RailTip label={n.label} hotkey={i + 1} />
+                </button>
+              );
+            })}
+          </nav>
+          <nav className="mt-4 flex flex-col border-t border-line pt-4">
+            {ROUTES.map((r) => {
+              const Icon = r.icon;
+              return (
+                <button
+                  key={r.label}
+                  onClick={r.go}
+                  aria-label={r.label}
+                  className="group relative flex h-10 w-10 items-center justify-center text-mute transition-colors hover:bg-panel hover:text-bone"
+                >
+                  <Icon className="h-[17px] w-[17px]" strokeWidth={1.6} />
+                  <RailTip label={r.label} />
                 </button>
               );
             })}
@@ -136,15 +155,15 @@ function Workspace() {
           <header className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-line bg-ink px-4">
             <div className="flex min-w-0 items-center gap-2.5 font-mono text-[11px] uppercase tracking-[0.1em]">
               <span className="font-display text-[17px] font-extrabold normal-case tracking-wide text-bone">MLPilot</span>
-              <span className="text-rule">/</span>
-              <button onClick={() => setUploadOpen(true)} className="truncate text-mute transition-colors hover:text-copper-2" title="Replace dataset">
+              <span className="text-rule max-sm:hidden">/</span>
+              <button onClick={() => setUploadOpen(true)} className="truncate text-mute transition-colors hover:text-copper-2 max-sm:hidden" title="Replace dataset">
                 {datasetName}
               </button>
               <span className="text-rule">/</span>
               <select
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
-                className="max-w-[150px] cursor-pointer truncate bg-transparent text-copper-2 focus:outline-none"
+                className="min-w-0 max-w-[96px] cursor-pointer truncate bg-transparent sm:max-w-[150px] text-copper-2 focus:outline-none"
                 title="Target column"
               >
                 {columns.map((c) => (
@@ -155,7 +174,7 @@ function Workspace() {
               </select>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex shrink-0 items-center gap-2.5">
               <div className="hidden items-center gap-2 border border-line px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] sm:flex">
                 <span className="text-mute">Agent</span>
                 <Led color={busy ? '#f7cd82' : '#b2cd8b'} pulse={busy} />
@@ -174,7 +193,7 @@ function Workspace() {
                 onClick={() => setAgentOpen(!agentOpen)}
                 title="Toggle agent panel (\)"
                 className={cn(
-                  'h-7 border px-2 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors',
+                  'h-7 whitespace-nowrap border px-2 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors',
                   agentOpen ? 'border-copper/60 text-copper-2' : 'border-line text-mute hover:text-bone'
                 )}
               >
@@ -195,7 +214,7 @@ function Workspace() {
             <aside
               className={cn(
                 'shrink-0 overflow-hidden border-l border-line bg-ink transition-[width] duration-300 ease-[cubic-bezier(.22,1,.36,1)]',
-                agentOpen ? 'w-[380px]' : 'w-0 border-l-0',
+                agentOpen ? 'w-[380px] max-w-[calc(100vw-3.5rem)]' : 'w-0 border-l-0',
                 agentOpen && 'max-xl:absolute max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:shadow-2xl max-xl:shadow-black'
               )}
             >

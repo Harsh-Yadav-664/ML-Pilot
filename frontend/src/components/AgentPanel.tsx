@@ -3,7 +3,7 @@ import { FeedItem, useStore } from '../store';
 import { MODELS, estLift, f3 } from '../lib';
 import { connection } from '../api';
 import { cn } from '../utils/cn';
-import { Btn, Eyebrow, Led, STATUS, Tag } from '../ui';
+import { Btn, Eyebrow, Led, STATUS } from '../ui';
 
 function Stream({ text, on }: { text: string; on: boolean }) {
   const [n, setN] = useState(on ? 0 : text.length);
@@ -22,15 +22,14 @@ function Stream({ text, on }: { text: string; on: boolean }) {
 
 /** A proposed feature, laid out like a spec sheet. */
 function SpecSheet({ item }: { item: Extract<FeedItem, { kind: 'suggestion' }> }) {
-  const { runSuggestion, dismissSuggestion, experiments, select, setView, toast, treeOnly } = useStore();
+  const { runSuggestion, dismissSuggestion, experiments, select, setView, toast } = useStore();
   const [model, setModel] = useState('xgboost');
   const [copied, setCopied] = useState(false);
   const s = item.s;
   const exp = item.expId ? experiments.find((e) => e.id === item.expId) : undefined;
   // Estimated lift is sample data unless the backend supplies one.
   const lift = s.impact ?? (connection.demo ? estLift(s.name) : undefined);
-  const available = connection.demo ? MODELS : MODELS.filter((m) => m.key !== 'catboost');
-  const models = treeOnly ? available.filter((m) => m.tree) : available;
+  const models = connection.demo ? MODELS : MODELS.filter((m) => m.key !== 'catboost');
 
   const copy = () => {
     navigator.clipboard?.writeText(s.formula).catch(() => undefined);
@@ -99,15 +98,13 @@ function SpecSheet({ item }: { item: Extract<FeedItem, { kind: 'suggestion' }> }
           </>
         ) : (
           <>
-            <div className="leading-none">
-              <Eyebrow className="block text-[9px]">Est. F1</Eyebrow>
-              {lift !== undefined ? (
+            {lift !== undefined && (
+              <div className="leading-none">
+                <Eyebrow className="block text-[9px]">Est. F1</Eyebrow>
                 <span className="font-display text-[24px] font-bold text-sage">+{lift.toFixed(3)}</span>
-              ) : (
-                <span className="font-mono text-[11px] text-mute">not estimated</span>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5">
+              </div>
+            )}
+            <div className="ml-auto flex items-center gap-1.5">
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
@@ -125,31 +122,6 @@ function SpecSheet({ item }: { item: Extract<FeedItem, { kind: 'suggestion' }> }
             </div>
           </>
         )}
-      </div>
-    </div>
-  );
-}
-
-/** Human-in-the-loop checkpoint, raised directly in the thread. */
-function CheckpointCard({ item }: { item: Extract<FeedItem, { kind: 'checkpoint' }> }) {
-  const { answerCheckpoint } = useStore();
-  const resolved = item.choice !== undefined;
-  return (
-    <div className={cn('fade-up border bg-copper/[0.05]', resolved ? 'border-line opacity-70' : 'border-copper/60')}>
-      <div className="flex items-center gap-2 border-b border-copper/30 px-3 py-1.5">
-        <Eyebrow className="text-copper-2">Decision needed — waiting on you</Eyebrow>
-      </div>
-      <div className="px-3 py-3">
-        <p className="text-[13px] font-medium leading-snug text-bone">{item.question}</p>
-        <p className="mt-1.5 text-[11.5px] leading-relaxed text-mute">{item.detail}</p>
-        <div className="mt-3 flex flex-col gap-1.5">
-          {item.options.map((o, i) => (
-            <Btn key={o} size="sm" variant={resolved && item.choice === i ? 'primary' : 'outline'} className="justify-start" disabled={resolved} onClick={() => answerCheckpoint(item.id, i)}>
-              {o}
-              {resolved && item.choice === i ? ' ✓' : ''}
-            </Btn>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -175,10 +147,7 @@ export function AgentPanel() {
     setHypotheses,
     runAutopilot,
     agentStatus,
-    providerModel,
-    optimizeFor,
-    treeOnly,
-    budgetMin,
+    demo,
   } = useStore();
   const [text, setText] = useState('');
   const end = useRef<HTMLDivElement>(null);
@@ -198,7 +167,7 @@ export function AgentPanel() {
   const statusLabel = agentStatus === 'autopilot' ? 'Autopilot' : agentStatus === 'thinking' ? 'Thinking' : 'Idle';
 
   return (
-    <div className="flex h-full w-[380px] flex-col bg-ink">
+    <div className="flex h-full w-[380px] max-w-[calc(100vw-3.5rem)] flex-col bg-ink">
       {/* header */}
       <div className="border-b border-line px-4 py-3">
         <div className="flex items-center gap-2">
@@ -208,12 +177,7 @@ export function AgentPanel() {
             {statusLabel}
           </span>
         </div>
-        <p className="mt-1 font-mono text-[10px] text-mute">AI data scientist · {providerModel}</p>
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          <Tag>opt {optimizeFor}</Tag>
-          <Tag>{treeOnly ? 'tree-only' : 'all models'}</Tag>
-          {budgetMin ? <Tag>stop {budgetMin}m</Tag> : null}
-        </div>
+        <p className="mt-1 font-mono text-[10px] text-mute">Answers from the recorded run history</p>
       </div>
 
       {/* autopilot */}
@@ -251,7 +215,6 @@ export function AgentPanel() {
         {loading && [0, 1, 2].map((i) => <div key={i} className="skeleton h-24" style={{ animationDelay: `${i * 140}ms` }} />)}
         {feed.map((f) => {
           if (f.kind === 'suggestion') return <SpecSheet key={f.id} item={f} />;
-          if (f.kind === 'checkpoint') return <CheckpointCard key={f.id} item={f} />;
           if (f.kind === 'thinking')
             return (
               <Entry key={f.id} who="Pilot" tone="agent">
@@ -295,7 +258,7 @@ export function AgentPanel() {
               send(text);
             }
           }}
-          placeholder="Steer the agent (e.g., focus on temporal features)..."
+          placeholder={demo ? 'Steer the agent (e.g., focus on temporal features)...' : 'Ask about the runs (e.g., why was a run rejected?)'}
           className="block w-full resize-none bg-transparent px-4 pt-3 text-[13px] leading-relaxed text-bone placeholder:text-mute/70 focus:outline-none"
         />
         <div className="flex items-center justify-between px-4 pb-3">

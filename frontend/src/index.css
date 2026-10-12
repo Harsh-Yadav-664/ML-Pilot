@@ -188,16 +188,6 @@ body {
     transform: none;
   }
 }
-@keyframes slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(24px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 @keyframes node-in {
   from {
     opacity: 0;
@@ -292,9 +282,6 @@ body {
 
 .fade-up {
   animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.slide-in {
-  animation: slide-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .node-in {
   animation: node-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;

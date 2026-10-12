@@ -70,14 +70,15 @@ export function PromptLog() {
         {error && <p role="alert" className="p-4 text-[12px] text-clay">{error}</p>}
         {calls && calls.length === 0 && <p className="p-4 font-mono text-[11px] text-mute">No prompt has been sent for this project yet.</p>}
         {calls && calls.length > 0 && (
-          <table className="w-full text-left font-mono text-[11px]">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] whitespace-nowrap text-left font-mono text-[11px]">
             <thead className="text-mute">
               <tr className="border-b border-line">
                 <th className="px-4 py-2 font-medium">time</th>
-                <th className="font-medium">purpose</th>
+                <th className="pr-4 font-medium">purpose</th>
                 <th className="font-medium">provider · model</th>
-                <th className="text-right font-medium">size</th>
-                <th className="text-right font-medium">cost</th>
+                <th className="pl-4 text-right font-medium">size</th>
+                <th className="pl-4 text-right font-medium">cost</th>
                 <th className="px-4 text-right font-medium">result</th>
               </tr>
             </thead>
@@ -85,12 +86,12 @@ export function PromptLog() {
               {calls.map((c) => (
                 <tr key={c.id} onClick={() => setOpen(c)} className="cursor-pointer border-b border-line text-bone-dim hover:bg-panel-2" data-testid={`prompt-${c.id}`}>
                   <td className="px-4 py-2">{new Date(c.created_at).toLocaleString()}</td>
-                  <td className="text-bone">{c.purpose}</td>
+                  <td className="pr-4 text-bone">{c.purpose}</td>
                   <td>
                     {c.provider} · {c.model}
                   </td>
-                  <td className="text-right">{c.prompt_chars.toLocaleString('en-US')} chars</td>
-                  <td className="text-right">${c.cost_usd.toFixed(4)}</td>
+                  <td className="pl-4 text-right">{c.prompt_chars.toLocaleString('en-US')} chars</td>
+                  <td className="pl-4 text-right">${c.cost_usd.toFixed(4)}</td>
                   <td className="px-4 text-right">
                     <Tag tone={MODE_TONE[c.decision_mode as keyof typeof MODE_TONE] ?? 'neutral'}>{c.decision_mode === 'fallback' ? 'offline stub' : c.decision_mode}</Tag>
                   </td>
@@ -98,6 +99,7 @@ export function PromptLog() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
       {open && <Detail key={open.id} call={open} onClose={() => setOpen(null)} />}

@@ -66,6 +66,9 @@ export function timeAgo(ts: number | string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+/** A short form of a long run id (the backend uses UUIDs); short ids such as exp_021 stay as they are. */
+export const shortId = (id: string) => (id.length > 12 ? id.slice(0, 8) : id);
+
 export const f3 = (n?: number) => (n === undefined ? '—' : n.toFixed(3));
 export const pct = (n?: number, d = 1) => (n === undefined ? '—' : `${(n * 100).toFixed(d)}%`);
 
@@ -86,27 +89,12 @@ export function importances(exp: Experiment, cols: ColumnProfile[]): FeatureWeig
     .slice(0, 8);
 }
 
-export function trainingScript(exp: Experiment, target: string, excluded: string[]): string {
-  const feats = exp.feature ? `# engineered: ${exp.feature}\n` : '';
-  const drops = excluded.length ? `    .drop(columns=${JSON.stringify(excluded)}, errors='ignore')\n` : '';
-  return `# MLPilot · ${exp.id} · ${algoLabel(exp.model_name)}
-# Lineage parent: ${exp.parent_id ?? 'none'}
-${feats}import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score, accuracy_score
-
-df = pd.read_parquet("churn_v3.parquet")${drops ? "\ndf = (df\n" + drops + ")" : ""}
-y = df["${target}"]
-X = df.drop(columns=["${target}"])
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-
-model = ${exp.model_name}(${Object.entries(exp.params ?? defaultParams(exp.model_name))
-    .map(([k, v]) => `${k}=${typeof v === 'string' ? `'${v}'` : v}`)
-    .join(', ')})
-model.fit(X_train, y_train)
-pred = model.predict(X_test)
-print("f1", f1_score(y_test, pred), "acc", accuracy_score(y_test, pred))
-`;
+/** Save text as a file in the browser. */
+export function downloadText(filename: string, text: string, type = 'text/x-python') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function curlSnippet(url: string): string {

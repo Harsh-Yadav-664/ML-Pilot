@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { Experiment, ExperimentStatus } from '../types';
-import { algoLabel, f3, pct, trainingScript } from '../lib';
+import { algoLabel, downloadText, f3, pct, shortId } from '../lib';
+import { describeError, exportExperiment } from '../api';
 import { cn } from '../utils/cn';
 import { Btn, Delta, Eyebrow, Led, Panel, STATUS, StatusChip, Tag } from '../ui';
 import { ExperimentGraph } from '../components/ExperimentGraph';
@@ -10,8 +11,7 @@ import { Inspector } from '../components/Inspector';
 type SortKey = 'f1' | 'accuracy' | 'runtime' | 'id';
 
 export function ExperimentsView() {
-  const { experiments, champion, baseline, selectedId, select, compareBaseline, setCompareBaseline, deploy, excluded, target, setDecision } =
-    useStore();
+  const { experiments, champion, baseline, selectedId, select, compareBaseline, setCompareBaseline, deploy, demo, toast } = useStore();
   const [mode, setMode] = useState<'graph' | 'table'>('graph');
   const [status, setStatus] = useState<ExperimentStatus | 'all'>('all');
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'f1', dir: -1 });
@@ -25,7 +25,7 @@ export function ExperimentsView() {
   }, [experiments, status, sort]);
 
   const counts = (s: ExperimentStatus) => experiments.filter((e) => e.status === s).length;
-  const grid = 'grid grid-cols-[minmax(130px,1.5fr)_minmax(90px,1fr)_62px_56px_82px_50px_82px_150px] items-center gap-x-3 px-4';
+  const grid = 'grid grid-cols-[minmax(130px,1.5fr)_minmax(90px,1fr)_62px_56px_82px_50px_82px_70px] items-center gap-x-3 px-4';
 
   const th = (label: string, key?: SortKey) => (
     <button
@@ -38,7 +38,14 @@ export function ExperimentsView() {
     </button>
   );
 
-  const scriptHref = champion ? `data:text/x-python,${encodeURIComponent(trainingScript(champion, target, [...excluded]))}` : undefined;
+  const downloadScript = async (id: string) => {
+    try {
+      const r = await exportExperiment(id);
+      downloadText(r.filename, r.script);
+    } catch (e) {
+      toast(`Training script not available: ${describeError(e)}`, 'warn');
+    }
+  };
 
   return (
     <div className="fade-up flex h-full min-h-0 flex-col p-5">
@@ -48,19 +55,11 @@ export function ExperimentsView() {
           <h1 className="mt-1 font-display text-[40px] font-extrabold uppercase leading-none tracking-wide text-bone">Lineage & results</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {champion && (
-            <>
-              <a
-                href={scriptHref}
-                download={`${champion.id}_train.py`}
-                className="inline-flex h-9 items-center border border-rule px-4 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-bone transition-[transform,border-color,color,box-shadow] hover:-translate-x-px hover:-translate-y-px hover:border-copper hover:text-copper-2 hover:shadow-[3px_3px_0_0_rgba(224,162,79,0.28)]"
-              >
-                Training script ↓
-              </a>
-              <Btn variant="primary" onClick={() => deploy(champion.id)}>
-                Deploy champion ↗
-              </Btn>
-            </>
+          {champion && !demo && <Btn onClick={() => void downloadScript(champion.id)}>Champion training script ↓</Btn>}
+          {champion && demo && (
+            <Btn variant="primary" onClick={() => deploy(champion.id)}>
+              Deploy champion ↗
+            </Btn>
           )}
         </div>
       </div>
@@ -121,7 +120,7 @@ export function ExperimentsView() {
           </div>
 
           <Panel className="overflow-x-auto">
-            <div className="min-w-[780px]">
+            <div className="min-w-[700px]">
               <div className={cn(grid, 'border-b border-line py-2.5')}>
                 {th('Run', 'id')}
                 {th('Algorithm')}
@@ -145,7 +144,9 @@ export function ExperimentsView() {
                     <div className={grid}>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <code className="font-mono text-[12px] text-bone">{e.id}</code>
+                          <code className="font-mono text-[12px] text-bone" title={e.id}>
+                            {shortId(e.id)}
+                          </code>
                           {champion?.id === e.id && <Tag tone="copper">Champion</Tag>}
                         </div>
                         <div className="truncate font-mono text-[10.5px] text-mute">{e.title ?? '—'}</div>
@@ -156,21 +157,13 @@ export function ExperimentsView() {
                       <span>{dBase !== undefined && e.id !== baseline?.id ? <Delta value={dBase} /> : <span className="text-rule">—</span>}</span>
                       <span className="font-mono text-[11.5px] tabular-nums text-mute">{e.runtime_seconds.toFixed(1)}s</span>
                       <StatusChip status={e.status} />
-                      <div className="flex" onClick={(ev) => ev.stopPropagation()}>
-                        {(['keep', 'reject', 'baseline'] as const).map((d, i) => (
-                          <button
-                            key={d}
-                            onClick={() => setDecision(e.id, d)}
-                            className={cn(
-                              'h-6 flex-1 border font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em] transition-colors',
-                              i > 0 && '-ml-px',
-                              e.decision === d ? (d === 'reject' ? 'z-10 border-clay bg-clay text-ink' : 'z-10 border-copper bg-copper text-ink') : 'border-line text-mute hover:text-bone'
-                            )}
-                          >
-                            {d === 'baseline' ? 'base' : d}
-                          </button>
-                        ))}
-                      </div>
+                      <span>
+                        {e.decision && e.decision !== 'none' ? (
+                          <Tag tone={e.decision === 'reject' ? 'clay' : e.decision === 'keep' ? 'sage' : 'neutral'}>{e.decision}</Tag>
+                        ) : (
+                          <span className="text-rule">—</span>
+                        )}
+                      </span>
                     </div>
                   </div>
                 );

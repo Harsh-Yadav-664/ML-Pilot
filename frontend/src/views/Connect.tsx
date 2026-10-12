@@ -71,7 +71,7 @@ function TestResult({ result }: { result: ConnectionTestResult }) {
     <div className="space-y-3">
       <div data-testid="connect-ok" className="border border-sage/40 bg-sage/5 p-4">
         <Tag tone="sage">connected</Tag>
-        <div className="mt-2 grid gap-x-8 sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
           <Leader k="Server" v={result.server_version ?? 'unknown'} />
           <Leader k="Latency" v={result.latency_ms != null ? `${Math.round(result.latency_ms)} ms` : '—'} />
         </div>
@@ -430,12 +430,12 @@ export function ConnectView() {
           <h1 className="mt-1 font-display text-[44px] font-extrabold uppercase leading-none tracking-wide text-bone">Connect a database</h1>
           <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-mute">
             MLPilot reads your tables where they are. It sends single SELECT statements only, inside a read-only transaction with a timeout and a row limit. This
-            page shows the tables, how they relate and column statistics. Turning them into a prediction task comes in a later step: nothing here trains a model
-            yet.
+            page shows the tables, how they relate and column statistics. Ask a prediction question below: nothing trains until you confirm the task and
+            start a run.
           </p>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
           <form onSubmit={submit} className="space-y-4" aria-label="Connection details">
             <Panel ticks>
               <CardHeader title="Connection" />

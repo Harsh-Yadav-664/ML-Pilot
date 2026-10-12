@@ -4,7 +4,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -13,40 +12,33 @@ import type { ActiveDataset } from './api';
 import { craftReply, mockDrift, mockEndpoints, mockVolume } from './api/mock';
 import {
   AgentStatus,
-  CleanStep,
   ColumnProfile,
   DataMetrics,
-  Decision,
   Endpoint,
   Experiment,
   FeatureSuggestion,
   LeakageWarning,
-  Provider,
   View,
 } from './types';
 import { MODELS, algoLabel, clamp, defaultParams, f3, importances, inferDtype, parseCsv, rand } from './lib';
 
-export const WORKERS = 2;
-export type Tone = 'ok' | 'warn' | 'err' | 'info';
-export type MetricKey = 'f1' | 'recall' | 'accuracy';
+/** Demo mode only: how many simulated runs train at once. */
+const DEMO_WORKERS = 2;
+type Tone = 'ok' | 'warn' | 'err' | 'info';
+type MetricKey = 'f1' | 'recall' | 'accuracy';
+/** The metric the workspace ranks runs by (the backend's champion rule uses F1 too). */
+const METRIC: MetricKey = 'f1';
 
-export interface Toast {
+interface Toast {
   id: number;
   text: string;
   tone: Tone;
   action?: { label: string; run: () => void };
 }
-export interface Activity {
-  id: number;
-  t: number;
-  text: string;
-  tone: Tone;
-}
 export type FeedItem =
   | { id: string; kind: 'text'; from: 'agent' | 'user'; text: string; stream?: boolean }
   | { id: string; kind: 'suggestion'; s: FeatureSuggestion; expId?: string }
-  | { id: string; kind: 'thinking' }
-  | { id: string; kind: 'checkpoint'; question: string; detail: string; options: string[]; choice?: number };
+  | { id: string; kind: 'thinking' };
 
 interface Store {
   loading: boolean;
@@ -58,14 +50,11 @@ interface Store {
   metrics: DataMetrics | null;
   warnings: LeakageWarning[];
   columns: ColumnProfile[];
-  excluded: Set<string>;
   experiments: Experiment[];
   feed: FeedItem[];
-  activity: Activity[];
   toasts: Toast[];
   champion: Experiment | null;
   baseline: Experiment | null;
-  readiness: number;
   selectedId: string | null;
   view: View;
   agentOpen: boolean;
@@ -75,18 +64,10 @@ interface Store {
   fileName: string | null;
   target: string;
   cleaning: boolean;
-  cleaned: boolean;
-  cleanSteps: CleanStep[];
   hypotheses: number;
   agentStatus: AgentStatus;
   compareBaseline: boolean;
-  optimizeFor: MetricKey;
-  treeOnly: boolean;
-  budgetMin: number | null;
   endpoints: Endpoint[];
-  provider: Provider;
-  apiKey: string;
-  providerModel: string;
   drift: { t: number; psi: number }[];
   volume: { h: number; n: number }[];
   setView: (v: View) => void;
@@ -96,26 +77,14 @@ interface Store {
   setTarget: (t: string) => void;
   setHypotheses: (n: number) => void;
   setCompareBaseline: (b: boolean) => void;
-  setProvider: (p: Provider) => void;
-  setApiKey: (k: string) => void;
-  setProviderModel: (m: string) => void;
   select: (id: string | null) => void;
-  toggleColumn: (name: string) => void;
-  excludeHighRisk: () => void;
   ingestCsv: (file: File) => Promise<void>;
   autoClean: () => void;
-  answerCheckpoint: (id: string, choice: number) => void;
   runSuggestion: (feedId: string, modelKey?: string) => void;
   runNext: () => void;
   runAutopilot: () => void;
   dismissSuggestion: (feedId: string) => void;
   askAgent: (prompt: string) => Promise<void>;
-  fork: (id: string, modelKey: string) => void;
-  retry: (id: string) => void;
-  cancel: (id: string) => void;
-  promote: (id: string) => void;
-  remove: (id: string) => void;
-  setDecision: (id: string, d: Decision) => void;
   deploy: (id: string) => void;
   retireEndpoint: (id: string) => void;
   toast: (text: string, tone?: Tone, action?: Toast['action']) => void;
@@ -157,14 +126,6 @@ function simulateMetrics(e: Experiment, all: Experiment[]) {
     recall: r3(clamp(f1 + rand(-0.02, 0.04), 0, 0.99)),
   };
 }
-
-const CLEAN: Omit<CleanStep, 'done'>[] = [
-  { id: 'leak', label: 'Drop leaky columns', detail: 'Remove features flagged by the leakage report' },
-  { id: 'dup', label: 'Deduplicate rows', detail: 'Exact-match collapse' },
-  { id: 'miss', label: 'Impute missing', detail: 'Median numeric · mode categorical' },
-  { id: 'scale', label: 'Scale numerics', detail: 'RobustScaler fit on train fold only' },
-  { id: 'enc', label: 'Encode categoricals', detail: 'Target encoding with CV folds' },
-];
 
 const DATASET_KEY = 'mlpilot.dataset';
 
@@ -214,33 +175,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [metrics, setMetrics] = useState<DataMetrics | null>(null);
   const [warnings, setWarnings] = useState<LeakageWarning[]>([]);
   const [columns, setColumns] = useState<ColumnProfile[]>([]);
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [feed, setFeed] = useState<FeedItem[]>([]);
-  const [activity, setActivity] = useState<Activity[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [championId, setChampionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<View>('dashboard');
-  const [agentOpen, setAgentOpen] = useState(true);
+  // Below the xl breakpoint the panel covers the page, so it starts closed there.
+  const [agentOpen, setAgentOpen] = useState(() => window.innerWidth >= 1280);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [datasetName, setDatasetName] = useState(backend.connection.demo ? 'churn_v3' : 'no dataset');
   const [fileName, setFileName] = useState<string | null>(backend.connection.demo ? 'churn_customers.csv' : null);
   const [target, setTargetState] = useState(backend.connection.demo ? 'is_churned' : '—');
   const [cleaning, setCleaning] = useState(false);
-  const [cleaned, setCleaned] = useState(false);
-  const [cleanSteps, setCleanSteps] = useState<CleanStep[]>(CLEAN.map((s) => ({ ...s, done: false })));
   const [hypotheses, setHypotheses] = useState(3);
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle');
   const [compareBaseline, setCompareBaseline] = useState(true);
-  const [optimizeFor, setOptimizeFor] = useState<MetricKey>('f1');
-  const [treeOnly, setTreeOnly] = useState(false);
-  const [budgetMin, setBudgetMin] = useState<number | null>(null);
-  const [endpoints, setEndpoints] = useState<Endpoint[]>(mockEndpoints);
-  const [provider, setProvider] = useState<Provider>('anthropic');
-  const [apiKey, setApiKey] = useState('');
-  const [providerModel, setProviderModel] = useState('claude-sonnet-4-5');
+  // Deployments are sample data: shown only in Demo mode.
+  const [endpoints, setEndpoints] = useState<Endpoint[]>(demo ? mockEndpoints : []);
   const [drift] = useState(mockDrift);
   const [volume] = useState(mockVolume);
 
@@ -248,13 +201,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const feedRef = useRef<FeedItem[]>([]);
   const columnsRef = useRef<ColumnProfile[]>([]);
   const warningsRef = useRef<LeakageWarning[]>([]);
-  const excludedRef = useRef<Set<string>>(new Set());
   const championRef = useRef<string | null>(null);
-  const metricRef = useRef<MetricKey>('f1');
-  const treeOnlyRef = useRef(false);
   const midNarrated = useRef<Set<string>>(new Set());
-  const pendingCheckpoint = useRef<{ id: string; names: string[] } | null>(null);
-  const budgetTimer = useRef<number | null>(null);
   const autoBusy = useRef(false);
   const uid = useRef(100);
   const expCounter = useRef(30);
@@ -268,15 +216,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     warningsRef.current = warnings;
   }, [warnings]);
-  useEffect(() => {
-    excludedRef.current = excluded;
-  }, [excluded]);
-  useEffect(() => {
-    metricRef.current = optimizeFor;
-  }, [optimizeFor]);
-  useEffect(() => {
-    treeOnlyRef.current = treeOnly;
-  }, [treeOnly]);
 
   const commit = useCallback((next: Experiment[]) => {
     expRef.current = next;
@@ -287,10 +226,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const full = { ...item, id: item.id ?? `m${++uid.current}` } as FeedItem;
     setFeed((f) => [...f, full]);
     return full.id;
-  }, []);
-
-  const log = useCallback((text: string, tone: Tone = 'info') => {
-    setActivity((a) => [{ id: ++uid.current, t: Date.now(), text, tone }, ...a].slice(0, 40));
   }, []);
 
   const dismissToast = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
@@ -353,8 +288,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       if (!e.length) {
         try {
-          const b = await backend.runBaseline(d);
-          log(`Baseline queued · ${algoLabel(b.model_name)}`, 'info');
+          await backend.runBaseline(d);
         } catch (err) {
           toast(`Baseline failed to start: ${backend.describeError(err)}`, 'err');
         }
@@ -367,7 +301,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setFeed((f) => [...f, { id: `m${++uid.current}`, kind: 'text', from: 'agent', text: `Feature suggestions failed: ${backend.describeError(err)}` }]);
       }
     },
-    [commit, log, toast]
+    [commit, toast]
   );
 
   /* ---------------- real backend: initial connection ---------------- */
@@ -461,15 +395,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ),
       ];
       setFeed(intro);
-      const now = Date.now();
-      // Sample activity only in Demo mode; real activity comes from real runs.
-      if (demo) setActivity([
-        { id: 1, t: now - 60_000, text: 'exp_023 queued · CatBoost native categoricals', tone: 'info' },
-        { id: 2, t: now - 2 * 60_000, text: 'exp_022 started · LightGBM', tone: 'info' },
-        { id: 3, t: now - 44 * 60_000, text: 'exp_021 finished · F1 0.840', tone: 'ok' },
-        { id: 4, t: now - 58 * 60_000, text: 'exp_018 failed · out of memory', tone: 'err' },
-        { id: 5, t: now - 96 * 60_000, text: 'Baseline logged · F1 0.720', tone: 'ok' },
-      ]);
       setLoading(false);
     })();
     return () => {
@@ -501,7 +426,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const mid: string[] = [];
       const finished: Experiment[] = [];
       let changed = false;
-      const mk = metricRef.current;
+      const mk = METRIC;
       const next = prev.map((e): Experiment => {
         if (e.status === 'running') {
           changed = true;
@@ -532,7 +457,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           finished.push(f);
           return f;
         }
-        if (e.status === 'queued' && running < WORKERS) {
+        if (e.status === 'queued' && running < DEMO_WORKERS) {
           running++;
           changed = true;
           return { ...e, status: 'running', progress: 0 };
@@ -548,9 +473,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const pm = parent?.metrics[mk];
         const ch = next.find((e) => e.id === championRef.current);
         const cm = ch?.metrics[mk];
-        log(`${f.id} ${f.status} · ${mk} ${mv !== undefined ? f3(mv) : 'n/a'}`, f.status === 'failed' ? 'err' : 'ok');
         if (f.status === 'failed') {
-          pushFeed({ kind: 'text', from: 'agent', text: `${f.id} failed — ${f.error}. Marking reject; you can retry it from the inspector.` });
+          pushFeed({ kind: 'text', from: 'agent', text: `${f.id} failed — ${f.error}. Marking reject.` });
           return;
         }
         if (mv === undefined) return;
@@ -564,7 +488,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             text: `${f.id} done — new champion. ${mk} ${mv.toFixed(3)}${cm !== undefined ? `, previous champion ${ch?.id} had ${cm.toFixed(3)}` : ''}. Keeping ${f.feature ? `${f.feature} ` : ''}in the working set.`,
           });
         } else if (f.champion === undefined && f.feature && pm !== undefined && mv < pm) {
-          commit(expRef.current.map((e) => (e.id === f.id ? { ...e, decision: 'reject' as Decision } : e)));
+          commit(expRef.current.map((e) => (e.id === f.id ? { ...e, decision: 'reject' as const } : e)));
           pushFeed({
             kind: 'text',
             from: 'agent',
@@ -594,7 +518,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }, 800);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, live, demo, commit, log, pushFeed]);
+  }, [loading, live, demo, commit, pushFeed]);
 
   const agentStatusRef = useRef<AgentStatus>('idle');
   useEffect(() => {
@@ -604,9 +528,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /* ---------------- grounded debrief, built only from live state ---------------- */
   const debrief = useCallback(() => {
     const list = expRef.current;
-    const ch = pickChampion(list, championRef.current, metricRef.current);
+    const ch = pickChampion(list, championRef.current, METRIC);
     const base = list.find((e) => e.decision === 'baseline') ?? list.find((e) => !e.parent_id);
-    const mk = metricRef.current;
+    const mk = METRIC;
     if (!ch || ch.metrics[mk] === undefined) return 'No completed runs yet, so there is nothing to debrief. Queue a hypothesis first.';
     const done = list.filter((e) => e.status === 'completed').length;
     const tested = list.filter((e) => e.feature).length;
@@ -646,44 +570,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /* ---------------- actions ---------------- */
   const select = useCallback((id: string | null) => setSelectedId(id), []);
 
-  const flip = useCallback((name: string) => {
-    setExcluded((p) => {
-      const n = new Set(p);
-      if (n.has(name)) n.delete(name);
-      else n.add(name);
-      return n;
-    });
-  }, []);
-
-  const toggleColumn = useCallback(
-    (name: string) => {
-      const was = excluded.has(name);
-      flip(name);
-      log(`${was ? 'Restored' : 'Excluded'} ${name}`, was ? 'info' : 'ok');
-      toast(`${was ? 'Restored' : 'Excluded'} ${name}`, was ? 'info' : 'ok', {
-        label: 'Undo',
-        run: () => flip(name),
-      });
-    },
-    [excluded, flip, log, toast]
-  );
-
-  const excludeHighRisk = useCallback(() => {
-    const names = warnings.filter((w) => w.severity === 'high' && !excluded.has(w.column)).map((w) => w.column);
-    if (!names.length) return;
-    setExcluded((p) => new Set([...p, ...names]));
-    log(`Excluded ${names.length} high-risk columns`, 'ok');
-    toast(`Excluded ${names.join(', ')}`, 'ok', {
-      label: 'Undo',
-      run: () =>
-        setExcluded((p) => {
-          const n = new Set(p);
-          names.forEach((x) => n.delete(x));
-          return n;
-        }),
-    });
-  }, [warnings, excluded, log, toast]);
-
   const setTarget = useCallback(
     (t: string) => {
       const d = datasetRef.current;
@@ -691,14 +577,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...d, target_column: t };
         setDataset(next);
         void loadDataset(next);
-        log(`Target set to ${t}`, 'info');
         return;
       }
       setTargetState(t);
       setColumns((cols) => cols.map((c) => ({ ...c, role: c.name === t ? 'target' : c.role === 'target' ? 'feature' : c.role })));
-      log(`Target set to ${t}`, 'info');
     },
-    [log, demo, setDataset, loadDataset]
+    [demo, setDataset, loadDataset]
   );
 
   const ingestCsv = useCallback(
@@ -750,105 +634,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setDatasetName(file.name.replace(/\.(csv|tsv)$/i, ''));
       setFileName(file.name);
       setWarnings([]);
-      setCleaned(false);
-      setCleanSteps(CLEAN.map((s) => ({ ...s, done: false })));
       setUploadOpen(false);
-      log(`Ingested ${file.name} · ${rows.toLocaleString()} rows`, 'ok');
       toast(`Loaded ${file.name}`, 'ok');
     },
-    [log, toast, requireBackend, demo, setDataset, loadDataset]
+    [toast, requireBackend, demo, setDataset, loadDataset]
   );
 
-  /* ---------------- auto-clean with a human-in-the-loop checkpoint ---------------- */
-  const runCleanSteps = useCallback(
-    (startIdx: number) => {
-      CLEAN.slice(startIdx).forEach((step, i) => {
-        setTimeout(() => {
-          setCleanSteps((prev) => prev.map((s, j) => (j === startIdx + i ? { ...s, done: true } : s)));
-          if (step.id === 'dup') setMetrics((m) => (m ? { ...m, duplicate_rows: 0 } : m));
-          if (step.id === 'miss') {
-            setMetrics((m) => (m ? { ...m, missing_data_percent: 0 } : m));
-            setColumns((cols) => cols.map((c) => ({ ...c, missing_pct: excludedRef.current.has(c.name) ? c.missing_pct : 0 })));
-          }
-          if (i === CLEAN.length - 1 - startIdx) {
-            setCleaning(false);
-            setCleaned(true);
-            setAgentStatus('idle');
-            log('Autoclean finished · feature set ready', 'ok');
-            toast('Pipeline applied', 'ok');
-          }
-        }, 700 * (i + 1));
-      });
-    },
-    [log, toast]
-  );
-
+  /* ---------------- auto-clean: the backend asks the LLM for a cleaning recipe and queues it as a run ---------------- */
   const autoClean = useCallback(() => {
     if (cleaning || !requireBackend()) return;
-    if (!demo) {
-      const d = datasetRef.current;
-      if (!d) return toast('Load a dataset first.', 'warn');
-      setCleaning(true);
-      backend
-        .runAutoClean(d)
-        .then((exp) => {
-          log(`Auto-clean run queued · ${exp.id}`, 'info');
-          toast('AI cleaning recipe accepted; training a cleaned baseline', 'ok');
-          setCleaned(true);
-        })
-        .catch((err) => toast(`Auto-clean failed: ${backend.describeError(err)}`, 'err'))
-        .finally(() => setCleaning(false));
-      return;
-    }
+    if (demo) return toast('Demo mode: auto-clean needs the backend.', 'warn');
+    const d = datasetRef.current;
+    if (!d) return toast('Load a dataset first.', 'warn');
     setCleaning(true);
-    setCleaned(false);
-    setCleanSteps(CLEAN.map((s) => ({ ...s, done: false })));
-    setAgentStatus('thinking');
-    const names = warningsRef.current.filter((w) => w.severity === 'high' && !excludedRef.current.has(w.column)).map((w) => w.column);
-    if (names.length) {
-      const id = `cp${++uid.current}`;
-      pushFeed({ kind: 'thinking' });
-      setTimeout(() => {
-        pushFeed({
-          kind: 'checkpoint',
-          id,
-          question: `Drop ${names.join(' + ')} from the feature matrix?`,
-          detail: `Both carry ${names.map((n) => warningsRef.current.find((w) => w.column === n)?.category).join(' / ')} leakage flags. Dropping them changes the feature set for every future run. This is a decision I don't make unilaterally.`,
-          options: ['Drop them, then build the pipeline', 'Leave them in for now'],
-        });
-        pendingCheckpoint.current = { id, names };
-      }, 600);
-    } else {
-      runCleanSteps(0);
-    }
-  }, [cleaning, pushFeed, runCleanSteps, requireBackend, demo, log, toast]);
-
-  const answerCheckpoint = useCallback(
-    (id: string, choice: number) => {
-      const pc = pendingCheckpoint.current;
-      if (!pc || pc.id !== id) return;
-      pendingCheckpoint.current = null;
-      setFeed((f) => f.map((x) => (x.id === id && x.kind === 'checkpoint' ? { ...x, choice } : x)));
-      const item = feedRef.current.find((x) => x.id === id);
-      const opt = item && item.kind === 'checkpoint' ? item.options[choice] : '';
-      pushFeed({ kind: 'text', from: 'user', text: opt });
-      if (choice === 0) {
-        setExcluded((p) => new Set([...p, ...pc.names]));
-        log(`Excluded ${pc.names.length} high-risk columns (agent checkpoint)`, 'ok');
-      }
-      setAgentStatus('thinking');
-      setTimeout(() => {
-        pushFeed({
-          kind: 'text',
-          from: 'agent',
-          text: choice === 0 ? `Understood. Dropped ${pc.names.join(', ')} — ${pc.names.length} fewer columns to leak. Building the pipeline.` : 'Noted — leaving them in. I will keep flagging them in every leakage report until you decide.',
-        });
-        setAgentStatus('idle');
-        runCleanSteps(0);
-      }, 500);
-    },
-    [pushFeed, runCleanSteps, log]
-  );
+    backend
+      .runAutoClean(d)
+      .then(() => toast('AI cleaning recipe accepted; training a cleaned baseline', 'ok'))
+      .catch((err) => toast(`Auto-clean failed: ${backend.describeError(err)}`, 'err'))
+      .finally(() => setCleaning(false));
+  }, [cleaning, requireBackend, demo, toast]);
 
   /* ---------------- experiment actions ---------------- */
   const enqueue = useCallback(
@@ -863,9 +667,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const pickModelKey = useCallback(() => {
     const available = backend.connection.demo ? MODELS : MODELS.filter((m) => BACKEND_MODELS.has(m.cls));
-    const pool = treeOnlyRef.current ? available.filter((m) => m.tree) : available;
     // Rotate models; real runs don't go through enqueue, so advance the counter here.
-    return pool[(backend.connection.demo ? expCounter.current : expCounter.current++) % pool.length].key;
+    return available[(backend.connection.demo ? expCounter.current : expCounter.current++) % available.length].key;
   }, []);
 
   const runSuggestion = useCallback(
@@ -875,7 +678,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!item || item.kind !== 'suggestion' || item.expId) return;
       const key = modelKey ?? pickModelKey();
       const m = MODELS.find((x) => x.key === key) ?? MODELS[0];
-      const parent = pickChampion(expRef.current, championRef.current, metricRef.current);
+      const parent = pickChampion(expRef.current, championRef.current, METRIC);
       if (!demo) {
         const d = datasetRef.current;
         if (!d) return toast('Load a dataset first.', 'warn');
@@ -884,7 +687,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           .runExperiment(d, item.s, m.cls, parent?.id ?? null)
           .then((exp) => {
             setFeed((f) => f.map((x) => (x.id === feedId && x.kind === 'suggestion' ? { ...x, expId: exp.id } : x)));
-            log(`${exp.id} queued · ${m.label} + ${item.s.name}`, 'info');
             toast(`Queued ${exp.id}`, 'info', {
               label: 'View',
               run: () => {
@@ -904,7 +706,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         params: defaultParams(m.cls),
       });
       setFeed((f) => f.map((x) => (x.id === feedId && x.kind === 'suggestion' ? { ...x, expId: exp.id } : x)));
-      log(`${exp.id} queued · ${m.label} + ${item.s.name}`, 'info');
       toast(`Queued ${exp.id}`, 'info', {
         label: 'View',
         run: () => {
@@ -913,7 +714,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         },
       });
     },
-    [enqueue, pickModelKey, log, toast, requireBackend, demo]
+    [enqueue, pickModelKey, toast, requireBackend, demo]
   );
 
   const runNext = useCallback(() => {
@@ -929,12 +730,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!d) return toast('Load a dataset first.', 'warn');
       autoBusy.current = true;
       setAgentStatus('autopilot');
-      log(`Autopilot · ${hypotheses} hypotheses`, 'info');
-      const done = (text: string, tone: Tone) => {
+      const done = (text: string) => {
         autoBusy.current = false;
         setAgentStatus('idle');
         pushFeed({ kind: 'text', from: 'agent', text });
-        log(text, tone);
       };
       backend
         .startAutoOptimize(d, hypotheses)
@@ -948,25 +747,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 for (const e of events) {
                   seen = e.seq;
                   const p = e.payload as Record<string, unknown>;
-                  if (e.type === 'proposal' && p.name) log(`Autopilot proposed ${String(p.name)} = ${String(p.formula)}`, 'info');
-                  if (e.type === 'decision') log(`Autopilot ${p.decision === 'keep' ? 'kept' : 'rejected'} ${String(p.name)}`, p.decision === 'keep' ? 'ok' : 'warn');
+                  if (e.type === 'proposal' && p.name) pushFeed({ kind: 'text', from: 'agent', text: `Autopilot proposed ${String(p.name)} = ${String(p.formula)}` });
+                  if (e.type === 'decision')
+                    pushFeed({ kind: 'text', from: 'agent', text: `Autopilot ${p.decision === 'keep' ? 'kept' : 'rejected'} ${String(p.name)}` });
                 }
                 return backend.getJob(jobId);
               })
               .then((job) => {
                 if (job.status === 'queued' || job.status === 'running') return;
                 window.clearInterval(poll);
-                if (job.status === 'succeeded') done(`Autopilot finished. ${job.result?.summary ?? ''}`, 'ok');
-                else if (job.status === 'cancelled') done('Autopilot was cancelled.', 'warn');
-                else done(`Autopilot failed: ${job.error ?? 'unknown error'}`, 'err');
+                if (job.status === 'succeeded') done(`Autopilot finished. ${job.result?.summary ?? ''}`);
+                else if (job.status === 'cancelled') done('Autopilot was cancelled.');
+                else done(`Autopilot failed: ${job.error ?? 'unknown error'}`);
               })
               .catch((err) => {
                 window.clearInterval(poll);
-                done(`Lost track of the autopilot job: ${backend.describeError(err)}`, 'err');
+                done(`Lost track of the autopilot job: ${backend.describeError(err)}`);
               });
           }, 2000);
         })
-        .catch((err) => done(`Autopilot failed to start: ${backend.describeError(err)}`, 'err'));
+        .catch((err) => done(`Autopilot failed to start: ${backend.describeError(err)}`));
       return;
     }
     const pending = feedRef.current.filter((f) => f.kind === 'suggestion' && !f.expId).slice(0, hypotheses);
@@ -976,22 +776,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     autoBusy.current = true;
     setAgentStatus('autopilot');
-    log(`Autopilot · ${pending.length} hypotheses`, 'info');
     toast(`Autopilot running ${pending.length} experiments`, 'info');
     pending.forEach((p, i) => {
       setTimeout(() => runSuggestion(p.id), 420 * i);
     });
-    if (budgetMin && budgetTimer.current) window.clearTimeout(budgetTimer.current);
-    if (budgetMin) {
-      budgetTimer.current = window.setTimeout(() => {
-        if (agentStatusRef.current === 'autopilot') {
-          setAgentStatus('idle');
-          autoBusy.current = false;
-          pushFeed({ kind: 'text', from: 'agent', text: `Time budget hit (${budgetMin} min). Autopilot is paused; in-flight runs will still finish and report in.` });
-        }
-      }, budgetMin * 60_000);
-    }
-  }, [hypotheses, runSuggestion, log, toast, budgetMin, pushFeed, requireBackend, demo]);
+  }, [hypotheses, runSuggestion, toast, pushFeed, requireBackend, demo]);
 
   const dismissSuggestion = useCallback((feedId: string) => {
     setFeed((f) => f.filter((x) => x.id !== feedId));
@@ -1027,7 +816,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setFeed((f) => f.filter((x) => x.id !== thinkId));
 
       const list = expRef.current;
-      const mk = metricRef.current;
+      const mk = METRIC;
       const ch = pickChampion(list, championRef.current, mk);
       const base = list.find((e) => e.decision === 'baseline') ?? list.find((e) => !e.parent_id);
 
@@ -1102,7 +891,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } else {
           say(
             `${w.length} findings on file: ${w
-              .map((x) => `${x.column} — ${x.category}, ${x.severity}${excludedRef.current.has(x.column) ? ', excluded' : ', still in the matrix'}`)
+              .map((x) => `${x.column} — ${x.category}, ${x.severity}`)
               .join('; ')}. I categorize by mechanism, not vibes — ask about any column for the evidence.`
           );
         }
@@ -1126,40 +915,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // 7 · natural-language configuration
-      const configParts: string[] = [];
-      if (/\bonly\b.*tree|tree-?based|no logistic|skip logistic/.test(lower)) {
-        setTreeOnly(true);
-        treeOnlyRef.current = true;
-        configParts.push('tree-based models only — Logistic Reg. is out of the rotation');
-      }
-      if (/\brecall\b/.test(lower)) {
-        setOptimizeFor('recall');
-        metricRef.current = 'recall';
-        configParts.push('optimizing for recall — keep/reject calls and the champion now rank by it');
-      } else if (/\baccuracy\b/.test(lower)) {
-        setOptimizeFor('accuracy');
-        metricRef.current = 'accuracy';
-        configParts.push('optimizing for accuracy');
-      } else if (/\bf1\b|f-?score/.test(lower)) {
-        setOptimizeFor('f1');
-        metricRef.current = 'f1';
-        configParts.push('optimizing for F1');
-      }
-      const stop = lower.match(/stop after (\d+)\s*(min|minute)/);
-      if (stop) {
-        const n = Number(stop[1]);
-        setBudgetMin(n);
-        configParts.push(`autopilot will stop after ${n} min`);
-      }
-      if (configParts.length) {
-        say(`Applied: ${configParts.join('; ')}. The chip above shows the live configuration; every future run uses it.`);
-        log(`Config: ${configParts.join(', ')}`, 'info');
-        setAgentStatus('idle');
-        return;
-      }
-
-      // 8 · steering → a real queued experiment, not a logged note
+      // 7 · steering → a real queued experiment, not a logged note
       const used = [
         ...feedRef.current.flatMap((x) => (x.kind === 'suggestion' ? [x.s.name] : [])),
         ...expRef.current.flatMap((e) => (e.feature ? [e.feature] : [])),
@@ -1178,87 +934,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         pushFeed({
           kind: 'text',
           from: 'agent',
-          text: `Steering accepted. That is queued as a real run, branching from ${pickChampion(expRef.current, championRef.current, metricRef.current)?.id ?? 'the baseline'} — you will see it move in the lineage and I will report the result here.`,
+          text: `Steering accepted. That is queued as a real run, branching from ${pickChampion(expRef.current, championRef.current, METRIC)?.id ?? 'the baseline'} — you will see it move in the lineage and I will report the result here.`,
         });
       }, 650);
       setAgentStatus('idle');
     },
-    [pushFeed, debrief, runSuggestion, pickModelKey, log]
-  );
-
-  const fork = useCallback(
-    (id: string, modelKey: string) => {
-      const src = expRef.current.find((e) => e.id === id);
-      if (!src) return;
-      const m = MODELS.find((x) => x.key === modelKey) ?? MODELS[0];
-      const exp = enqueue({
-        parent_id: id,
-        model_name: m.cls,
-        title: `${m.label} fork`,
-        params: defaultParams(m.cls),
-      });
-      log(`${exp.id} forked from ${id} · ${m.label}`, 'info');
-      toast(`Forked ${id} → ${exp.id}`, 'info');
-      setSelectedId(exp.id);
-    },
-    [enqueue, log, toast]
-  );
-
-  const patch = useCallback(
-    (id: string, fn: (e: Experiment) => Experiment) => commit(expRef.current.map((e) => (e.id === id ? fn(e) : e))),
-    [commit]
-  );
-
-  const retry = useCallback(
-    (id: string) => {
-      patch(id, (e) => ({ ...e, status: 'queued', progress: 0, runtime_seconds: 0, error: undefined, decision: 'none' }));
-      log(`${id} re-queued`, 'info');
-      toast(`Re-queued ${id}`, 'info');
-    },
-    [patch, log, toast]
-  );
-
-  const cancel = useCallback(
-    (id: string) => {
-      patch(id, (e) => ({ ...e, status: 'failed', error: 'Cancelled by user', decision: 'reject' }));
-      log(`${id} cancelled`, 'warn');
-      toast(`Cancelled ${id}`, 'warn');
-    },
-    [patch, log, toast]
-  );
-
-  const promote = useCallback(
-    (id: string) => {
-      championRef.current = id;
-      setChampionId(id);
-      patch(id, (e) => ({ ...e, decision: 'keep' }));
-      log(`${id} promoted to champion`, 'ok');
-      toast(`${id} is now the champion`, 'ok');
-    },
-    [patch, log, toast]
-  );
-
-  const remove = useCallback(
-    (id: string) => {
-      if (expRef.current.some((e) => e.parent_id === id)) return toast('Delete child runs first.', 'warn');
-      commit(expRef.current.filter((e) => e.id !== id));
-      setSelectedId((s) => (s === id ? null : s));
-      log(`${id} deleted`, 'warn');
-      toast(`Deleted ${id}`, 'warn');
-    },
-    [commit, log, toast]
-  );
-
-  const setDecision = useCallback(
-    (id: string, d: Decision) => {
-      if (d === 'baseline') {
-        commit(expRef.current.map((e) => ({ ...e, decision: e.id === id ? 'baseline' : e.decision === 'baseline' ? 'keep' : e.decision })));
-      } else {
-        patch(id, (e) => ({ ...e, decision: d }));
-      }
-      log(`${id} marked ${d}`, d === 'reject' ? 'warn' : 'ok');
-    },
-    [commit, patch, log]
+    [pushFeed, debrief, runSuggestion, pickModelKey]
   );
 
   const deploy = useCallback(
@@ -1277,14 +958,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       };
       setEndpoints((list) => [ep, ...list.filter((x) => x.experiment_id !== id)]);
       setView('deployments');
-      log(`Deploying ${id} → ${ep.url}`, 'info');
       toast(`Deploying ${id}`, 'ok');
       setTimeout(() => {
         setEndpoints((list) => list.map((x) => (x.id === ep.id ? { ...x, status: 'healthy', rpm: 120, p95_ms: 38 } : x)));
         toast(`${id} is live`, 'ok');
       }, 1600);
     },
-    [datasetName, log, toast]
+    [datasetName, toast]
   );
 
   const retireEndpoint = useCallback(
@@ -1296,21 +976,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   /* ---------------- derived ---------------- */
-  const champion = pickChampion(experiments, championId, optimizeFor);
+  const champion = pickChampion(experiments, championId, METRIC);
   const baseline = experiments.find((e) => e.decision === 'baseline') ?? experiments.find((e) => !e.parent_id) ?? null;
-
-  const readiness = useMemo(() => {
-    if (!metrics) return 0;
-    let s = 100;
-    warnings.forEach((w) => {
-      if (excluded.has(w.column)) return;
-      s -= w.severity === 'high' ? 18 : w.severity === 'medium' ? 8 : 3;
-    });
-    s -= metrics.missing_data_percent * 100 * 2;
-    s -= Math.min(6, (metrics.duplicate_rows / Math.max(1, metrics.total_rows)) * 100 * 20);
-    if (cleaned) s = Math.max(s, 92);
-    return Math.round(clamp(s, 0, 100));
-  }, [metrics, warnings, excluded, cleaned]);
 
   const value: Store = {
     loading,
@@ -1322,14 +989,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     metrics,
     warnings,
     columns,
-    excluded,
     experiments,
     feed,
-    activity,
     toasts,
     champion,
     baseline,
-    readiness,
     selectedId,
     view,
     agentOpen,
@@ -1339,18 +1003,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     fileName,
     target,
     cleaning,
-    cleaned,
-    cleanSteps,
     hypotheses,
     agentStatus,
     compareBaseline,
-    optimizeFor,
-    treeOnly,
-    budgetMin,
     endpoints,
-    provider,
-    apiKey,
-    providerModel,
     drift,
     volume,
     setView,
@@ -1360,26 +1016,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTarget,
     setHypotheses,
     setCompareBaseline,
-    setProvider,
-    setApiKey,
-    setProviderModel,
     select,
-    toggleColumn,
-    excludeHighRisk,
     ingestCsv,
     autoClean,
-    answerCheckpoint,
     runSuggestion,
     runNext,
     runAutopilot,
     dismissSuggestion,
     askAgent,
-    fork,
-    retry,
-    cancel,
-    promote,
-    remove,
-    setDecision,
     deploy,
     retireEndpoint,
     toast,

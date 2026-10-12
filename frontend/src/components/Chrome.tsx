@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { WORKERS, useStore } from '../store';
-import { View } from '../types';
-import { API_BASE_URL, connection, setDemoMode } from '../api';
+import { useStore } from '../store';
+import { API_BASE_URL, setDemoMode } from '../api';
 import { algoLabel, f3 } from '../lib';
+import { goConnect, goTasks } from '../route';
+import { NAV } from '../nav';
 import { cn } from '../utils/cn';
 import { Eyebrow, Kbd, Led } from '../ui';
 
@@ -70,7 +71,7 @@ export function ConnectionBanner() {
 }
 
 export function StatusBar() {
-  const { live, demo, experiments, champion, readiness, setPaletteOpen } = useStore();
+  const { live, demo, experiments, champion, setPaletteOpen } = useStore();
   const running = experiments.filter((e) => e.status === 'running').length;
   const queued = experiments.filter((e) => e.status === 'queued').length;
   return (
@@ -80,19 +81,13 @@ export function StatusBar() {
           <Led color={live ? '#b2cd8b' : demo ? '#f7cd82' : '#e0705a'} />
           {live ? 'api connected' : demo ? 'demo · sample data' : 'api disconnected'}
         </span>
-        <span className="hidden items-center gap-2 sm:flex">
-          workers
-          <span className="flex gap-[2px]">
-            {Array.from({ length: WORKERS }).map((_, i) => (
-              <span key={i} className={cn('h-2.5 w-2 transition-colors', i < running ? 'bg-copper-2' : 'bg-line')} />
-            ))}
+        {running + queued > 0 && (
+          <span className="hidden text-copper-2/80 sm:inline">
+            {running} running · {queued} queued
           </span>
-          {running}/{WORKERS}
-          {queued > 0 && <span className="text-copper-2/80">· {queued} queued</span>}
-        </span>
+        )}
       </div>
       <div className="flex items-center gap-5">
-        <span className="hidden md:inline">readiness {readiness}</span>
         {champion && <span className="hidden text-copper-2 md:inline">best f1 {f3(champion.metrics.f1)}</span>}
         <button onClick={() => setPaletteOpen(true)} className="flex items-center gap-1.5 transition-colors hover:text-bone">
           commands <Kbd className="h-4 min-w-4">⌘K</Kbd>
@@ -124,24 +119,16 @@ export function CommandPalette() {
   }, [s.paletteOpen]);
 
   const cmds = useMemo<Cmd[]>(() => {
-    const failed = s.experiments.filter((e) => e.status === 'failed');
-    const nav: [View, string, string][] = [
-      ['dashboard', 'Go to Dashboard', '1'],
-      ['experiments', 'Go to Experiments', '2'],
-      ['deployments', 'Go to Deployments', '3'],
-      ['settings', 'Go to Settings', '4'],
-    ].filter(([v]) => connection.demo || v !== 'deployments') as [View, string, string][];
     const base: Cmd[] = [
-      ...nav.map(([v, label, hint]) => ({ id: v, group: 'Navigate', label, hint, run: () => s.setView(v) })),
+      ...NAV.map((n, i) => ({ id: n.key, group: 'Navigate', label: `Go to ${n.label}`, hint: String(i + 1), run: () => s.setView(n.key) })),
+      { id: 'connect', group: 'Navigate', label: 'Connect a database', run: goConnect },
+      { id: 'tasks', group: 'Navigate', label: 'Open the task editor', run: goTasks },
       { id: 'a1', group: 'Actions', label: 'Run next feature idea', run: s.runNext },
       { id: 'a2', group: 'Actions', label: 'Run full Autopilot', run: s.runAutopilot },
       { id: 'a3', group: 'Actions', label: s.agentOpen ? 'Hide agent panel' : 'Show agent panel', hint: '\\', run: () => s.setAgentOpen(!s.agentOpen) },
       { id: 'a4', group: 'Actions', label: 'Upload dataset', run: () => s.setUploadOpen(true) },
       { id: 'a5', group: 'Actions', label: 'Apply AI Auto-Clean', run: s.autoClean },
     ];
-    failed.forEach((e) =>
-      base.push({ id: `r${e.id}`, group: 'Actions', label: `Retry ${e.id} · ${algoLabel(e.model_name)}`, run: () => s.retry(e.id) })
-    );
     if (s.champion)
       base.push({
         id: 'ch',

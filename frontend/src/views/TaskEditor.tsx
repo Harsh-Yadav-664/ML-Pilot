@@ -4,7 +4,7 @@ import { ConnectionRead, SchemaGraphData, getSchema, listConnections } from '../
 import { DbVersion, listDbVersions } from '../api/snapshots';
 import { SpecCheck, SpecIssue, TaskSpecBody, TaskSpecRead, checkSpec, confirmTask, saveTaskNamed } from '../api/tasks';
 import { LabelPreview } from '../components/LabelPreview';
-import { leaveRoute } from '../route';
+import { goConnect, leaveRoute } from '../route';
 import { takeEditorSeed, EditorSeed } from '../taskEditorSeed';
 import { Btn, CardHeader, Eyebrow, Panel, Tag } from '../ui';
 import { cn } from '../utils/cn';
@@ -219,7 +219,12 @@ export function TaskEditor() {
         <Btn variant="ghost" size="sm" onClick={leaveRoute}>
           ← Back
         </Btn>
-        <Tag tone="copper">nothing trains here</Tag>
+        <div className="flex items-center gap-3">
+          <Btn variant="ghost" size="sm" onClick={goConnect}>
+            Connect a database
+          </Btn>
+          <Tag tone="copper" className="max-sm:hidden">nothing trains here</Tag>
+        </div>
       </header>
       <main className="mx-auto max-w-[1400px] space-y-6 px-6 pb-16">
         <section>
@@ -272,7 +277,7 @@ export function TaskEditor() {
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)]">
           <div className="space-y-4" data-testid="task-editor">
             {tab === 'yaml' ? (
               <Panel ticks>

@@ -177,11 +177,13 @@ export function Btn({
   );
 }
 
+/** The text input of the database pages' forms. */
+export const fieldCls = 'w-full border border-line bg-ink px-3 py-2 font-mono text-[12px] text-bone placeholder:text-mute focus:border-copper focus:outline-none';
+
 /* ------------------------------------------------------------- layout */
 export function Panel({ className, children, ticks }: { className?: string; children: ReactNode; ticks?: boolean }) {
   return <div className={cn('relative border border-line bg-panel/80', ticks && 'ticks', className)}>{children}</div>;
 }
-export const Card = Panel;
 
 export function CardHeader({ title, right, sub }: { title: string; sub?: string; right?: ReactNode }) {
   return (
